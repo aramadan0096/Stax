@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-VFX_Asset_Hub - Example Usage
+StaX - Example Usage
 Demonstrates core functionality without GUI
 Python 2.7 compatible
 """
@@ -19,10 +19,10 @@ from extensibility_hooks import ProcessorManager
 
 
 def main():
-    """Example usage of VFX_Asset_Hub core modules."""
+    """Example usage of StaX core modules."""
     
     print("=" * 60)
-    print("VFX_Asset_Hub - Core Module Test")
+    print("StaX - Core Module Test")
     print("=" * 60)
     
     # Initialize configuration

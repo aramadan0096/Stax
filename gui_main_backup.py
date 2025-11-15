@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Main GUI for VFX_Asset_Hub
+Main GUI for StaX
 PySide2-based user interface with drag-and-drop support
 Python 2.7 compatible
 """

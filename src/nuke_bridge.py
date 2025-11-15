@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Nuke Bridge for VFX_Asset_Hub
+Nuke Bridge for StaX
 Abstraction layer for Nuke API operations with mock implementations for development
 Python 2.7 compatible
 """

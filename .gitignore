@@ -21,7 +21,7 @@ env/
 *.swo
 *~
 
-# VFX_Asset_Hub specific
+# StaX specific
 data/
 previews/
 repository/

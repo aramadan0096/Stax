@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Configuration Manager for VFX_Asset_Hub
+Configuration Manager for StaX
 Handles application settings and user preferences
 Python 2.7 compatible
 """

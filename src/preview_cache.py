@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Preview Cache Manager for VFX_Asset_Hub
+Preview Cache Manager for StaX
 Implements LRU caching for preview thumbnails to reduce disk I/O
 Python 2.7/3+ compatible
 """

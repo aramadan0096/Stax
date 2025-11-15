@@ -1,4 +1,4 @@
-# VFX_Asset_Hub Requirements
+# StaX Requirements
 # Python 2.7 compatible dependencies
 
 # Note: For Python 3 development, use these versions instead:

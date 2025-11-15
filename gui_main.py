@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Main GUI for VFX_Asset_Hub
+Main GUI for StaX
 PySide2-based user interface with drag-and-drop support
 Python 2.7 compatible
 """
@@ -4541,7 +4541,7 @@ class MainWindow(QtWidgets.QMainWindow):
             "About Stax",
             "<h3>Stax</h3>"
             "<p>Version 0.1.0 (Alpha)</p>"
-            "<p>Professional VFX asset management pipeline.</p>"
+            "<p>Advanced Stock Management for VFX Studios</p>"
             "<p>Python 2.7 | PySide2</p>"
         )
 

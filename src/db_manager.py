@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Database Manager for VFX_Asset_Hub
+Database Manager for StaX
 Handles SQLite operations with network-aware file locking
 Python 2.7 compatible
 """
@@ -14,7 +14,7 @@ from contextlib import contextmanager
 
 class DatabaseManager(object):
     """
-    Manages SQLite database operations for VFX_Asset_Hub.
+    Manages SQLite database operations for StaX.
     Implements network-aware file locking and connection pooling.
     """
     

@@ -1,6 +1,6 @@
-# VFX_Asset_Hub (VAH) Roadmap
+# StaX Roadmap
 
-This document outlines the high-level roadmap, release phases, planned features, milestones, and suggested owners for the VFX_Asset_Hub project. It is intended to be a living document and should be updated as priorities shift.
+This document outlines the high-level roadmap, release phases, planned features, milestones, and suggested owners for the StaX project. It is intended to be a living document and should be updated as priorities shift.
 
 ## Vision
 

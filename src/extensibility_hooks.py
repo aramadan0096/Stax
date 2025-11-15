@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Extensibility Hooks for VFX_Asset_Hub
+Extensibility Hooks for StaX
 Defines custom processor architecture for pipeline integration
 Python 2.7 compatible
 """

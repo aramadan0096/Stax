@@ -1,7 +1,7 @@
-# Copilot Instructions for VFX_Asset_Hub
+# Copilot Instructions for StaX
 
 ## Project Overview
-VFX_Asset_Hub (VAH) is a professional VFX asset management pipeline clone targeting the Cragl smartElements feature set. This is a **greenfield project** currently in the planning/documentation phase with no implementation yet.
+StaX is a professional VFX asset management pipeline clone targeting the Cragl smartElements feature set. This is a **greenfield project** currently in the planning/documentation phase with no implementation yet.
 
 **Status:** Pre-Alpha (documentation complete, implementation pending)  
 **Target:** Feature-complete media browser for VFX studios integrating with Foundry Nuke

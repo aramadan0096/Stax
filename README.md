@@ -1,4 +1,4 @@
-# VFX_Asset_Hub (VAH)
+# StaX
 
 Professional VFX asset management pipeline clone designed for Foundry Nuke integration.
 
@@ -213,8 +213,8 @@ Configure in `config.json`:
 ## Roadmap
 
 - [x] Alpha: Core modules and data layer
-- [ ] Beta: Complete GUI with PySide2
-- [ ] RC: Tests, packaging, performance tuning
+- [x] Beta: Complete GUI with PySide2
+- [x] RC: Tests, packaging, performance tuning
 - [ ] Stable: Production deployment
 
 See [Roadmap.md](Roadmap.md) for detailed milestones.
@@ -232,7 +232,3 @@ This is a greenfield project in active development. Core modules are implemented
 ## License
 
 [To be determined]
-
-## Acknowledgments
-
-Inspired by Cragl smartElements asset management system.

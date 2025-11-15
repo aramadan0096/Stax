@@ -1,4 +1,4 @@
-## Advanced AI Agent Development Prompt: Clone of VFX Asset Management Pipeline (`VFX_Asset_Hub`)
+## Advanced AI Agent Development Prompt: Clone of VFX Asset Management Pipeline (`StaX`)
 
 This prompt instructs an AI coding agent to develop a clone of the Cragl smartElements application, herein referred to as the **Target Application**. The clone must adhere strictly to the identified functionality and architecture detailed in the "Analyzing SmartElements Documentation" research.
 
@@ -8,7 +8,7 @@ This prompt instructs an AI coding agent to develop a clone of the Cragl smartEl
 
 **Project Goal:** Develop a feature-complete, highly extensible media browser and asset management system clone designed for professional VFX pipeline integration.
 
-**Target Name:** `VFX_Asset_Hub` (VAH)
+**Target Name:** `StaX`
 
 **Core Technology Stack:**
 
@@ -149,7 +149,7 @@ The Settings Panel must include specific configuration fields (`Ingest processor
 Add the following documentation files to the repository root as part of the initial project setup. These files should be created and kept up-to-date by the development team.
 
 1. Roadmap.md
-    - Purpose: A high-level roadmap describing planned features, phased milestones, timelines, and owners for the `VFX_Asset_Hub` project.
+    - Purpose: A high-level roadmap describing planned features, phased milestones, timelines, and owners for the `StaX` project.
     - Content guidance: Include sections for Vision, Release Phases (Alpha/Beta/Stable), Feature list by phase, Milestones & Dates (approximate), Dependencies, and Notes on risk/priority.
     - Location: Repository root, filename `Roadmap.md`.
 
