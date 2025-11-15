@@ -395,6 +395,53 @@ class IngestionCore(object):
                 if asset_type == '2D':
                     PreviewGenerator.generate_image_preview(source_path, preview_path)
             
+            # Generate animated GIF preview for videos and sequences
+            gif_preview_path = None
+            
+            # Check if it's a video file
+            is_video = file_format.lower() in ['.mp4', '.mov', '.avi', '.mkv', '.mpg', '.mpeg', '.wmv', '.flv']
+            
+            if is_video or (is_sequence and asset_type == '2D'):
+                print("[GIF] Generating GIF preview for {} (type: {}, is_video: {}, is_sequence: {})".format(
+                    name, asset_type, is_video, is_sequence))
+                gif_filename = "{}_{}.gif".format(
+                    target_list_id,
+                    hashlib.md5(name.encode('utf-8')).hexdigest()[:8]
+                )
+                gif_preview_path = os.path.join(self.preview_dir, gif_filename)
+                print("[GIF] Output path: {}".format(gif_preview_path))
+                
+                # Determine input path for FFmpeg
+                if is_sequence:
+                    # Use sequence pattern
+                    input_for_gif = SequenceDetector.get_sequence_path(sequence_info)
+                    print("[GIF] Input (sequence): {}".format(input_for_gif))
+                else:
+                    # Use video file
+                    input_for_gif = source_path
+                    print("[GIF] Input (video): {}".format(input_for_gif))
+                
+                # Generate GIF (3 seconds, 256x256px square, 10fps)
+                from src.ffmpeg_wrapper import get_ffmpeg
+                ffmpeg = get_ffmpeg()
+                print("[GIF] Calling FFmpeg generate_gif_preview...")
+                gif_success = ffmpeg.generate_gif_preview(
+                    input_for_gif, 
+                    gif_preview_path,
+                    max_duration=3.0,
+                    size=256,
+                    fps=10
+                )
+                
+                if gif_success:
+                    print("[GIF] ✓ GIF generated successfully: {}".format(gif_preview_path))
+                else:
+                    print("[GIF] ✗ GIF generation failed")
+                    gif_preview_path = None
+            else:
+                print("[GIF] Skipping GIF generation for {} (type: {}, format: {})".format(
+                    name, asset_type, file_format))
+            
             # Create element in database
             element_id = self.db.create_element(
                 list_id=target_list_id,
@@ -408,6 +455,7 @@ class IngestionCore(object):
                 comment=comment,
                 tags=tags,
                 preview_path=preview_path if os.path.exists(preview_path) else None,
+                gif_preview_path=gif_preview_path,
                 file_size=file_size
             )
             

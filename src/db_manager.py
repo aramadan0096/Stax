@@ -39,6 +39,9 @@ class DatabaseManager(object):
         # Initialize schema if database doesn't exist
         if not os.path.exists(db_path):
             self._create_schema()
+        else:
+            # Apply migrations for existing databases
+            self._apply_migrations()
     
     def _log(self, message):
         """Log message if logging is enabled."""
@@ -139,16 +142,21 @@ class DatabaseManager(object):
                 )
             """)
             
-            # Table 2: Lists (Sub-Categories)
+            # Table 2: Lists (Sub-Categories with Hierarchical Support)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS lists (
                     list_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     stack_fk INTEGER NOT NULL,
+                    parent_list_fk INTEGER,
                     name TEXT NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (stack_fk) REFERENCES stacks(stack_id) ON DELETE CASCADE
+                    FOREIGN KEY (stack_fk) REFERENCES stacks(stack_id) ON DELETE CASCADE,
+                    FOREIGN KEY (parent_list_fk) REFERENCES lists(list_id) ON DELETE CASCADE
                 )
             """)
+            
+            # Create index for parent lookup
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_lists_parent ON lists(parent_list_fk)")
             
             # Table 3: Elements (Assets)
             cursor.execute("""
@@ -165,6 +173,7 @@ class DatabaseManager(object):
                     comment TEXT,
                     tags TEXT,
                     preview_path TEXT,
+                    gif_preview_path TEXT,
                     is_deprecated BOOLEAN DEFAULT 0,
                     file_size INTEGER,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -239,6 +248,35 @@ class DatabaseManager(object):
             
             self._log("Database schema created with optimized indexes")
     
+    def _apply_migrations(self):
+        """
+        Apply database migrations to existing database files.
+        Checks for missing columns/tables and adds them.
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Migration 1: Add parent_list_fk to lists table (for hierarchical sub-lists)
+            try:
+                cursor.execute("SELECT parent_list_fk FROM lists LIMIT 1")
+                self._log("Migration 1: parent_list_fk already exists")
+            except sqlite3.OperationalError:
+                self._log("Migration 1: Adding parent_list_fk column to lists table")
+                cursor.execute("ALTER TABLE lists ADD COLUMN parent_list_fk INTEGER")
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_lists_parent ON lists(parent_list_fk)")
+                self._log("Migration 1: Complete")
+            
+            # Migration 2: Add gif_preview_path to elements table (for future GIF previews)
+            try:
+                cursor.execute("SELECT gif_preview_path FROM elements LIMIT 1")
+                self._log("Migration 2: gif_preview_path already exists")
+            except sqlite3.OperationalError:
+                self._log("Migration 2: Adding gif_preview_path column to elements table")
+                cursor.execute("ALTER TABLE elements ADD COLUMN gif_preview_path TEXT")
+                self._log("Migration 2: Complete")
+            
+            self._log("All migrations applied successfully")
+    
     # ======================
     # STACK OPERATIONS
     # ======================
@@ -293,13 +331,14 @@ class DatabaseManager(object):
     # LIST OPERATIONS
     # ======================
     
-    def create_list(self, stack_id, name):
+    def create_list(self, stack_id, name, parent_list_id=None):
         """
-        Create a new list within a stack.
+        Create a new list within a stack (or as a sub-list).
         
         Args:
             stack_id (int): Parent stack ID
             name (str): List name
+            parent_list_id (int): Optional parent list ID for sub-lists
             
         Returns:
             int: list_id of created list
@@ -307,26 +346,54 @@ class DatabaseManager(object):
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT INTO lists (stack_fk, name) VALUES (?, ?)",
-                (stack_id, name)
+                "INSERT INTO lists (stack_fk, name, parent_list_fk) VALUES (?, ?, ?)",
+                (stack_id, name, parent_list_id)
             )
             return cursor.lastrowid
     
-    def get_lists_by_stack(self, stack_id):
+    def get_lists_by_stack(self, stack_id, parent_list_id=None):
         """
-        Get all lists for a stack.
+        Get all lists for a stack (optionally filtered by parent).
         
         Args:
             stack_id (int): Stack ID
+            parent_list_id (int): If None, returns top-level lists only.
+                                  If provided, returns sub-lists of that parent.
             
         Returns:
             list: List of list dictionaries
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
+            if parent_list_id is None:
+                # Get top-level lists (no parent)
+                cursor.execute(
+                    "SELECT * FROM lists WHERE stack_fk = ? AND parent_list_fk IS NULL ORDER BY name",
+                    (stack_id,)
+                )
+            else:
+                # Get sub-lists of a specific parent
+                cursor.execute(
+                    "SELECT * FROM lists WHERE stack_fk = ? AND parent_list_fk = ? ORDER BY name",
+                    (stack_id, parent_list_id)
+                )
+            return [dict(row) for row in cursor.fetchall()]
+    
+    def get_sub_lists(self, parent_list_id):
+        """
+        Get all direct sub-lists of a parent list.
+        
+        Args:
+            parent_list_id (int): Parent list ID
+            
+        Returns:
+            list: List of sub-list dictionaries
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
             cursor.execute(
-                "SELECT * FROM lists WHERE stack_fk = ? ORDER BY name",
-                (stack_id,)
+                "SELECT * FROM lists WHERE parent_list_fk = ? ORDER BY name",
+                (parent_list_id,)
             )
             return [dict(row) for row in cursor.fetchall()]
     
@@ -372,7 +439,7 @@ class DatabaseManager(object):
             for key, value in kwargs.items():
                 if key in ['filepath_soft', 'filepath_hard', 'is_hard_copy', 
                           'frame_range', 'format', 'comment', 'tags', 
-                          'preview_path', 'is_deprecated', 'file_size']:
+                          'preview_path', 'gif_preview_path', 'is_deprecated', 'file_size']:
                     fields.append(key)
                     values.append(value)
             

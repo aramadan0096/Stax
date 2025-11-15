@@ -144,6 +144,82 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
     - Reduced disk reads by ~90% for repeated views
     - Lazy loading: thumbnails loaded on-demand
   - Estimated 3-5x performance improvement for large catalogs (1000+ assets)
+- **Hierarchical Sub-Lists** (Session 3 - Production Feature):
+  - Extended Lists table with parent_list_fk for recursive relationships
+  - Database methods: create_list() accepts optional parent_list_id parameter
+  - get_sub_lists(parent_list_id): Returns direct children of parent list
+  - get_lists_by_stack(): Filters by parent_list_id (None = top-level only)
+  - Added idx_lists_parent index for hierarchical query performance
+  - Recursive GUI tree loading with _create_list_item() helper method
+  - QTreeWidget displays expandable nested sub-lists
+  - Right-click context menu on Lists: "Add Sub-List" option
+  - AddSubListDialog: Dialog for creating nested sub-lists with parent display
+  - Supports studio workflows: ActionFX > explosions > aerial explosions pattern
+  - Database migration system: _apply_migrations() auto-updates existing databases
+- **Delete Stack/List Context Menu** (Session 3 - Production Feature):
+  - setContextMenuPolicy(CustomContextMenu) on tree widget
+  - show_tree_context_menu(position): Right-click handler with Stack/List detection
+  - Stack menu: "Add List to Stack", "Delete Stack"
+  - List menu: "Add Sub-List", "Delete List"
+  - Confirmation dialogs with cascade deletion warnings
+  - delete_stack(stack_id): Cascade deletes all Lists and Elements
+  - delete_list(list_id): Cascade deletes all sub-lists and Elements
+  - CASCADE deletion enforced by SQLite FOREIGN KEY constraints
+  - Updated list data tuples: (type, id, stack_id) for context menu access
+  - Safe tuple unpacking in on_item_clicked() with len() check
+- **Library Ingest Feature** (Session 3 - Production Feature - COMPLETE):
+  - IngestLibraryDialog class: Comprehensive bulk ingestion dialog (~400 lines)
+  - Folder selection with QFileDialog for library root
+  - Recursive directory scanner: _scan_directory_structure(root, max_depth)
+  - Maps folder hierarchy to Stack/List/Sub-List structure automatically
+  - Configurable options:
+    * Stack/List name prefixes for namespace management
+    * Copy policy selection (hard_copy/soft_copy)
+    * Max nesting depth control (1-10 levels)
+  - Preview tree widget: Shows planned structure before ingestion
+    * Color-coded: Stacks (orange), Lists (teal)
+    * Displays media file count per folder
+    * Expandable hierarchical preview
+  - Scan Folder button: Analyzes structure and counts assets
+  - Batch ingestion with QProgressDialog:
+    * Processes stacks → lists → sub-lists recursively
+    * Shows current file being ingested
+    * Cancel support with graceful abort
+    * Success/error counting and reporting
+  - _ingest_lists_recursive(): Recursive ingestion of nested structures
+  - Supports studio workflows: Ingest existing ActionFX/explosions/aerial libraries
+  - Menu integration: File → Ingest Library... (Ctrl+Shift+I)
+  - Auto-refresh stacks/lists panel after ingestion
+  - Handles media extensions: jpg, png, tif, exr, dpx, mp4, mov, avi, obj, fbx, abc, nk
+- **GIF Proxy Generation** (Session 3 - Production Feature - COMPLETE):
+  - FFmpegWrapper.generate_gif_preview() method: Generates animated GIF from video/sequences
+  - Two-pass FFmpeg process:
+    * Pass 1: Generate optimized color palette with palettegen filter
+    * Pass 2: Create GIF using palette for better quality
+  - Configurable parameters: max_duration (3s), width (256px), fps (10)
+  - Lanczos scaling for smooth resizing
+  - Automatic palette cleanup after generation
+  - Integrated into ingestion_core.py workflow:
+    * Auto-generates GIF for all video assets (mp4, mov, avi, mkv)
+    * Auto-generates GIF for 2D image sequences
+    * Stores gif_preview_path in database
+  - Added gif_preview_path to db_manager.create_element() allowed fields
+  - Database migration pre-added gif_preview_path column
+- **GIF Preview on Hover** (Session 3 - Production Feature - COMPLETE):
+  - QMovie integration in MediaDisplayWidget for animated GIF playback
+  - Hover event handling in eventFilter():
+    * Mouse enter: Load and play GIF from gif_preview_path
+    * Mouse leave: Stop GIF and restore static thumbnail
+  - GIF movie caching: gif_movies dict {element_id: QMovie}
+  - play_gif_for_item(item, element_id): Starts GIF playback
+  - _update_gif_frame(item, movie): Updates icon with current frame
+  - stop_current_gif(): Stops playback and restores static preview
+  - current_gif_item tracking to prevent duplicate playback
+  - Automatic frame updates via QMovie.frameChanged signal
+  - Icon scaling to match gallery icon size
+  - No Alt key required: Hover triggers GIF automatically
+  - Performance: QMovie objects cached, reused on re-hover
+  - Smooth playback: FFmpeg-generated GIFs optimized for gallery view
 
 ### Changed
 - Updated `requirements.txt` to include notes for Python 3 development
@@ -158,6 +234,36 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
 - Added hasattr guards to prevent accessing table_view/gallery_view before widget initialization
 - **Fixed NumPy 2.0 compatibility issue with PySide2** - Added numpy<2.0.0 constraint
 - Created FIX_NUMPY_ISSUE.md with troubleshooting guide
+- **Fixed ModuleNotFoundError in ingestion_core.py** (Session 3):
+  - Changed "from ffmpeg_wrapper import" to "from src.ffmpeg_wrapper import"
+  - Fixed missing src. prefix for relative imports
+- **Added Database Migration System** (Session 3):
+  - Implemented _apply_migrations() to handle schema updates for existing databases
+  - Migration 1: Adds parent_list_fk column to lists table if missing
+  - Migration 2: Adds gif_preview_path column to elements table if missing
+  - Auto-detects missing columns with try/except OperationalError pattern
+  - Runs migrations on every database connection if database already exists
+- **Fixed GIF Generation Issues** (Session 3):
+  - Added gif_preview_path to initial schema creation (not just migrations)
+  - Fixed video detection: Changed from `asset_type == 'video'` to file extension check
+  - Added comprehensive debug logging for GIF generation process
+  - Created test_gif_generation.py diagnostic script
+  - Fixed stacks_panel reference in ingest_library() method
+  - GIFs now generate correctly for .mp4, .mov, .avi, .mkv, and other video formats
+  - GIFs now generate correctly for image sequences
+- **Enhanced Thumbnail Display and Scaling** (Session 3):
+  - Fixed static thumbnails not showing (odd icons displayed until hover)
+  - All elements now show PNG thumbnails immediately on load
+  - Improved thumbnail loading with proper scaling and caching
+  - GIF generation now creates uniform 256x256 square output
+  - Maintains aspect ratio with letterbox/pillarbox padding (black bars)
+  - Perfect gallery layout alignment with consistent dimensions
+  - Size slider now properly scales thumbnails dynamically (64px-512px)
+  - on_size_changed() reloads elements with new scale on slider movement
+  - Smooth scaling with KeepAspectRatio and SmoothTransformation
+  - Both PNG thumbnails and GIF playback scale with slider
+  - Enhanced load_elements() to scale images to current icon size
+  - Improved preview cache to store originals, scale on-demand
 
 ## [0.1.0] - 2025-11-15
 

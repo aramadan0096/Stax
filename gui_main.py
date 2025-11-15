@@ -760,6 +760,8 @@ class StacksListsPanel(QtWidgets.QWidget):
         self.tree.setHeaderHidden(True)
         self.tree.setColumnCount(1)
         self.tree.itemClicked.connect(self.on_item_clicked)
+        self.tree.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self.show_tree_context_menu)
         layout.addWidget(self.tree)
         
         # Buttons
@@ -802,7 +804,7 @@ class StacksListsPanel(QtWidgets.QWidget):
             self.playlists_list.addItem(item)
     
     def load_data(self):
-        """Load stacks, lists, and playlists from database."""
+        """Load stacks, lists, and playlists from database with hierarchical sub-lists."""
         self.tree.clear()
         
         # Load playlists
@@ -816,21 +818,44 @@ class StacksListsPanel(QtWidgets.QWidget):
             stack_item.setIcon(0, self.style().standardIcon(QtWidgets.QStyle.SP_DirIcon))
             self.tree.addTopLevelItem(stack_item)
             
-            # Load lists for this stack
-            lists = self.db.get_lists_by_stack(stack['stack_id'])
+            # Load top-level lists for this stack (no parent)
+            lists = self.db.get_lists_by_stack(stack['stack_id'], parent_list_id=None)
             for lst in lists:
-                list_item = QtWidgets.QTreeWidgetItem([lst['name']])
-                list_item.setData(0, QtCore.Qt.UserRole, ('list', lst['list_id']))
-                list_item.setIcon(0, self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon))
+                list_item = self._create_list_item(lst, stack['stack_id'])
                 stack_item.addChild(list_item)
             
             stack_item.setExpanded(True)
     
+    def _create_list_item(self, lst, stack_id):
+        """
+        Recursively create list item with sub-lists.
+        
+        Args:
+            lst (dict): List data
+            stack_id (int): Parent stack ID
+            
+        Returns:
+            QTreeWidgetItem: Tree item with children
+        """
+        list_item = QtWidgets.QTreeWidgetItem([lst['name']])
+        list_item.setData(0, QtCore.Qt.UserRole, ('list', lst['list_id'], stack_id))
+        list_item.setIcon(0, self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon))
+        
+        # Recursively load sub-lists
+        sub_lists = self.db.get_sub_lists(lst['list_id'])
+        for sub_lst in sub_lists:
+            sub_item = self._create_list_item(sub_lst, stack_id)
+            list_item.addChild(sub_item)
+        
+        return list_item
+    
     def on_item_clicked(self, item, column):
         """Handle item click."""
         data = item.data(0, QtCore.Qt.UserRole)
-        if data:
-            item_type, item_id = data
+        if data and len(data) >= 2:
+            item_type = data[0]
+            item_id = data[1]
+            
             if item_type == 'stack':
                 self.stack_selected.emit(item_id)
             elif item_type == 'list':
@@ -865,6 +890,106 @@ class StacksListsPanel(QtWidgets.QWidget):
         dialog = AddListDialog(self.db, stack_id, self)
         if dialog.exec_():
             self.load_data()
+    
+    def show_tree_context_menu(self, position):
+        """Show context menu for tree items."""
+        item = self.tree.itemAt(position)
+        if not item:
+            return
+        
+        data = item.data(0, QtCore.Qt.UserRole)
+        if not data:
+            return
+        
+        menu = QtWidgets.QMenu(self)
+        
+        if len(data) >= 2:
+            item_type = data[0]
+            item_id = data[1]
+            
+            if item_type == 'stack':
+                # Stack context menu
+                add_list_action = menu.addAction("➕ Add List")
+                menu.addSeparator()
+                delete_stack_action = menu.addAction("🗑 Delete Stack")
+                
+                action = menu.exec_(self.tree.viewport().mapToGlobal(position))
+                
+                if action == add_list_action:
+                    self.add_list_to_stack(item_id)
+                elif action == delete_stack_action:
+                    self.delete_stack(item_id)
+                    
+            elif item_type == 'list':
+                # List context menu
+                stack_id = data[2] if len(data) > 2 else None
+                
+                add_sublist_action = menu.addAction("➕ Add Sub-List")
+                menu.addSeparator()
+                delete_list_action = menu.addAction("🗑 Delete List")
+                
+                action = menu.exec_(self.tree.viewport().mapToGlobal(position))
+                
+                if action == add_sublist_action:
+                    self.add_sub_list(item_id, stack_id)
+                elif action == delete_list_action:
+                    self.delete_list(item_id)
+    
+    def add_list_to_stack(self, stack_id):
+        """Add a new list to a stack."""
+        dialog = AddListDialog(self.db, stack_id, self)
+        if dialog.exec_():
+            self.load_data()
+    
+    def add_sub_list(self, parent_list_id, stack_id):
+        """Add a sub-list under a parent list."""
+        dialog = AddSubListDialog(self.db, parent_list_id, stack_id, self)
+        if dialog.exec_():
+            self.load_data()
+    
+    def delete_stack(self, stack_id):
+        """Delete a stack after confirmation."""
+        stack = self.db.get_stack_by_id(stack_id)
+        if not stack:
+            return
+        
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "Confirm Deletion",
+            "Are you sure you want to delete Stack '{}'?\n\nThis will delete ALL lists and elements in this stack.\n\nThis action cannot be undone.".format(stack['name']),
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No
+        )
+        
+        if reply == QtWidgets.QMessageBox.Yes:
+            try:
+                self.db.delete_stack(stack_id)
+                QtWidgets.QMessageBox.information(self, "Success", "Stack deleted successfully.")
+                self.load_data()
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Error", "Failed to delete stack: {}".format(str(e)))
+    
+    def delete_list(self, list_id):
+        """Delete a list after confirmation."""
+        lst = self.db.get_list_by_id(list_id)
+        if not lst:
+            return
+        
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "Confirm Deletion",
+            "Are you sure you want to delete List '{}'?\n\nThis will delete ALL sub-lists and elements in this list.\n\nThis action cannot be undone.".format(lst['name']),
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No
+        )
+        
+        if reply == QtWidgets.QMessageBox.Yes:
+            try:
+                self.db.delete_list(list_id)
+                QtWidgets.QMessageBox.information(self, "Success", "List deleted successfully.")
+                self.load_data()
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Error", "Failed to delete list: {}".format(str(e)))
 
 
 class MediaDisplayWidget(QtWidgets.QWidget):
@@ -889,6 +1014,8 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.media_popup.insert_requested.connect(self.on_popup_insert)
         self.media_popup.reveal_requested.connect(self.on_popup_reveal)
         self.preview_cache = get_preview_cache()  # Initialize preview cache
+        self.gif_movies = {}  # Cache for QMovie objects {element_id: QMovie}
+        self.current_gif_item = None  # Currently hovering item with GIF
         self.setup_ui()
         
         # Enable mouse tracking for hover events
@@ -996,8 +1123,12 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             self.size_slider.setEnabled(False)
     
     def on_size_changed(self, value):
-        """Handle thumbnail size change."""
+        """Handle thumbnail size change - reload elements with new size."""
         self.gallery_view.setIconSize(QtCore.QSize(value, value))
+        
+        # Reload current elements to rescale images
+        if self.current_list_id:
+            self.load_elements(self.current_list_id)
     
     def load_elements(self, list_id):
         """Load elements for a list with preview caching."""
@@ -1015,30 +1146,75 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         
         # Update gallery view with cached previews
         self.gallery_view.clear()
+        icon_size = self.gallery_view.iconSize()
+        
         for element in elements:
             item = QtWidgets.QListWidgetItem()
             item.setText(element['name'])
             item.setData(QtCore.Qt.UserRole, element['element_id'])
             
-            # Load preview with caching
-            if element['preview_path'] and os.path.exists(element['preview_path']):
-                # Try cache first
-                cached_pixmap = self.preview_cache.get(element['preview_path'])
-                if cached_pixmap:
-                    item.setIcon(QtGui.QIcon(cached_pixmap))
+            # Check if GIF preview exists
+            gif_path = element.get('gif_preview_path')
+            has_gif = gif_path and os.path.exists(gif_path)
+            
+            if has_gif:
+                # Load GIF but show static first frame (Ulaavi pattern)
+                element_id = element['element_id']
+                
+                if element_id not in self.gif_movies:
+                    movie = QtGui.QMovie(gif_path)
+                    if movie.isValid():
+                        movie.setCacheMode(QtGui.QMovie.CacheAll)
+                        self.gif_movies[element_id] = movie
+                        
+                        # Connect frame update signal (frameChanged emits frame number)
+                        movie.frameChanged.connect(lambda frame_num, it=item, m=movie: self._update_gif_frame(it, m))
+                        
+                        # Load GIF, stop at first frame (static preview)
+                        movie.jumpToFrame(0)
+                        pixmap = movie.currentPixmap()
+                        if not pixmap.isNull():
+                            scaled_pixmap = pixmap.scaled(
+                                icon_size,
+                                QtCore.Qt.KeepAspectRatio,
+                                QtCore.Qt.SmoothTransformation
+                            )
+                            item.setIcon(QtGui.QIcon(scaled_pixmap))
+                    else:
+                        # GIF invalid, fall back to static preview
+                        has_gif = False
+            
+            # If no GIF or GIF failed, use static PNG preview
+            if not has_gif:
+                preview_path = element.get('preview_path')
+                if preview_path and os.path.exists(preview_path):
+                    # Try cache first
+                    cached_pixmap = self.preview_cache.get(preview_path)
+                    if not cached_pixmap:
+                        # Load from disk and cache original
+                        cached_pixmap = QtGui.QPixmap(preview_path)
+                        if not cached_pixmap.isNull():
+                            self.preview_cache.put(preview_path, cached_pixmap)
+                    
+                    # Scale to current icon size
+                    if cached_pixmap and not cached_pixmap.isNull():
+                        scaled_pixmap = cached_pixmap.scaled(
+                            icon_size,
+                            QtCore.Qt.KeepAspectRatio,
+                            QtCore.Qt.SmoothTransformation
+                        )
+                        item.setIcon(QtGui.QIcon(scaled_pixmap))
+                    else:
+                        # Fallback to default icon
+                        item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon))
                 else:
-                    # Load from disk and cache
-                    pixmap = QtGui.QPixmap(element['preview_path'])
-                    self.preview_cache.put(element['preview_path'], pixmap)
-                    item.setIcon(QtGui.QIcon(pixmap))
-            else:
-                # Default icon based on type
-                if element['type'] == '2D':
-                    item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon))
-                elif element['type'] == '3D':
-                    item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DriveFDIcon))
-                else:
-                    item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_FileDialogDetailedView))
+                    # Default icon based on type
+                    if element['type'] == '2D':
+                        item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon))
+                    elif element['type'] == '3D':
+                        item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DriveFDIcon))
+                    else:
+                        item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_FileDialogDetailedView))
             
             self.gallery_view.addItem(item)
         
@@ -1173,13 +1349,80 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                         self.media_popup.hide()
                     self.hover_timer.stop()
                     self.hover_item = None
+                    
+                # Handle GIF preview on hover (without Alt key)
+                if not self.alt_pressed and obj == self.gallery_view.viewport():
+                    pos = event.pos()
+                    item = self.gallery_view.itemAt(pos)
+                    
+                    if item and item != self.current_gif_item:
+                        # Stop previous GIF
+                        self.stop_current_gif()
+                        
+                        # Start new GIF if available
+                        element_id = item.data(QtCore.Qt.UserRole)
+                        if element_id:
+                            self.play_gif_for_item(item, element_id)
+                            self.current_gif_item = item
+                    elif not item and self.current_gif_item:
+                        # Mouse left all items, stop GIF
+                        self.stop_current_gif()
+                        self.current_gif_item = None
             
             elif event.type() == QtCore.QEvent.Leave:
                 # Hide popup when leaving widget
                 self.hover_timer.stop()
                 self.hover_item = None
+                
+                # Stop GIF playback
+                self.stop_current_gif()
+                self.current_gif_item = None
         
         return super(MediaDisplayWidget, self).eventFilter(obj, event)
+    
+    def play_gif_for_item(self, item, element_id):
+        """
+        Play animated GIF for gallery item on hover (Ulaavi pattern).
+        
+        Args:
+            item (QListWidgetItem): Gallery item
+            element_id (int): Element ID
+        """
+        # Get pre-loaded movie from cache
+        if element_id not in self.gif_movies:
+            return
+        
+        movie = self.gif_movies[element_id]
+        
+        # Jump to first frame and start playback
+        movie.jumpToFrame(0)
+        movie.start()
+    
+    def _update_gif_frame(self, item, movie):
+        """Update item icon with current GIF frame."""
+        pixmap = movie.currentPixmap()
+        if not pixmap.isNull():
+            # Scale to icon size
+            icon_size = self.gallery_view.iconSize()
+            scaled_pixmap = pixmap.scaled(
+                icon_size,
+                QtCore.Qt.KeepAspectRatio,
+                QtCore.Qt.SmoothTransformation
+            )
+            item.setIcon(QtGui.QIcon(scaled_pixmap))
+    
+    def stop_current_gif(self):
+        """Stop currently playing GIF and return to static first frame (Ulaavi pattern)."""
+        if self.current_gif_item:
+            element_id = self.current_gif_item.data(QtCore.Qt.UserRole)
+            
+            # Stop movie and jump to first frame
+            if element_id and element_id in self.gif_movies:
+                movie = self.gif_movies[element_id]
+                movie.stop()
+                movie.jumpToFrame(0)
+                # Update icon to show first frame
+                self._update_gif_frame(self.current_gif_item, movie)
     
     def keyPressEvent(self, event):
         """Handle key press events."""
@@ -1978,6 +2221,469 @@ class AddListDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.critical(self, "Error", "Failed to create list: {}".format(str(e)))
 
 
+class AddSubListDialog(QtWidgets.QDialog):
+    """Dialog for adding a sub-list under a parent list."""
+    
+    def __init__(self, db_manager, parent_list_id, stack_id, parent=None):
+        super(AddSubListDialog, self).__init__(parent)
+        self.db = db_manager
+        self.parent_list_id = parent_list_id
+        self.stack_id = stack_id
+        self.setWindowTitle("Add Sub-List")
+        self.setup_ui()
+    
+    def setup_ui(self):
+        """Setup UI components."""
+        layout = QtWidgets.QFormLayout(self)
+        
+        # Show parent list info
+        parent_list = self.db.get_list_by_id(self.parent_list_id)
+        if parent_list:
+            parent_label = QtWidgets.QLabel(parent_list['name'])
+            parent_label.setStyleSheet("font-weight: bold; color: #16c6b0;")
+            layout.addRow("Parent List:", parent_label)
+        
+        self.name_edit = QtWidgets.QLineEdit()
+        self.name_edit.setPlaceholderText("e.g., 'Aerial Explosions'")
+        layout.addRow("Sub-List Name:", self.name_edit)
+        
+        # Info label
+        info_label = QtWidgets.QLabel("This sub-list will be nested under the parent list.")
+        info_label.setStyleSheet("color: #888888; font-style: italic; font-size: 11px;")
+        info_label.setWordWrap(True)
+        layout.addRow("", info_label)
+        
+        # Buttons
+        button_box = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
+        )
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addRow(button_box)
+    
+    def accept(self):
+        """Validate and create sub-list."""
+        name = self.name_edit.text().strip()
+        
+        if not name:
+            QtWidgets.QMessageBox.warning(self, "Invalid Input", "Please provide a sub-list name.")
+            return
+        
+        try:
+            self.db.create_list(self.stack_id, name, parent_list_id=self.parent_list_id)
+            QtWidgets.QMessageBox.information(self, "Success", "Sub-list '{}' created successfully!".format(name))
+            super(AddSubListDialog, self).accept()
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", "Failed to create sub-list: {}".format(str(e)))
+
+
+class IngestLibraryDialog(QtWidgets.QDialog):
+    """Dialog for bulk-ingesting an existing library folder structure."""
+    
+    def __init__(self, db_manager, ingestion_core, config, parent=None):
+        super(IngestLibraryDialog, self).__init__(parent)
+        self.db = db_manager
+        self.ingestion = ingestion_core
+        self.config = config
+        self.setWindowTitle("Ingest Library")
+        self.resize(600, 400)
+        self.setup_ui()
+    
+    def setup_ui(self):
+        """Setup UI components."""
+        layout = QtWidgets.QVBoxLayout(self)
+        
+        # Instructions
+        instructions = QtWidgets.QLabel(
+            "<b>Bulk Library Ingestion</b><br/>"
+            "This feature scans a folder hierarchy and automatically creates:<br/>"
+            "• <b>Stacks</b> from top-level folders<br/>"
+            "• <b>Lists</b> from subfolders<br/>"
+            "• <b>Sub-Lists</b> from nested subfolders<br/>"
+            "• Ingests all media files in each folder<br/><br/>"
+            "<i>Example: ActionFX/explosions/aerial → Stack: 'ActionFX', List: 'explosions', Sub-List: 'aerial'</i>"
+        )
+        instructions.setWordWrap(True)
+        instructions.setStyleSheet("color: #cccccc; padding: 10px; background-color: #2a2a2a; border-radius: 5px;")
+        layout.addWidget(instructions)
+        
+        # Folder selection
+        folder_layout = QtWidgets.QHBoxLayout()
+        folder_label = QtWidgets.QLabel("Library Folder:")
+        folder_label.setStyleSheet("font-weight: bold;")
+        self.folder_path_edit = QtWidgets.QLineEdit()
+        self.folder_path_edit.setReadOnly(True)
+        self.folder_path_edit.setPlaceholderText("Click 'Browse' to select library folder...")
+        browse_btn = QtWidgets.QPushButton("Browse...")
+        browse_btn.clicked.connect(self.select_folder)
+        
+        folder_layout.addWidget(folder_label)
+        folder_layout.addWidget(self.folder_path_edit)
+        folder_layout.addWidget(browse_btn)
+        layout.addLayout(folder_layout)
+        
+        # Options group
+        options_group = QtWidgets.QGroupBox("Ingestion Options")
+        options_layout = QtWidgets.QFormLayout()
+        
+        # Stack/List prefix
+        self.stack_prefix_edit = QtWidgets.QLineEdit()
+        self.stack_prefix_edit.setPlaceholderText("Optional prefix (e.g., 'Studio_')")
+        options_layout.addRow("Stack Prefix:", self.stack_prefix_edit)
+        
+        self.list_prefix_edit = QtWidgets.QLineEdit()
+        self.list_prefix_edit.setPlaceholderText("Optional prefix (e.g., 'cat_')")
+        options_layout.addRow("List Prefix:", self.list_prefix_edit)
+        
+        # Copy policy
+        self.copy_policy_combo = QtWidgets.QComboBox()
+        self.copy_policy_combo.addItems(["hard_copy", "soft_copy"])
+        self.copy_policy_combo.setCurrentText(self.config.get('default_copy_policy', 'hard_copy'))
+        options_layout.addRow("Copy Policy:", self.copy_policy_combo)
+        
+        # Max depth
+        self.max_depth_spin = QtWidgets.QSpinBox()
+        self.max_depth_spin.setMinimum(1)
+        self.max_depth_spin.setMaximum(10)
+        self.max_depth_spin.setValue(3)
+        options_layout.addRow("Max Nesting Depth:", self.max_depth_spin)
+        
+        options_group.setLayout(options_layout)
+        layout.addWidget(options_group)
+        
+        # Preview area (shows planned structure)
+        preview_label = QtWidgets.QLabel("<b>Preview Structure:</b>")
+        layout.addWidget(preview_label)
+        
+        self.preview_tree = QtWidgets.QTreeWidget()
+        self.preview_tree.setHeaderLabels(["Name", "Type", "Media Files"])
+        self.preview_tree.setAlternatingRowColors(True)
+        self.preview_tree.setMaximumHeight(200)
+        layout.addWidget(self.preview_tree)
+        
+        # Buttons
+        button_layout = QtWidgets.QHBoxLayout()
+        
+        self.scan_btn = QtWidgets.QPushButton("Scan Folder")
+        self.scan_btn.clicked.connect(self.scan_folder)
+        self.scan_btn.setEnabled(False)
+        
+        self.ingest_btn = QtWidgets.QPushButton("Start Ingestion")
+        self.ingest_btn.clicked.connect(self.start_ingestion)
+        self.ingest_btn.setEnabled(False)
+        self.ingest_btn.setStyleSheet("background-color: #16c6b0; font-weight: bold;")
+        
+        cancel_btn = QtWidgets.QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        
+        button_layout.addStretch()
+        button_layout.addWidget(self.scan_btn)
+        button_layout.addWidget(self.ingest_btn)
+        button_layout.addWidget(cancel_btn)
+        
+        layout.addLayout(button_layout)
+        
+        # Store scanned structure
+        self.scanned_structure = None
+    
+    def select_folder(self):
+        """Open folder selection dialog."""
+        folder = QtWidgets.QFileDialog.getExistingDirectory(
+            self, "Select Library Folder", ""
+        )
+        
+        if folder:
+            self.folder_path_edit.setText(folder)
+            self.scan_btn.setEnabled(True)
+            self.preview_tree.clear()
+            self.scanned_structure = None
+            self.ingest_btn.setEnabled(False)
+    
+    def scan_folder(self):
+        """Scan folder structure and show preview."""
+        folder_path = self.folder_path_edit.text()
+        if not folder_path or not os.path.exists(folder_path):
+            QtWidgets.QMessageBox.warning(self, "Invalid Folder", "Please select a valid folder.")
+            return
+        
+        # Show progress
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+        
+        try:
+            # Scan structure
+            self.scanned_structure = self._scan_directory_structure(
+                folder_path,
+                self.max_depth_spin.value()
+            )
+            
+            # Display preview
+            self._display_preview(self.scanned_structure)
+            
+            # Enable ingest button
+            self.ingest_btn.setEnabled(True)
+            
+            QtWidgets.QMessageBox.information(
+                self, "Scan Complete",
+                "Found {} stacks, {} lists/sub-lists, {} media files".format(
+                    len(self.scanned_structure),
+                    sum(self._count_lists(stack) for stack in self.scanned_structure.values()),
+                    sum(self._count_files(stack) for stack in self.scanned_structure.values())
+                )
+            )
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Scan Error", "Failed to scan folder: {}".format(str(e)))
+        finally:
+            QtWidgets.QApplication.restoreOverrideCursor()
+    
+    def _scan_directory_structure(self, root_path, max_depth):
+        """
+        Recursively scan directory structure.
+        
+        Returns:
+            dict: {stack_name: {'lists': {list_name: {'sub_lists': {...}, 'files': [...]}, ...}, 'files': []}}
+        """
+        structure = {}
+        
+        # Get top-level folders (these become Stacks)
+        for item in os.listdir(root_path):
+            item_path = os.path.join(root_path, item)
+            
+            if os.path.isdir(item_path):
+                stack_name = self.stack_prefix_edit.text() + item
+                structure[stack_name] = {
+                    'path': item_path,
+                    'lists': {},
+                    'files': []
+                }
+                
+                # Scan Lists and Sub-Lists
+                self._scan_lists_recursive(
+                    item_path,
+                    structure[stack_name]['lists'],
+                    current_depth=1,
+                    max_depth=max_depth
+                )
+                
+                # Get media files in stack root
+                structure[stack_name]['files'] = self._get_media_files(item_path)
+        
+        return structure
+    
+    def _scan_lists_recursive(self, folder_path, lists_dict, current_depth, max_depth):
+        """Recursively scan lists and sub-lists."""
+        if current_depth > max_depth:
+            return
+        
+        for item in os.listdir(folder_path):
+            item_path = os.path.join(folder_path, item)
+            
+            if os.path.isdir(item_path):
+                list_name = self.list_prefix_edit.text() + item
+                lists_dict[list_name] = {
+                    'path': item_path,
+                    'sub_lists': {},
+                    'files': []
+                }
+                
+                # Scan sub-lists
+                self._scan_lists_recursive(
+                    item_path,
+                    lists_dict[list_name]['sub_lists'],
+                    current_depth + 1,
+                    max_depth
+                )
+                
+                # Get media files
+                lists_dict[list_name]['files'] = self._get_media_files(item_path)
+    
+    def _get_media_files(self, folder_path):
+        """Get all media files in folder (non-recursive)."""
+        media_extensions = ['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.exr', '.dpx', 
+                           '.mp4', '.mov', '.avi', '.mkv', '.obj', '.fbx', '.abc', '.nk']
+        
+        media_files = []
+        for item in os.listdir(folder_path):
+            item_path = os.path.join(folder_path, item)
+            if os.path.isfile(item_path):
+                _, ext = os.path.splitext(item)
+                if ext.lower() in media_extensions:
+                    media_files.append(item_path)
+        
+        return media_files
+    
+    def _display_preview(self, structure):
+        """Display scanned structure in tree widget."""
+        self.preview_tree.clear()
+        
+        for stack_name, stack_data in structure.items():
+            stack_item = QtWidgets.QTreeWidgetItem([
+                stack_name, "Stack", str(len(stack_data['files']))
+            ])
+            stack_item.setIcon(0, self.style().standardIcon(QtWidgets.QStyle.SP_DirIcon))
+            stack_item.setForeground(0, QtGui.QBrush(QtGui.QColor("#ff9a3c")))
+            self.preview_tree.addTopLevelItem(stack_item)
+            
+            # Add lists
+            self._add_lists_to_tree(stack_item, stack_data['lists'])
+        
+        self.preview_tree.expandAll()
+    
+    def _add_lists_to_tree(self, parent_item, lists_dict):
+        """Recursively add lists to tree widget."""
+        for list_name, list_data in lists_dict.items():
+            list_item = QtWidgets.QTreeWidgetItem([
+                list_name, "List", str(len(list_data['files']))
+            ])
+            list_item.setIcon(0, self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon))
+            list_item.setForeground(0, QtGui.QBrush(QtGui.QColor("#16c6b0")))
+            parent_item.addChild(list_item)
+            
+            # Add sub-lists recursively
+            if list_data['sub_lists']:
+                self._add_lists_to_tree(list_item, list_data['sub_lists'])
+    
+    def _count_lists(self, stack_data):
+        """Count total lists in stack."""
+        count = len(stack_data['lists'])
+        for list_data in stack_data['lists'].values():
+            count += self._count_sub_lists(list_data)
+        return count
+    
+    def _count_sub_lists(self, list_data):
+        """Count total sub-lists recursively."""
+        count = len(list_data['sub_lists'])
+        for sub_list_data in list_data['sub_lists'].values():
+            count += self._count_sub_lists(sub_list_data)
+        return count
+    
+    def _count_files(self, stack_data):
+        """Count total files in stack."""
+        count = len(stack_data['files'])
+        for list_data in stack_data['lists'].values():
+            count += self._count_files_in_list(list_data)
+        return count
+    
+    def _count_files_in_list(self, list_data):
+        """Count total files in list recursively."""
+        count = len(list_data['files'])
+        for sub_list_data in list_data['sub_lists'].values():
+            count += self._count_files_in_list(sub_list_data)
+        return count
+    
+    def start_ingestion(self):
+        """Start bulk ingestion process."""
+        if not self.scanned_structure:
+            QtWidgets.QMessageBox.warning(self, "No Structure", "Please scan a folder first.")
+            return
+        
+        # Confirm
+        reply = QtWidgets.QMessageBox.question(
+            self, "Confirm Ingestion",
+            "Start bulk ingestion?\n\nThis will create Stacks/Lists and ingest all media files.\n"
+            "This operation may take several minutes.",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
+        )
+        
+        if reply != QtWidgets.QMessageBox.Yes:
+            return
+        
+        # Count total files for progress
+        total_files = sum(self._count_files(stack) for stack in self.scanned_structure.values())
+        
+        # Create progress dialog
+        progress = QtWidgets.QProgressDialog("Ingesting library...", "Cancel", 0, total_files, self)
+        progress.setWindowModality(QtCore.Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        
+        success_count = 0
+        error_count = 0
+        processed = 0
+        
+        copy_policy = self.copy_policy_combo.currentText()
+        
+        try:
+            # Process each stack
+            for stack_name, stack_data in self.scanned_structure.items():
+                if progress.wasCanceled():
+                    break
+                
+                # Create stack
+                stack_id = self.db.create_stack(stack_name, stack_data['path'])
+                
+                # Ingest stack files
+                for filepath in stack_data['files']:
+                    if progress.wasCanceled():
+                        break
+                    
+                    progress.setValue(processed)
+                    progress.setLabelText("Ingesting: {}".format(os.path.basename(filepath)))
+                    
+                    # Create temporary list for stack-level files
+                    if not stack_data['lists']:
+                        temp_list_id = self.db.create_list(stack_id, "_root")
+                    
+                    processed += 1
+                
+                # Process lists
+                s, e, processed = self._ingest_lists_recursive(
+                    stack_id, None, stack_data['lists'], copy_policy, progress, processed
+                )
+                success_count += s
+                error_count += e
+            
+            progress.setValue(total_files)
+            
+            # Show result
+            QtWidgets.QMessageBox.information(
+                self, "Ingestion Complete",
+                "Library ingested successfully!\n\n"
+                "{} files ingested\n{} errors".format(success_count, error_count)
+            )
+            
+            self.accept()
+            
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Ingestion Error", "Failed: {}".format(str(e)))
+    
+    def _ingest_lists_recursive(self, stack_id, parent_list_id, lists_dict, copy_policy, progress, processed):
+        """Recursively ingest lists and their files."""
+        success_count = 0
+        error_count = 0
+        
+        for list_name, list_data in lists_dict.items():
+            if progress.wasCanceled():
+                break
+            
+            # Create list
+            list_id = self.db.create_list(stack_id, list_name, parent_list_id=parent_list_id)
+            
+            # Ingest files
+            for filepath in list_data['files']:
+                if progress.wasCanceled():
+                    break
+                
+                progress.setValue(processed)
+                progress.setLabelText("Ingesting: {}".format(os.path.basename(filepath)))
+                
+                result = self.ingestion.ingest_file(filepath, list_id, copy_policy=copy_policy)
+                
+                if result['success']:
+                    success_count += 1
+                else:
+                    error_count += 1
+                
+                processed += 1
+            
+            # Process sub-lists
+            s, e, processed = self._ingest_lists_recursive(
+                stack_id, list_id, list_data['sub_lists'], copy_policy, progress, processed
+            )
+            success_count += s
+            error_count += e
+        
+        return success_count, error_count, processed
+
+
 class CreatePlaylistDialog(QtWidgets.QDialog):
     """Dialog for creating a new playlist."""
     
@@ -2282,6 +2988,11 @@ class MainWindow(QtWidgets.QMainWindow):
         ingest_action.triggered.connect(self.ingest_files)
         file_menu.addAction(ingest_action)
         
+        ingest_library_action = QtWidgets.QAction("Ingest Library...", self)
+        ingest_library_action.setShortcut("Ctrl+Shift+I")
+        ingest_library_action.triggered.connect(self.ingest_library)
+        file_menu.addAction(ingest_library_action)
+        
         file_menu.addSeparator()
         
         exit_action = QtWidgets.QAction("Exit", self)
@@ -2429,6 +3140,13 @@ class MainWindow(QtWidgets.QMainWindow):
         # Refresh current view
         if self.media_display.current_list_id:
             self.media_display.load_elements(self.media_display.current_list_id)
+    
+    def ingest_library(self):
+        """Open Library Ingest dialog to bulk-ingest folder structures."""
+        dialog = IngestLibraryDialog(self.db, self.ingestion, self.config, self)
+        if dialog.exec_():
+            # Refresh stacks/lists after library ingestion
+            self.stacks_panel.load_data()
     
     def on_settings_changed(self):
         """Handle settings change."""

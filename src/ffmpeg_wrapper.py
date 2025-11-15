@@ -333,6 +333,69 @@ class FFmpegWrapper(object):
         except:
             return None
     
+    def generate_gif_preview(self, input_path, output_path, max_duration=3.0, size=256, fps=10):
+        """
+        Generate animated GIF preview from video or sequence.
+        
+        Args:
+            input_path (str): Input video or sequence pattern
+            output_path (str): Output GIF path
+            max_duration (float): Maximum GIF duration in seconds
+            size (int): Target size (width and height) in pixels - maintains aspect ratio with padding
+            fps (int): GIF frame rate
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        # Generate palette first for better quality GIF
+        palette_path = os.path.join(tempfile.gettempdir(), 'palette.png')
+        
+        try:
+            # Step 1: Generate color palette from source
+            # Scale to fit within size x size box, pad to make square
+            scale_filter = 'scale=w={}:h={}:force_original_aspect_ratio=decrease,pad={}:{}:(ow-iw)/2:(oh-ih)/2:color=black'.format(
+                size, size, size, size
+            )
+            
+            palette_cmd = [
+                self.ffmpeg_path,
+                '-y',
+                '-i', input_path,
+                '-t', str(max_duration),
+                '-vf', 'fps={},{},palettegen'.format(fps, scale_filter),
+                palette_path
+            ]
+            subprocess.check_output(palette_cmd, stderr=subprocess.STDOUT)
+            
+            # Step 2: Generate GIF using palette with same scaling
+            gif_cmd = [
+                self.ffmpeg_path,
+                '-y',
+                '-i', input_path,
+                '-i', palette_path,
+                '-t', str(max_duration),
+                '-filter_complex', 'fps={},{}[x];[x][1:v]paletteuse'.format(fps, scale_filter),
+                output_path
+            ]
+            subprocess.check_output(gif_cmd, stderr=subprocess.STDOUT)
+            
+            # Cleanup palette
+            if os.path.exists(palette_path):
+                os.remove(palette_path)
+            
+            return os.path.exists(output_path)
+            
+        except subprocess.CalledProcessError as e:
+            print("FFmpeg GIF generation error: {}".format(str(e)))
+            if os.path.exists(palette_path):
+                os.remove(palette_path)
+            return False
+        except Exception as e:
+            print("Error generating GIF preview: {}".format(str(e)))
+            if os.path.exists(palette_path):
+                os.remove(palette_path)
+            return False
+    
     def convert_sequence_to_video(self, sequence_pattern, output_path, fps=24, start_frame=1):
         """
         Convert image sequence to video file.

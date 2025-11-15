@@ -14,7 +14,7 @@
 
 /* Base */
 QWidget {
-  background: #0e1113;
+  background: #1d252c;
   color: #e6eef0;
   font-family: "Segoe UI", "Helvetica Neue", Arial;
   font-size: 11px;
