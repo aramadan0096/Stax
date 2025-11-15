@@ -39,3 +39,4 @@ desktop.ini
 *.tmp
 *.bak
 .venvPy3
+bin/

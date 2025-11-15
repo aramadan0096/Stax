@@ -50,10 +50,10 @@ Professional VFX asset management pipeline clone designed for Foundry Nuke integ
   - **Keyboard Shortcuts**: Ctrl+2 (History), Ctrl+3 (Settings), Ctrl+I (Ingest)
   - **File Ingestion**: Dialog-based file selection and ingestion
   - **Element Actions**: Double-click to insert into Nuke (mock mode)
+  - **Media Info Popup**: Alt+Hover for quick preview and metadata (✅ NEW)
 
 ### 🚧 In Progress (Beta)
 - Drag-and-drop file ingestion from OS
-- Media info popup on Alt+Hover
 - Advanced search with property/match type selection
 - Favorites management UI
 - Unit tests

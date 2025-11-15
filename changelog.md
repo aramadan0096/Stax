@@ -27,12 +27,30 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
   - Drag-and-drop file ingestion workflow
   - Element double-click to insert into Nuke (mock mode)
   - Toggleable panels (Ctrl+2 for History, Ctrl+3 for Settings)
+- **Implemented Media Info Popup (Alt+Hover)**:
+  - Non-modal popup triggered by holding Alt while hovering over elements
+  - Large preview display (380x280px with aspect ratio preservation)
+  - Complete metadata display: name, type, format, frames, size, path, comment
+  - "Insert into Nuke" button for quick insertion
+  - "Reveal in Explorer" button to open file location in OS
+  - Dark themed UI with styled buttons
+  - Auto-positioning near cursor with offset
+  - Click-to-close behavior
+- **Implemented Advanced Search Dialog** (Beta feature):
+  - Property-based search: name, format, type, comment, tags
+  - Match type selection: loose (LIKE) vs strict (exact)
+  - Results table with sortable columns
+  - Double-click to insert element into Nuke
+  - Keyboard shortcut: Ctrl+F
+  - Accessible via Search menu
+  - Non-modal dialog for continuous searching
 
 ### Changed
 - Updated `requirements.txt` to include notes for Python 3 development
 
 ### Fixed
-- N/A
+- Fixed eventFilter initialization race condition in MediaInfoPopup causing AttributeError
+- Added hasattr guards to prevent accessing table_view/gallery_view before widget initialization
 
 ## [0.1.0] - 2025-11-15
 

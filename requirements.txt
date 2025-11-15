@@ -12,3 +12,5 @@ Pillow==6.2.2    # Image processing for preview generation (last Py2.7 version)
 # Python 3+ versions (recommended for development):
 # PySide2>=5.15.0
 # Pillow>=10.0.0
+# IMPORTANT: NumPy must be < 2.0 for PySide2 compatibility
+numpy<2.0.0  # PySide2/shiboken2 requires NumPy 1.x
