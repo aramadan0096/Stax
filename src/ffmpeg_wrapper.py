@@ -431,6 +431,54 @@ class FFmpegWrapper(object):
         except Exception as e:
             print("Error converting sequence: {}".format(str(e)))
             return False
+    
+    def generate_sequence_video_preview(self, sequence_pattern, output_path, max_size=512, fps=24, start_frame=1, max_frames=None):
+        """
+        Generate low-res video preview from image sequence.
+        
+        Args:
+            sequence_pattern (str): Pattern like "plate.%04d.exr"
+            output_path (str): Output MP4 video path
+            max_size (int): Maximum dimension in pixels (width or height)
+            fps (int): Frames per second for preview video
+            start_frame (int): Starting frame number
+            max_frames (int): Maximum number of frames to include (None = all frames)
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        cmd = [
+            self.ffmpeg_path,
+            '-y',
+            '-start_number', str(start_frame),
+            '-framerate', str(fps),
+            '-i', sequence_pattern
+        ]
+        
+        # Add frame limit if specified
+        if max_frames:
+            cmd.extend(['-frames:v', str(max_frames)])
+        
+        # Add scaling and encoding options
+        cmd.extend([
+            '-vf', 'scale={}:{}:force_original_aspect_ratio=decrease'.format(max_size, max_size),
+            '-c:v', 'libx264',
+            '-preset', 'fast',  # Fast encoding for previews
+            '-crf', '28',  # Lower quality for smaller files
+            '-pix_fmt', 'yuv420p',
+            '-movflags', '+faststart',  # Enable web streaming
+            output_path
+        ])
+        
+        try:
+            subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+            return os.path.exists(output_path)
+        except subprocess.CalledProcessError as e:
+            print("FFmpeg sequence video preview error: {}".format(str(e)))
+            return False
+        except Exception as e:
+            print("Error generating sequence video preview: {}".format(str(e)))
+            return False
 
 
 # Singleton instance

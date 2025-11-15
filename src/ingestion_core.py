@@ -234,6 +234,47 @@ class PreviewGenerator(object):
         return PreviewGenerator.generate_image_preview(middle_frame, preview_path)
     
     @staticmethod
+    def generate_sequence_video_preview(sequence_info, output_path, max_size=512, fps=24):
+        """
+        Generate low-res video preview from image sequence.
+        
+        Args:
+            sequence_info (dict): Sequence info from SequenceDetector with 'pattern', 'start_frame', etc.
+            output_path (str): Output MP4 path
+            max_size (int): Maximum dimension in pixels
+            fps (int): Frames per second
+            
+        Returns:
+            bool: True if successful
+        """
+        try:
+            # Ensure preview directory exists
+            preview_dir = os.path.dirname(output_path)
+            if not os.path.exists(preview_dir):
+                os.makedirs(preview_dir)
+            
+            # Get sequence pattern from sequence_info
+            sequence_pattern = SequenceDetector.get_sequence_path(sequence_info)
+            start_frame = sequence_info.get('start_frame', 1)
+            frame_count = sequence_info.get('frame_count', 0)
+            
+            # Limit to first 100 frames for preview (about 4 seconds at 24fps)
+            max_frames = min(frame_count, 100) if frame_count > 0 else None
+            
+            ffmpeg = get_ffmpeg()
+            return ffmpeg.generate_sequence_video_preview(
+                sequence_pattern,
+                output_path,
+                max_size=max_size,
+                fps=fps,
+                start_frame=start_frame,
+                max_frames=max_frames
+            )
+        except Exception as e:
+            print("Sequence video preview generation failed: {}".format(e))
+            return False
+    
+    @staticmethod
     def generate_video_preview(source_path, preview_path):
         """
         Generate video preview using FFmpeg.
@@ -442,6 +483,31 @@ class IngestionCore(object):
                 print("[GIF] Skipping GIF generation for {} (type: {}, format: {})".format(
                     name, asset_type, file_format))
             
+            # Generate low-res video preview for sequences (MP4)
+            video_preview_path = None
+            if is_sequence and asset_type == '2D':
+                print("[VIDEO] Generating video preview for sequence: {}".format(name))
+                video_filename = "{}_{}.mp4".format(
+                    target_list_id,
+                    hashlib.md5(name.encode('utf-8')).hexdigest()[:8]
+                )
+                video_preview_path = os.path.join(self.preview_dir, video_filename)
+                print("[VIDEO] Output path: {}".format(video_preview_path))
+                
+                # Generate low-res MP4 preview (~512px, first 100 frames or 4 seconds)
+                video_success = PreviewGenerator.generate_sequence_video_preview(
+                    sequence_info,
+                    video_preview_path,
+                    max_size=512,
+                    fps=24
+                )
+                
+                if video_success:
+                    print("[VIDEO] ✓ Video preview generated successfully: {}".format(video_preview_path))
+                else:
+                    print("[VIDEO] ✗ Video preview generation failed")
+                    video_preview_path = None
+            
             # Create element in database
             element_id = self.db.create_element(
                 list_id=target_list_id,
@@ -456,6 +522,7 @@ class IngestionCore(object):
                 tags=tags,
                 preview_path=preview_path if os.path.exists(preview_path) else None,
                 gif_preview_path=gif_preview_path,
+                video_preview_path=video_preview_path,
                 file_size=file_size
             )
             

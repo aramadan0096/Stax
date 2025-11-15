@@ -1,8 +1,4 @@
-# StaX Requirements
-# Python 2.7 compatible dependencies
-
-# Note: For Python 3 development, use these versions instead:
-# PySide2>=5.15.0
-
-# Python 2.7 versions (legacy VFX pipelines):
-PySide2
+ffpyplayer==4.5.3
+PySide2==5.15.2.1
+shiboken2==5.15.2.1
+pyinstaller>=5.0.0

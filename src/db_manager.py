@@ -10,6 +10,7 @@ import os
 import time
 import json
 from contextlib import contextmanager
+from src.file_lock import FileLockManager
 
 
 class DatabaseManager(object):
@@ -18,18 +19,21 @@ class DatabaseManager(object):
     Implements network-aware file locking and connection pooling.
     """
     
-    def __init__(self, db_path, enable_logging=False):
+    def __init__(self, db_path, enable_logging=False, use_file_lock=True):
         """
         Initialize database manager.
         
         Args:
             db_path (str): Path to SQLite database file
             enable_logging (bool): Enable detailed operation logging
+            use_file_lock (bool): Enable external file locking for network shares
         """
         self.db_path = db_path
         self.max_retries = 10  # Increased for network environments
         self.retry_delay = 0.3  # seconds (exponential backoff)
         self.enable_logging = enable_logging
+        self.use_file_lock = use_file_lock
+        self.lock_file_path = db_path + '.lock'  # Lock file next to database
         
         # Ensure database directory exists
         db_dir = os.path.dirname(db_path)
@@ -51,8 +55,8 @@ class DatabaseManager(object):
     @contextmanager
     def get_connection(self):
         """
-        Context manager for database connections with retry logic.
-        Implements file locking for network-shared databases with exponential backoff.
+        Context manager for database connections with file locking and retry logic.
+        Implements external file locking for network-shared databases with exponential backoff.
         
         Yields:
             sqlite3.Connection: Database connection
@@ -62,70 +66,93 @@ class DatabaseManager(object):
         """
         conn = None
         last_error = None
+        file_lock = None
         
-        for attempt in range(self.max_retries):
-            try:
-                self._log("Connection attempt {} of {}".format(attempt + 1, self.max_retries))
-                
-                conn = sqlite3.connect(
-                    self.db_path,
-                    timeout=60.0,  # 60 second timeout for network locks
-                    isolation_level='DEFERRED',
-                    check_same_thread=False  # Allow multi-threaded access
+        try:
+            # Acquire external file lock if enabled (for network shares)
+            if self.use_file_lock:
+                self._log("Acquiring file lock: {}".format(self.lock_file_path))
+                file_lock = FileLockManager(
+                    self.lock_file_path,
+                    timeout=30.0,
+                    retry_delay=0.1,
+                    max_retries=100
                 )
-                conn.row_factory = sqlite3.Row  # Enable dict-like access
-                
-                # Enable foreign keys
-                conn.execute("PRAGMA foreign_keys = ON")
-                
-                # Optimize for network file systems
-                conn.execute("PRAGMA synchronous = NORMAL")  # Balance between safety and speed
-                conn.execute("PRAGMA journal_mode = WAL")  # Write-Ahead Logging for better concurrency
-                conn.execute("PRAGMA cache_size = -16000")  # 16MB cache
-                
-                self._log("Connection successful")
-                
-                yield conn
-                conn.commit()
-                self._log("Transaction committed")
-                break
-                
-            except sqlite3.OperationalError as e:
-                last_error = e
-                error_msg = str(e).lower()
-                
-                # Detect lock-related errors
-                if 'locked' in error_msg or 'busy' in error_msg:
-                    if attempt < self.max_retries - 1:
-                        # Exponential backoff with jitter
-                        delay = self.retry_delay * (2 ** attempt) + (time.time() % 0.1)
-                        self._log("Database locked, retrying in {:.2f}s...".format(delay))
-                        time.sleep(delay)
-                        continue
-                    else:
-                        self._log("Max retries reached. Database still locked.")
-                        raise RuntimeError(
-                            "Database locked after {} retries. "
-                            "Another process may be holding a long transaction. "
-                            "Error: {}".format(self.max_retries, str(e))
-                        )
-                else:
-                    # Non-lock error, raise immediately
-                    self._log("Database error: {}".format(str(e)))
-                    raise
+                file_lock.acquire()
+                self._log("File lock acquired")
+            
+            for attempt in range(self.max_retries):
+                try:
+                    self._log("Connection attempt {} of {}".format(attempt + 1, self.max_retries))
                     
-            except Exception as e:
-                last_error = e
-                self._log("Unexpected error: {}".format(str(e)))
-                raise
-                
-            finally:
-                if conn:
-                    try:
-                        conn.close()
-                        self._log("Connection closed")
-                    except:
-                        pass
+                    conn = sqlite3.connect(
+                        self.db_path,
+                        timeout=60.0,  # 60 second timeout for network locks
+                        isolation_level='DEFERRED',
+                        check_same_thread=False  # Allow multi-threaded access
+                    )
+                    conn.row_factory = sqlite3.Row  # Enable dict-like access
+                    
+                    # Enable foreign keys
+                    conn.execute("PRAGMA foreign_keys = ON")
+                    
+                    # Optimize for network file systems
+                    conn.execute("PRAGMA synchronous = NORMAL")  # Balance between safety and speed
+                    conn.execute("PRAGMA journal_mode = WAL")  # Write-Ahead Logging for better concurrency
+                    conn.execute("PRAGMA cache_size = -16000")  # 16MB cache
+                    
+                    self._log("Connection successful")
+                    
+                    yield conn
+                    conn.commit()
+                    self._log("Transaction committed")
+                    break
+                    
+                except sqlite3.OperationalError as e:
+                    last_error = e
+                    error_msg = str(e).lower()
+                    
+                    # Detect lock-related errors
+                    if 'locked' in error_msg or 'busy' in error_msg:
+                        if attempt < self.max_retries - 1:
+                            # Exponential backoff with jitter
+                            delay = self.retry_delay * (2 ** attempt) + (time.time() % 0.1)
+                            self._log("Database locked, retrying in {:.2f}s...".format(delay))
+                            time.sleep(delay)
+                            continue
+                        else:
+                            self._log("Max retries reached. Database still locked.")
+                            raise RuntimeError(
+                                "Database locked after {} retries. "
+                                "Another process may be holding a long transaction. "
+                                "Error: {}".format(self.max_retries, str(e))
+                            )
+                    else:
+                        # Non-lock error, raise immediately
+                        self._log("Database error: {}".format(str(e)))
+                        raise
+                        
+                except Exception as e:
+                    last_error = e
+                    self._log("Unexpected error: {}".format(str(e)))
+                    raise
+        
+        finally:
+            # Always clean up connection and file lock
+            if conn:
+                try:
+                    conn.close()
+                    self._log("Connection closed")
+                except:
+                    pass
+            
+            # Release file lock if acquired
+            if file_lock:
+                try:
+                    file_lock.release()
+                    self._log("File lock released")
+                except:
+                    pass
     
     def _create_schema(self):
         """Create database schema with all required tables."""
@@ -174,6 +201,7 @@ class DatabaseManager(object):
                     tags TEXT,
                     preview_path TEXT,
                     gif_preview_path TEXT,
+                    video_preview_path TEXT,
                     is_deprecated BOOLEAN DEFAULT 0,
                     file_size INTEGER,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -318,6 +346,15 @@ class DatabaseManager(object):
                 self._log("Migration 2: Adding gif_preview_path column to elements table")
                 cursor.execute("ALTER TABLE elements ADD COLUMN gif_preview_path TEXT")
                 self._log("Migration 2: Complete")
+            
+            # Migration 2.5: Add video_preview_path column for sequence video previews
+            try:
+                cursor.execute("SELECT video_preview_path FROM elements LIMIT 1")
+                self._log("Migration 2.5: video_preview_path already exists")
+            except sqlite3.OperationalError:
+                self._log("Migration 2.5: Adding video_preview_path column to elements table")
+                cursor.execute("ALTER TABLE elements ADD COLUMN video_preview_path TEXT")
+                self._log("Migration 2.5: Complete")
             
             # Migration 3: Create users table if it doesn't exist
             cursor.execute("""
@@ -615,7 +652,7 @@ class DatabaseManager(object):
             for key, value in kwargs.items():
                 if key in ['filepath_soft', 'filepath_hard', 'is_hard_copy', 
                           'frame_range', 'format', 'comment', 'tags', 
-                          'preview_path', 'gif_preview_path', 'is_deprecated', 'file_size']:
+                          'preview_path', 'gif_preview_path', 'video_preview_path', 'is_deprecated', 'file_size']:
                     fields.append(key)
                     values.append(value)
             

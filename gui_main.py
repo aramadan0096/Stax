@@ -4569,9 +4569,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self,
             "About Stax",
             "<h3>Stax</h3>"
-            "<p>Version 0.1.0 (Alpha)</p>"
+            "<p>Version 0.1.0 (nightly)</p>"
             "<p>Advanced Stock Management for VFX Studios</p>"
-            "<p>Python 2.7 | PySide2</p>"
+            "<p>Author: Ahmed Ramadan</p>"
+            "<p>Website: <a href='https://www.linkedin.com/in/a-ramadan0096/'>LinkedIn</a></p>"
+            "<p>License: MIT</p>"
         )
 
 

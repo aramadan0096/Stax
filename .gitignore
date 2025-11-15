@@ -40,3 +40,6 @@ desktop.ini
 *.bak
 .venvPy3
 bin/
+
+examples/
+installers/
