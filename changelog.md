@@ -6,6 +6,18 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
 
 ## [Unreleased]
 
+### Fixed
+- **Database Migration Issues** (Session 4 - Bug Fix):
+  - Fixed missing `users` and `user_sessions` tables in existing databases
+  - Added Migration 3: Auto-creates `users` table with default admin account
+  - Added Migration 4: Auto-creates `user_sessions` table for session tracking
+  - Fixed `get_favorites()` query using wrong column name (`favorited_at` → `created_at`)
+- **UI Error Handling** (Session 4 - Bug Fix):
+  - Fixed RuntimeError in GIF animation when QListWidgetItem is deleted during playback
+  - Added try-catch blocks in `_update_gif_frame()` to handle deleted items gracefully
+  - Removed invalid `setStyleSheet()` call on QAction (not supported in Qt)
+- **Application Stability**: All critical runtime errors resolved, app runs without crashes
+
 ### Added
 - **Live Filtering Enhancement - Tagging System** (Session 4 - Feature 1 - COMPLETE):
   - Database tag management methods (8 total):

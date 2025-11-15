@@ -289,7 +289,7 @@ class NukeBridge(object):
             self.nuke.addOnScriptSave(callback_func)
             return True
     
-    def show_message(self, message, title="VFX Asset Hub"):
+    def show_message(self, message, title="Stax"):
         """
         Show a message dialog.
         
@@ -302,7 +302,7 @@ class NukeBridge(object):
         else:
             self.nuke.message(message)
     
-    def ask_user(self, question, title="VFX Asset Hub"):
+    def ask_user(self, question, title="Stax"):
         """
         Ask user a yes/no question.
         

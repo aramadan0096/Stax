@@ -73,17 +73,17 @@ QTreeView::item[accent="orange"] {
 
 /* Buttons */
 QPushButton {
-  background: #222527;
+  background: #282c2e;
   border: 1px solid #2b2f33;
   border-radius: 8px;
   padding: 6px 10px;
   min-height: 28px;
 }
 QPushButton:hover {
-  background: #2b2e31;
+  background: #373b3f;
 }
 QPushButton:pressed {
-  background: #191b1d;
+  background: #202325;
 }
 QPushButton#primary, QPushButton.primary {
   background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #17c6b2, stop:1 #0fb39f);

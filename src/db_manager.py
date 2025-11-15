@@ -195,23 +195,27 @@ class DatabaseManager(object):
             """)
             
             # Table 5: Playlists (Shared collaborative lists)
+            # Include creator tracking (created_by, created_on_machine)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS playlists (
                     playlist_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT UNIQUE NOT NULL,
                     description TEXT,
+                    created_by TEXT,
+                    created_on_machine TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             
             # Table 6: Playlist Items (Many-to-many)
+            # Use column names expected by code: item_id, order_index, added_at
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS playlist_items (
-                    playlist_item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    item_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     playlist_fk INTEGER NOT NULL,
                     element_fk INTEGER NOT NULL,
-                    sort_order INTEGER DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    order_index INTEGER DEFAULT 0,
+                    added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (playlist_fk) REFERENCES playlists(playlist_id) ON DELETE CASCADE,
                     FOREIGN KEY (element_fk) REFERENCES elements(element_id) ON DELETE CASCADE,
                     UNIQUE(playlist_fk, element_fk)
@@ -315,6 +319,138 @@ class DatabaseManager(object):
                 cursor.execute("ALTER TABLE elements ADD COLUMN gif_preview_path TEXT")
                 self._log("Migration 2: Complete")
             
+            # Migration 3: Create users table if it doesn't exist
+            cursor.execute("""
+                SELECT name FROM sqlite_master WHERE type='table' AND name='users'
+            """)
+            if not cursor.fetchone():
+                self._log("Migration 3: Creating users table")
+                cursor.execute("""
+                    CREATE TABLE users (
+                        user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        username TEXT UNIQUE NOT NULL,
+                        password_hash TEXT NOT NULL,
+                        role TEXT NOT NULL CHECK(role IN ('admin', 'user')) DEFAULT 'user',
+                        email TEXT,
+                        is_active BOOLEAN DEFAULT 1,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        last_login TIMESTAMP
+                    )
+                """)
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
+                
+                # Create default admin user
+                import hashlib
+                password_hash = hashlib.sha256("admin".encode('utf-8')).hexdigest()
+                cursor.execute(
+                    "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+                    ("admin", password_hash, "admin")
+                )
+                self._log("Migration 3: Complete - Default admin user created")
+            
+            # Migration 4: Create user_sessions table if it doesn't exist
+            cursor.execute("""
+                SELECT name FROM sqlite_master WHERE type='table' AND name='user_sessions'
+            """)
+            if not cursor.fetchone():
+                self._log("Migration 4: Creating user_sessions table")
+                cursor.execute("""
+                    CREATE TABLE user_sessions (
+                        session_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_fk INTEGER NOT NULL,
+                        machine_name TEXT NOT NULL,
+                        login_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        is_active BOOLEAN DEFAULT 1,
+                        FOREIGN KEY (user_fk) REFERENCES users(user_id) ON DELETE CASCADE
+                    )
+                """)
+                cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON user_sessions(user_fk)")
+                self._log("Migration 4: Complete")
+            
+            # Migration 5: Ensure playlists table has created_by and created_on_machine
+            try:
+                cursor.execute("SELECT created_by FROM playlists LIMIT 1")
+                self._log("Migration 5: playlists already has created_by")
+            except sqlite3.OperationalError:
+                self._log("Migration 5: Adding created_by and created_on_machine to playlists")
+                try:
+                    cursor.execute("ALTER TABLE playlists ADD COLUMN created_by TEXT")
+                except sqlite3.OperationalError:
+                    pass
+                try:
+                    cursor.execute("ALTER TABLE playlists ADD COLUMN created_on_machine TEXT")
+                except sqlite3.OperationalError:
+                    pass
+                self._log("Migration 5: Complete")
+
+            # Migration 6: Ensure playlist_items uses item_id, order_index, added_at
+            try:
+                cursor.execute("SELECT item_id FROM playlist_items LIMIT 1")
+                self._log("Migration 6: playlist_items already migrated")
+            except sqlite3.OperationalError:
+                # If playlist_items exists but has old column names, attempt to migrate safely
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='playlist_items'")
+                if cursor.fetchone():
+                    self._log("Migration 6: Migrating playlist_items table schema")
+                    # Create new temporary table with correct schema
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS playlist_items_new (
+                            item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            playlist_fk INTEGER NOT NULL,
+                            element_fk INTEGER NOT NULL,
+                            order_index INTEGER DEFAULT 0,
+                            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            FOREIGN KEY (playlist_fk) REFERENCES playlists(playlist_id) ON DELETE CASCADE,
+                            FOREIGN KEY (element_fk) REFERENCES elements(element_id) ON DELETE CASCADE,
+                            UNIQUE(playlist_fk, element_fk)
+                        )
+                    """)
+                    # Try to copy existing data mapping older column names if present
+                    try:
+                        cursor.execute("PRAGMA table_info(playlist_items)")
+                        cols = [r[1] for r in cursor.fetchall()]
+                        select_cols = []
+                        if 'playlist_fk' in cols:
+                            select_cols.append('playlist_fk')
+                        else:
+                            select_cols.append('playlist')
+                        if 'element_fk' in cols:
+                            select_cols.append('element_fk')
+                        else:
+                            select_cols.append('element')
+                        if 'order_index' in cols:
+                            select_cols.append('order_index')
+                        elif 'sort_order' in cols:
+                            select_cols.append('sort_order')
+                        else:
+                            select_cols.append('0')
+
+                        # Build copy statement defensively
+                        copy_sql = "INSERT INTO playlist_items_new (playlist_fk, element_fk, order_index, added_at) SELECT {cols}, COALESCE(created_at, CURRENT_TIMESTAMP) FROM playlist_items".format(cols=','.join(select_cols))
+                        try:
+                            cursor.execute(copy_sql)
+                        except Exception:
+                            # Fallback: naive copy of playlist_fk, element_fk
+                            try:
+                                cursor.execute("INSERT INTO playlist_items_new (playlist_fk, element_fk) SELECT playlist_fk, element_fk FROM playlist_items")
+                            except Exception:
+                                pass
+
+                    except Exception as e:
+                        self._log("Migration 6: Data copy failed: {}".format(str(e)))
+
+                    # Replace old table
+                    try:
+                        cursor.execute("ALTER TABLE playlist_items RENAME TO playlist_items_old")
+                        cursor.execute("ALTER TABLE playlist_items_new RENAME TO playlist_items")
+                        cursor.execute("DROP TABLE IF EXISTS playlist_items_old")
+                    except Exception as e:
+                        self._log("Migration 6: Table swap failed: {}".format(str(e)))
+                    self._log("Migration 6: Complete")
+                else:
+                    self._log("Migration 6: playlist_items table does not exist; skipping")
+
             self._log("All migrations applied successfully")
     
     # ======================
@@ -807,7 +943,7 @@ class DatabaseManager(object):
                 SELECT e.* FROM elements e
                 INNER JOIN favorites f ON e.element_id = f.element_fk
                 WHERE f.user_name = ? AND f.machine_name = ?
-                ORDER BY f.favorited_at DESC
+                ORDER BY f.created_at DESC
             """, (user_name or '', machine_name or ''))
             return [dict(row) for row in cursor.fetchall()]
     

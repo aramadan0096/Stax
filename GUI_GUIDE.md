@@ -1,4 +1,4 @@
-# VFX Asset Hub - GUI Features Guide
+# Stax - GUI Features Guide
 
 ## Main Window Layout
 

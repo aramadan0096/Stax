@@ -239,7 +239,7 @@ password_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
 1. Application starts
 2. Login dialog appears with hint: "Default: admin / admin"
 3. User logs in as admin
-4. Window title updates: "VFX Asset Hub - admin (Admin)"
+4. Window title updates: "Stax - admin (Admin)"
 
 **Permission Denied Scenario**:
 1. Guest or regular user tries to delete element

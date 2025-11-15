@@ -1,4 +1,4 @@
-# VFX Asset Hub - Progress Report
+# Stax - Progress Report
 **Date:** December 2024  
 **Phase:** Alpha MVP → Beta Transition  
 **Status:** 🟢 On Track
@@ -7,7 +7,7 @@
 
 ## Executive Summary
 
-VFX Asset Hub has successfully completed **Alpha MVP** implementation with all core modules functional and a complete GUI application. The project is transitioning into **Beta** phase with advanced features being added.
+Stax has successfully completed **Alpha MVP** implementation with all core modules functional and a complete GUI application. The project is transitioning into **Beta** phase with advanced features being added.
 
 ### Key Metrics
 - **Total Lines of Code:** ~4,000+ lines
@@ -254,7 +254,7 @@ None - Application runs without errors in mock mode.
 
 ## Conclusion
 
-**VFX Asset Hub is on track for Beta release with solid Alpha MVP foundation complete.** All core systems are functional, the GUI is feature-rich and stable, and the architecture is sound. The next phase focuses on workflow enhancements (drag-and-drop, favorites, bulk operations) before moving to RC testing and packaging.
+**Stax is on track for Beta release with solid Alpha MVP foundation complete.** All core systems are functional, the GUI is feature-rich and stable, and the architecture is sound. The next phase focuses on workflow enhancements (drag-and-drop, favorites, bulk operations) before moving to RC testing and packaging.
 
 **Estimated Beta Completion:** 2-3 weeks  
 **Estimated RC Release:** 4-6 weeks

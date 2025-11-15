@@ -1618,6 +1618,18 @@ class MediaDisplayWidget(QtWidgets.QWidget):
     
     def _update_gif_frame(self, item, movie):
         """Update item icon with current GIF frame."""
+        # Check if item still exists (prevent RuntimeError)
+        try:
+            if not item or not movie:
+                return
+            # Try to access item data to verify it's still valid
+            _ = item.data(QtCore.Qt.UserRole)
+        except RuntimeError:
+            # Item has been deleted, stop the movie
+            if movie:
+                movie.stop()
+            return
+        
         pixmap = movie.currentPixmap()
         if not pixmap.isNull():
             # Scale to icon size
@@ -1627,7 +1639,12 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 QtCore.Qt.KeepAspectRatio,
                 QtCore.Qt.SmoothTransformation
             )
-            item.setIcon(QtGui.QIcon(scaled_pixmap))
+            try:
+                item.setIcon(QtGui.QIcon(scaled_pixmap))
+            except RuntimeError:
+                # Item was deleted during icon update
+                if movie:
+                    movie.stop()
     
     def stop_current_gif(self):
         """Stop currently playing GIF and return to static first frame (Ulaavi pattern)."""
@@ -1747,11 +1764,10 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             deprecated_action = menu.addAction("↺ Unmark as Deprecated")
         else:
             deprecated_action = menu.addAction("⚠ Mark as Deprecated")
-        
+
         # Delete action
         delete_action = menu.addAction("🗑 Delete Element")
-        delete_action.setStyleSheet("color: #ff5555;")
-        
+
         # Execute menu
         action = menu.exec_(position)
         
@@ -1882,7 +1898,6 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         
         # Bulk delete
         bulk_delete_action = menu.addAction("🗑 Delete All Selected")
-        bulk_delete_action.setStyleSheet("color: #ff5555;")
         
         # Execute menu
         action = menu.exec_(QtGui.QCursor.pos())
@@ -3535,7 +3550,7 @@ class LoginDialog(QtWidgets.QDialog):
         self.db = db_manager
         self.authenticated_user = None
         
-        self.setWindowTitle("VFX Asset Hub - Login")
+        self.setWindowTitle("Stax - Login")
         self.setModal(True)
         self.setFixedSize(400, 250)
         self.setup_ui()
@@ -3546,7 +3561,7 @@ class LoginDialog(QtWidgets.QDialog):
         layout.setSpacing(15)
         
         # Logo/Title
-        title_label = QtWidgets.QLabel("VFX Asset Hub")
+        title_label = QtWidgets.QLabel("Stax")
         title_label.setStyleSheet("font-size: 24px; font-weight: bold; color: #16c6b0; padding: 10px;")
         title_label.setAlignment(QtCore.Qt.AlignCenter)
         layout.addWidget(title_label)
@@ -4135,7 +4150,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.current_user = None
         self.is_admin = False
         
-        self.setWindowTitle("VFX Asset Hub")
+        self.setWindowTitle("Stax")
         self.resize(1400, 800)
         
         # Set application icon
@@ -4292,7 +4307,7 @@ class MainWindow(QtWidgets.QMainWindow):
             # Update window title with username
             username = self.current_user['username'] if self.current_user else 'Guest'
             role_text = ' (Admin)' if self.is_admin else ''
-            self.setWindowTitle("VFX Asset Hub - {}{}".format(username, role_text))
+            self.setWindowTitle("Stax - {}{}".format(username, role_text))
             
             self.statusBar().showMessage("Logged in as: {}".format(username))
         else:
@@ -4489,8 +4504,8 @@ class MainWindow(QtWidgets.QMainWindow):
         """Show about dialog."""
         QtWidgets.QMessageBox.about(
             self,
-            "About VFX Asset Hub",
-            "<h3>VFX Asset Hub</h3>"
+            "About Stax",
+            "<h3>Stax</h3>"
             "<p>Version 0.1.0 (Alpha)</p>"
             "<p>Professional VFX asset management pipeline.</p>"
             "<p>Python 2.7 | PySide2</p>"

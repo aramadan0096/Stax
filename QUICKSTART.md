@@ -1,4 +1,4 @@
-# VFX Asset Hub - Quick Start Guide
+# Stax - Quick Start Guide
 
 ## Installation & Setup
 
