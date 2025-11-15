@@ -992,6 +992,124 @@ class StacksListsPanel(QtWidgets.QWidget):
                 QtWidgets.QMessageBox.critical(self, "Error", "Failed to delete list: {}".format(str(e)))
 
 
+class DragGalleryView(QtWidgets.QListWidget):
+    """Custom QListWidget with drag & drop support for Nuke integration."""
+    
+    def __init__(self, db_manager, nuke_bridge, parent=None):
+        super(DragGalleryView, self).__init__(parent)
+        self.db = db_manager
+        self.nuke_bridge = nuke_bridge
+        self.setDragEnabled(True)
+        self.setAcceptDrops(False)  # We don't accept drops, only drag out
+    
+    def startDrag(self, supportedActions):
+        """Override startDrag to set custom mime data with element info."""
+        selected_items = self.selectedItems()
+        if not selected_items:
+            return
+        
+        # Get element IDs from selected items
+        element_ids = []
+        for item in selected_items:
+            element_id = item.data(QtCore.Qt.UserRole)
+            if element_id:
+                element_ids.append(element_id)
+        
+        if not element_ids:
+            return
+        
+        # Create mime data with element information
+        mime_data = QtCore.QMimeData()
+        
+        # Store element IDs as text (for external drops)
+        mime_data.setText(','.join(str(eid) for eid in element_ids))
+        
+        # Create file paths list for elements
+        file_paths = []
+        for element_id in element_ids:
+            element = self.db.get_element_by_id(element_id)
+            if element:
+                # Get appropriate file path (hard copy if exists, else soft copy)
+                if element.get('is_hard_copy') and element.get('filepath_hard'):
+                    file_paths.append(element['filepath_hard'])
+                elif element.get('filepath_soft'):
+                    file_paths.append(element['filepath_soft'])
+        
+        # Set URL list for file paths (standard for drag & drop)
+        urls = [QtCore.QUrl.fromLocalFile(path) for path in file_paths]
+        mime_data.setUrls(urls)
+        
+        # Store custom data for internal processing
+        mime_data.setData('application/x-vah-elements', ','.join(str(eid) for eid in element_ids).encode('utf-8'))
+        
+        # Create drag object
+        drag = QtGui.QDrag(self)
+        drag.setMimeData(mime_data)
+        
+        # Set drag icon (use first item's icon)
+        if selected_items:
+            pixmap = selected_items[0].icon().pixmap(64, 64)
+            drag.setPixmap(pixmap)
+            drag.setHotSpot(QtCore.QPoint(32, 32))
+        
+        # Execute drag
+        drag.exec_(QtCore.Qt.CopyAction | QtCore.Qt.MoveAction)
+    
+    def insert_to_nuke(self, element_ids):
+        """
+        Insert elements into Nuke as nodes.
+        
+        Args:
+            element_ids (list): List of element IDs to insert
+        """
+        if not self.nuke_bridge.is_available():
+            print("[MOCK] Would insert {} elements into Nuke".format(len(element_ids)))
+        
+        for element_id in element_ids:
+            element = self.db.get_element_by_id(element_id)
+            if not element:
+                continue
+            
+            # Get file path
+            if element.get('is_hard_copy') and element.get('filepath_hard'):
+                filepath = element['filepath_hard']
+            else:
+                filepath = element.get('filepath_soft')
+            
+            if not filepath:
+                continue
+            
+            # Determine node type based on element type
+            element_type = element.get('type', '2D')
+            
+            if element_type == '3D':
+                # Create ReadGeo node for 3D assets
+                self.nuke_bridge.create_read_geo_node(
+                    filepath,
+                    node_name=element['name']
+                )
+            elif element_type == 'toolset':
+                # Paste toolset (.nk file) into DAG
+                self.nuke_bridge.paste_nodes_from_file(filepath)
+            else:
+                # Create Read node for 2D assets (images, sequences, videos)
+                frame_range = None
+                if element.get('frames'):
+                    try:
+                        frames = int(element['frames'])
+                        if frames > 1:
+                            # Detect frame range from sequence
+                            frame_range = "1-{}".format(frames)
+                    except (ValueError, TypeError):
+                        pass
+                
+                self.nuke_bridge.create_read_node(
+                    filepath,
+                    frame_range=frame_range,
+                    node_name=element['name']
+                )
+
+
 class MediaDisplayWidget(QtWidgets.QWidget):
     """Central widget for displaying media elements."""
     
@@ -999,11 +1117,14 @@ class MediaDisplayWidget(QtWidgets.QWidget):
     element_selected = QtCore.Signal(int)  # element_id
     element_double_clicked = QtCore.Signal(int)  # element_id
     
-    def __init__(self, db_manager, config, parent=None):
+    def __init__(self, db_manager, config, nuke_bridge, main_window=None, parent=None):
         super(MediaDisplayWidget, self).__init__(parent)
         self.db = db_manager
         self.config = config
+        self.nuke_bridge = nuke_bridge
+        self.main_window = main_window  # Reference to MainWindow for permission checks
         self.current_list_id = None
+        self.current_elements = []  # Store all elements for pagination
         self.view_mode = 'gallery'  # 'gallery' or 'list'
         self.alt_pressed = False  # Track Alt key state
         self.hover_timer = QtCore.QTimer()
@@ -1029,11 +1150,23 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         # Toolbar
         toolbar = QtWidgets.QHBoxLayout()
         
-        # Search bar
+        # Search bar with tag filtering support
+        search_container = QtWidgets.QWidget()
+        search_layout = QtWidgets.QVBoxLayout(search_container)
+        search_layout.setContentsMargins(0, 0, 0, 0)
+        
         self.search_box = QtWidgets.QLineEdit()
-        self.search_box.setPlaceholderText("Search elements...")
+        self.search_box.setPlaceholderText("Search elements... (use #tag or tag:fire for tag filtering)")
         self.search_box.textChanged.connect(self.on_search)
-        toolbar.addWidget(self.search_box)
+        search_layout.addWidget(self.search_box)
+        
+        # Search hint label
+        self.search_hint_label = QtWidgets.QLabel()
+        self.search_hint_label.setStyleSheet("color: #888888; font-size: 10px; font-style: italic;")
+        self.search_hint_label.hide()  # Hidden by default
+        search_layout.addWidget(self.search_hint_label)
+        
+        toolbar.addWidget(search_container, 1)  # Give it stretch priority
         
         # View mode toggle
         self.gallery_btn = QtWidgets.QPushButton("Gallery")
@@ -1072,13 +1205,12 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         # Stacked widget for different views
         self.view_stack = QtWidgets.QStackedWidget()
         
-        # Gallery view (grid of thumbnails)
-        self.gallery_view = QtWidgets.QListWidget()
+        # Gallery view (grid of thumbnails with drag & drop)
+        self.gallery_view = DragGalleryView(self.db, self.nuke_bridge)
         self.gallery_view.setViewMode(QtWidgets.QListView.IconMode)
         self.gallery_view.setResizeMode(QtWidgets.QListView.Adjust)
         self.gallery_view.setIconSize(QtCore.QSize(256, 256))
         self.gallery_view.setSpacing(10)
-        self.gallery_view.setDragEnabled(True)
         self.gallery_view.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)  # Multi-select
         self.gallery_view.itemClicked.connect(self.on_item_clicked)
         self.gallery_view.itemDoubleClicked.connect(self.on_item_double_clicked)
@@ -1100,6 +1232,12 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.view_stack.addWidget(self.table_view)
         
         layout.addWidget(self.view_stack)
+        
+        # Pagination widget
+        self.pagination = PaginationWidget()
+        self.pagination.page_changed.connect(self.on_page_changed)
+        self.pagination.setVisible(self.config.get('pagination_enabled', True))
+        layout.addWidget(self.pagination)
         
         # Info label
         self.info_label = QtWidgets.QLabel("Select a list to view elements")
@@ -1131,9 +1269,12 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             self.load_elements(self.current_list_id)
     
     def load_elements(self, list_id):
-        """Load elements for a list with preview caching."""
+        """Load elements for a list with preview caching and pagination."""
         self.current_list_id = list_id
         elements = self.db.get_elements_by_list(list_id)
+        
+        # Store all elements for pagination
+        self.current_elements = elements
         
         self.info_label.setVisible(len(elements) == 0)
         
@@ -1144,13 +1285,120 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             if lst:
                 self.info_label.setText("No elements in '{}'".format(lst['name']))
         
+        # Setup pagination
+        if self.config.get('pagination_enabled', True):
+            self.pagination.set_total_items(len(elements))
+            self.pagination.set_items_per_page(self.config.get('items_per_page', 100))
+            self.pagination.setVisible(len(elements) > 0)
+        else:
+            self.pagination.setVisible(False)
+        
+        # Display current page
+        self._display_current_page()
+    
+    def on_page_changed(self, page):
+        """Handle page change event."""
+        self._display_current_page()
+    
+    def _display_current_page(self):
+        """Display elements for the current page."""
+        if not self.current_elements:
+            return
+        
+        # Get page slice
+        if self.config.get('pagination_enabled', True):
+            start, end = self.pagination.get_page_slice()
+            page_elements = self.current_elements[start:end]
+        else:
+            page_elements = self.current_elements
+        
+        # Use shared method to update both views
+        self._update_views_with_elements(page_elements)
+    
+    def on_search(self, text):
+        """Handle search text change (live filter) with tag support and pagination."""
+        if not self.current_list_id:
+            return
+        
+        # Parse search query for tags
+        # Supports: #tag, tag:value, or plain text
+        text = text.strip()
+        tags_to_search = []
+        name_search = text
+        
+        # Check for tag patterns
+        if text.startswith('#'):
+            # Format: #fire or #fire,explosion
+            tags_str = text[1:]  # Remove #
+            tags_to_search = [t.strip() for t in tags_str.split(',') if t.strip()]
+            name_search = ''
+            self.search_hint_label.setText("Filtering by tags: " + ", ".join(tags_to_search))
+            self.search_hint_label.show()
+        elif 'tag:' in text.lower():
+            # Format: tag:fire or tag:fire,explosion
+            parts = text.lower().split('tag:', 1)
+            if len(parts) > 1:
+                tags_str = parts[1]
+                tags_to_search = [t.strip() for t in tags_str.split(',') if t.strip()]
+                name_search = parts[0].strip()
+                self.search_hint_label.setText("Filtering by tags: " + ", ".join(tags_to_search))
+                self.search_hint_label.show()
+        else:
+            self.search_hint_label.hide()
+        
+        # Get elements
+        if tags_to_search:
+            # Search by tags first
+            elements = self.db.search_elements_by_tags(tags_to_search, match_all=False)
+            # Filter by list
+            elements = [e for e in elements if e['list_fk'] == self.current_list_id]
+            
+            # Further filter by name if provided
+            if name_search:
+                elements = [e for e in elements if name_search.lower() in e['name'].lower()]
+        else:
+            # Regular name search
+            elements = self.db.get_elements_by_list(self.current_list_id)
+            if name_search:
+                elements = [e for e in elements if name_search.lower() in e['name'].lower()]
+        
+        # Store filtered elements for pagination
+        self.current_elements = elements
+        
+        # Setup pagination for filtered results
+        if self.config.get('pagination_enabled', True):
+            self.pagination.set_total_items(len(elements))
+            self.pagination.setVisible(len(elements) > 0)
+        else:
+            self.pagination.setVisible(False)
+        
+        # Display current page
+        self._display_current_page()
+    
+    
+    def _update_views_with_elements(self, elements):
+        """Update gallery and table views with given elements."""
         # Update gallery view with cached previews
         self.gallery_view.clear()
         icon_size = self.gallery_view.iconSize()
         
         for element in elements:
             item = QtWidgets.QListWidgetItem()
-            item.setText(element['name'])
+            
+            # Add visual indicator for favorites and deprecated
+            display_name = element['name']
+            if self.db.is_favorite(element['element_id']):
+                display_name = u"⭐ " + display_name
+            if element.get('is_deprecated'):
+                display_name = u"⚠ " + display_name
+            
+            # Add tags as suffix if present
+            if element.get('tags'):
+                tag_list = [t.strip() for t in element['tags'].split(',') if t.strip()]
+                if tag_list:
+                    display_name += u" [" + ", ".join(tag_list[:3]) + u"]"  # Show first 3 tags
+            
+            item.setText(display_name)
             item.setData(QtCore.Qt.UserRole, element['element_id'])
             
             # Check if GIF preview exists
@@ -1221,64 +1469,14 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         # Update table view
         self.table_view.setRowCount(len(elements))
         for row, element in enumerate(elements):
-            self.table_view.setItem(row, 0, QtWidgets.QTableWidgetItem(element['name']))
-            self.table_view.setItem(row, 1, QtWidgets.QTableWidgetItem(element['format'] or ''))
-            self.table_view.setItem(row, 2, QtWidgets.QTableWidgetItem(element['frame_range'] or ''))
-            self.table_view.setItem(row, 3, QtWidgets.QTableWidgetItem(element['type']))
+            # Name with indicators
+            name_text = element['name']
+            if self.db.is_favorite(element['element_id']):
+                name_text = u"⭐ " + name_text
+            if element.get('is_deprecated'):
+                name_text = u"⚠ " + name_text
             
-            # Format file size
-            size_str = ''
-            if element['file_size']:
-                size_mb = element['file_size'] / (1024.0 * 1024.0)
-                if size_mb < 1024:
-                    size_str = "{:.1f} MB".format(size_mb)
-                else:
-                    size_str = "{:.2f} GB".format(size_mb / 1024.0)
-            self.table_view.setItem(row, 4, QtWidgets.QTableWidgetItem(size_str))
-            
-            self.table_view.setItem(row, 5, QtWidgets.QTableWidgetItem(element['comment'] or ''))
-            
-            # Store element_id in first column
-            self.table_view.item(row, 0).setData(QtCore.Qt.UserRole, element['element_id'])
-    
-    def on_search(self, text):
-        """Handle search text change (live filter)."""
-        if not self.current_list_id:
-            return
-        
-        # Get all elements
-        elements = self.db.get_elements_by_list(self.current_list_id)
-        
-        # Filter by search text
-        if text:
-            filtered = [e for e in elements if text.lower() in e['name'].lower()]
-        else:
-            filtered = elements
-        
-        # Update gallery view
-        self.gallery_view.clear()
-        for element in filtered:
-            item = QtWidgets.QListWidgetItem()
-            item.setText(element['name'])
-            item.setData(QtCore.Qt.UserRole, element['element_id'])
-            
-            if element['preview_path'] and os.path.exists(element['preview_path']):
-                pixmap = QtGui.QPixmap(element['preview_path'])
-                item.setIcon(QtGui.QIcon(pixmap))
-            else:
-                if element['type'] == '2D':
-                    item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon))
-                elif element['type'] == '3D':
-                    item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DriveFDIcon))
-                else:
-                    item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_FileDialogDetailedView))
-            
-            self.gallery_view.addItem(item)
-        
-        # Update table view
-        self.table_view.setRowCount(len(filtered))
-        for row, element in enumerate(filtered):
-            self.table_view.setItem(row, 0, QtWidgets.QTableWidgetItem(element['name']))
+            self.table_view.setItem(row, 0, QtWidgets.QTableWidgetItem(name_text))
             self.table_view.setItem(row, 1, QtWidgets.QTableWidgetItem(element['format'] or ''))
             self.table_view.setItem(row, 2, QtWidgets.QTableWidgetItem(element['frame_range'] or ''))
             self.table_view.setItem(row, 3, QtWidgets.QTableWidgetItem(element['type']))
@@ -1292,7 +1490,12 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                     size_str = "{:.2f} GB".format(size_mb / 1024.0)
             self.table_view.setItem(row, 4, QtWidgets.QTableWidgetItem(size_str))
             
-            self.table_view.setItem(row, 5, QtWidgets.QTableWidgetItem(element['comment'] or ''))
+            # Comment with tags
+            comment_text = element['comment'] or ''
+            if element.get('tags'):
+                comment_text += " [Tags: " + element['tags'] + "]"
+            self.table_view.setItem(row, 5, QtWidgets.QTableWidgetItem(comment_text))
+            
             self.table_view.item(row, 0).setData(QtCore.Qt.UserRole, element['element_id'])
     
     def on_item_clicked(self, item):
@@ -1460,7 +1663,8 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 self.media_popup.show_element(element_data, cursor_pos)
     
     def on_popup_insert(self, element_id):
-        """Handle insert request from popup."""
+        """Handle insert request from popup - insert element into Nuke."""
+        self.gallery_view.insert_to_nuke([element_id])
         self.element_double_clicked.emit(element_id)
     
     def on_popup_reveal(self, filepath):
@@ -1602,7 +1806,11 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             QtWidgets.QMessageBox.critical(self, "Error", "Failed to update element: {}".format(str(e)))
     
     def delete_element(self, element_id):
-        """Delete element after confirmation."""
+        """Delete element after confirmation (admin only)."""
+        # Check admin permission
+        if self.main_window and not self.main_window.check_admin_permission("delete elements"):
+            return
+        
         try:
             element = self.db.get_element_by_id(element_id)
             if not element:
@@ -1985,89 +2193,65 @@ class HistoryPanel(QtWidgets.QWidget):
 
 
 class SettingsPanel(QtWidgets.QWidget):
-    """Panel for application settings."""
+    """Comprehensive panel for application settings with tabbed interface."""
     
     settings_changed = QtCore.Signal()
     
-    def __init__(self, config, parent=None):
+    def __init__(self, config, db_manager, main_window=None, parent=None):
         super(SettingsPanel, self).__init__(parent)
         self.config = config
+        self.db = db_manager
+        self.main_window = main_window  # For permission checks
         self.setup_ui()
     
     def setup_ui(self):
-        """Setup UI components."""
+        """Setup UI components with tabs."""
         layout = QtWidgets.QVBoxLayout(self)
         
         # Title
-        title = QtWidgets.QLabel("Settings")
-        title.setStyleSheet("font-weight: bold; font-size: 14px;")
+        title = QtWidgets.QLabel("Application Settings")
+        title.setStyleSheet("font-weight: bold; font-size: 16px; color: #16c6b0; padding: 10px;")
         layout.addWidget(title)
         
-        # Scroll area for settings
-        scroll = QtWidgets.QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll_widget = QtWidgets.QWidget()
-        scroll_layout = QtWidgets.QFormLayout(scroll_widget)
+        # Tab widget for organized settings
+        self.tab_widget = QtWidgets.QTabWidget()
+        self.tab_widget.setStyleSheet("QTabWidget::pane { border: 1px solid #333; }")
         
-        # Ingestion settings
-        group1 = QtWidgets.QGroupBox("Ingestion Settings")
-        group1_layout = QtWidgets.QFormLayout()
+        # Tab 1: General Settings
+        self.setup_general_tab()
         
-        self.copy_policy = QtWidgets.QComboBox()
-        self.copy_policy.addItems(['soft', 'hard'])
-        self.copy_policy.setCurrentText(self.config.get('default_copy_policy'))
-        group1_layout.addRow("Default Copy Policy:", self.copy_policy)
+        # Tab 2: Ingestion Settings
+        self.setup_ingestion_tab()
         
-        self.auto_detect = QtWidgets.QCheckBox()
-        self.auto_detect.setChecked(self.config.get('auto_detect_sequences'))
-        group1_layout.addRow("Auto-detect Sequences:", self.auto_detect)
+        # Tab 3: Preview & Media Settings
+        self.setup_preview_tab()
         
-        self.gen_previews = QtWidgets.QCheckBox()
-        self.gen_previews.setChecked(self.config.get('generate_previews'))
-        group1_layout.addRow("Generate Previews:", self.gen_previews)
+        # Tab 4: Network & Performance
+        self.setup_network_tab()
         
-        group1.setLayout(group1_layout)
-        scroll_layout.addRow(group1)
+        # Tab 5: Custom Processors
+        self.setup_processors_tab()
         
-        # Processor hooks
-        group2 = QtWidgets.QGroupBox("Custom Processors")
-        group2_layout = QtWidgets.QFormLayout()
+        # Tab 6: Security & Admin (Admin only)
+        self.setup_security_tab()
         
-        self.pre_ingest = QtWidgets.QLineEdit(self.config.get('pre_ingest_processor') or '')
-        pre_ingest_browse = QtWidgets.QPushButton("Browse...")
-        pre_ingest_browse.clicked.connect(lambda: self.browse_file(self.pre_ingest))
-        pre_layout = QtWidgets.QHBoxLayout()
-        pre_layout.addWidget(self.pre_ingest)
-        pre_layout.addWidget(pre_ingest_browse)
-        group2_layout.addRow("Pre-Ingest Hook:", pre_layout)
+        layout.addWidget(self.tab_widget)
         
-        self.post_ingest = QtWidgets.QLineEdit(self.config.get('post_ingest_processor') or '')
-        post_ingest_browse = QtWidgets.QPushButton("Browse...")
-        post_ingest_browse.clicked.connect(lambda: self.browse_file(self.post_ingest))
-        post_layout = QtWidgets.QHBoxLayout()
-        post_layout.addWidget(self.post_ingest)
-        post_layout.addWidget(post_ingest_browse)
-        group2_layout.addRow("Post-Ingest Hook:", post_layout)
-        
-        self.post_import = QtWidgets.QLineEdit(self.config.get('post_import_processor') or '')
-        post_import_browse = QtWidgets.QPushButton("Browse...")
-        post_import_browse.clicked.connect(lambda: self.browse_file(self.post_import))
-        import_layout = QtWidgets.QHBoxLayout()
-        import_layout.addWidget(self.post_import)
-        import_layout.addWidget(post_import_browse)
-        group2_layout.addRow("Post-Import Hook:", import_layout)
-        
-        group2.setLayout(group2_layout)
-        scroll_layout.addRow(group2)
-        
-        scroll.setWidget(scroll_widget)
-        layout.addWidget(scroll)
-        
-        # Buttons
+        # Bottom buttons
         button_layout = QtWidgets.QHBoxLayout()
         
-        save_btn = QtWidgets.QPushButton("Save")
-        save_btn.clicked.connect(self.save_settings)
+        save_btn = QtWidgets.QPushButton("💾 Save All Settings")
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #16c6b0;
+                color: white;
+                font-weight: bold;
+                padding: 8px 20px;
+                border-radius: 3px;
+            }
+            QPushButton:hover { background-color: #14b39e; }
+        """)
+        save_btn.clicked.connect(self.save_all_settings)
         button_layout.addWidget(save_btn)
         
         reset_btn = QtWidgets.QPushButton("Reset to Defaults")
@@ -2075,7 +2259,404 @@ class SettingsPanel(QtWidgets.QWidget):
         button_layout.addWidget(reset_btn)
         
         button_layout.addStretch()
+        
+        # Current user indicator
+        if self.main_window and self.main_window.current_user:
+            user_label = QtWidgets.QLabel("Logged in as: {}".format(
+                self.main_window.current_user['username']
+            ))
+            user_label.setStyleSheet("color: #888; font-size: 11px;")
+            button_layout.addWidget(user_label)
+        
         layout.addLayout(button_layout)
+    
+    def setup_general_tab(self):
+        """Setup general settings tab."""
+        tab = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(tab)
+        layout.setSpacing(15)
+        
+        # Database location
+        db_group = QtWidgets.QGroupBox("Database Configuration")
+        db_layout = QtWidgets.QFormLayout()
+        
+        self.db_path_edit = QtWidgets.QLineEdit(self.config.get('database_path'))
+        self.db_path_edit.setReadOnly(True)
+        db_path_layout = QtWidgets.QHBoxLayout()
+        db_path_layout.addWidget(self.db_path_edit)
+        
+        browse_db_btn = QtWidgets.QPushButton("Browse...")
+        browse_db_btn.clicked.connect(self.browse_database_path)
+        db_path_layout.addWidget(browse_db_btn)
+        
+        db_layout.addRow("Database Path:", db_path_layout)
+        
+        # Environment variable hint
+        env_hint = QtWidgets.QLabel("Tip: Set STOCK_DB environment variable to override")
+        env_hint.setStyleSheet("color: #16c6b0; font-size: 10px; font-style: italic;")
+        db_layout.addRow("", env_hint)
+        
+        db_group.setLayout(db_layout)
+        layout.addWidget(db_group)
+        
+        # User preferences
+        pref_group = QtWidgets.QGroupBox("User Preferences")
+        pref_layout = QtWidgets.QFormLayout()
+        
+        self.user_name_edit = QtWidgets.QLineEdit(self.config.get('user_name') or '')
+        pref_layout.addRow("User Name:", self.user_name_edit)
+        
+        import socket
+        self.machine_name_edit = QtWidgets.QLineEdit(self.config.get('machine_name') or socket.gethostname())
+        self.machine_name_edit.setReadOnly(True)
+        pref_layout.addRow("Machine Name:", self.machine_name_edit)
+        
+        pref_group.setLayout(pref_layout)
+        layout.addWidget(pref_group)
+        
+        layout.addStretch()
+        self.tab_widget.addTab(tab, "General")
+    
+    def setup_ingestion_tab(self):
+        """Setup ingestion settings tab."""
+        tab = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(tab)
+        
+        # Copy policy
+        policy_group = QtWidgets.QGroupBox("File Copy Policy")
+        policy_layout = QtWidgets.QFormLayout()
+        
+        self.copy_policy = QtWidgets.QComboBox()
+        self.copy_policy.addItems(['soft', 'hard'])
+        self.copy_policy.setCurrentText(self.config.get('default_copy_policy'))
+        policy_layout.addRow("Default Copy Policy:", self.copy_policy)
+        
+        policy_help = QtWidgets.QLabel(
+            "• Soft: Store reference to original file location\n"
+            "• Hard: Copy file to repository"
+        )
+        policy_help.setStyleSheet("color: #888; font-size: 11px;")
+        policy_layout.addRow("", policy_help)
+        
+        policy_group.setLayout(policy_layout)
+        layout.addWidget(policy_group)
+        
+        # Sequence detection
+        seq_group = QtWidgets.QGroupBox("Sequence Detection")
+        seq_layout = QtWidgets.QFormLayout()
+        
+        self.auto_detect = QtWidgets.QCheckBox("Auto-detect image sequences")
+        self.auto_detect.setChecked(self.config.get('auto_detect_sequences'))
+        seq_layout.addRow("", self.auto_detect)
+        
+        seq_group.setLayout(seq_layout)
+        layout.addWidget(seq_group)
+        
+        layout.addStretch()
+        self.tab_widget.addTab(tab, "Ingestion")
+    
+    def setup_preview_tab(self):
+        """Setup preview and media settings tab."""
+        tab = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(tab)
+        
+        # Preview generation
+        prev_group = QtWidgets.QGroupBox("Preview Generation")
+        prev_layout = QtWidgets.QFormLayout()
+        
+        self.gen_previews = QtWidgets.QCheckBox("Generate preview thumbnails")
+        self.gen_previews.setChecked(self.config.get('generate_previews'))
+        prev_layout.addRow("", self.gen_previews)
+        
+        self.preview_size = QtWidgets.QSpinBox()
+        self.preview_size.setRange(128, 2048)
+        self.preview_size.setValue(self.config.get('preview_size', 512))
+        self.preview_size.setSuffix(" px")
+        prev_layout.addRow("Preview Size:", self.preview_size)
+        
+        self.preview_quality = QtWidgets.QSpinBox()
+        self.preview_quality.setRange(1, 100)
+        self.preview_quality.setValue(self.config.get('preview_quality', 85))
+        self.preview_quality.setSuffix(" %")
+        prev_layout.addRow("JPEG Quality:", self.preview_quality)
+        
+        prev_group.setLayout(prev_layout)
+        layout.addWidget(prev_group)
+        
+        # GIF settings
+        gif_group = QtWidgets.QGroupBox("Animated GIF Settings")
+        gif_layout = QtWidgets.QFormLayout()
+        
+        self.gif_size = QtWidgets.QSpinBox()
+        self.gif_size.setRange(128, 512)
+        self.gif_size.setValue(self.config.get('gif_size', 256))
+        self.gif_size.setSuffix(" px")
+        gif_layout.addRow("GIF Size:", self.gif_size)
+        
+        self.gif_fps = QtWidgets.QSpinBox()
+        self.gif_fps.setRange(5, 30)
+        self.gif_fps.setValue(self.config.get('gif_fps', 10))
+        self.gif_fps.setSuffix(" fps")
+        gif_layout.addRow("GIF Frame Rate:", self.gif_fps)
+        
+        self.gif_duration = QtWidgets.QDoubleSpinBox()
+        self.gif_duration.setRange(1.0, 10.0)
+        self.gif_duration.setValue(self.config.get('gif_duration', 3.0))
+        self.gif_duration.setSuffix(" sec")
+        gif_layout.addRow("GIF Duration:", self.gif_duration)
+        
+        gif_group.setLayout(gif_layout)
+        layout.addWidget(gif_group)
+        
+        # FFmpeg settings
+        ffmpeg_group = QtWidgets.QGroupBox("FFmpeg Settings")
+        ffmpeg_layout = QtWidgets.QFormLayout()
+        
+        self.ffmpeg_threads = QtWidgets.QSpinBox()
+        self.ffmpeg_threads.setRange(1, 16)
+        self.ffmpeg_threads.setValue(self.config.get('ffmpeg_threads', 4))
+        self.ffmpeg_threads.setSuffix(" threads")
+        ffmpeg_layout.addRow("Thread Count:", self.ffmpeg_threads)
+        
+        thread_help = QtWidgets.QLabel("Higher values = faster processing, more CPU usage")
+        thread_help.setStyleSheet("color: #888; font-size: 10px; font-style: italic;")
+        ffmpeg_layout.addRow("", thread_help)
+        
+        ffmpeg_group.setLayout(ffmpeg_layout)
+        layout.addWidget(ffmpeg_group)
+        
+        layout.addStretch()
+        self.tab_widget.addTab(tab, "Preview & Media")
+    
+    def setup_network_tab(self):
+        """Setup network and performance settings tab."""
+        tab = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(tab)
+        
+        # Network settings
+        net_group = QtWidgets.QGroupBox("Network Database Settings")
+        net_layout = QtWidgets.QFormLayout()
+        
+        self.db_retries = QtWidgets.QSpinBox()
+        self.db_retries.setRange(1, 50)
+        self.db_retries.setValue(self.config.get('db_max_retries', 10))
+        net_layout.addRow("Max Connection Retries:", self.db_retries)
+        
+        self.db_timeout = QtWidgets.QSpinBox()
+        self.db_timeout.setRange(5, 300)
+        self.db_timeout.setValue(self.config.get('db_timeout', 60))
+        self.db_timeout.setSuffix(" sec")
+        net_layout.addRow("Connection Timeout:", self.db_timeout)
+        
+        net_help = QtWidgets.QLabel(
+            "These settings help handle network database access.\n"
+            "Increase values for slow/unreliable network connections."
+        )
+        net_help.setStyleSheet("color: #888; font-size: 11px;")
+        net_layout.addRow("", net_help)
+        
+        net_group.setLayout(net_layout)
+        layout.addWidget(net_group)
+        
+        # Performance settings
+        perf_group = QtWidgets.QGroupBox("Performance & Caching")
+        perf_layout = QtWidgets.QFormLayout()
+        
+        self.cache_size = QtWidgets.QSpinBox()
+        self.cache_size.setRange(50, 1000)
+        self.cache_size.setValue(self.config.get('preview_cache_size', 200))
+        self.cache_size.setSuffix(" items")
+        perf_layout.addRow("Preview Cache Size:", self.cache_size)
+        
+        self.cache_memory = QtWidgets.QSpinBox()
+        self.cache_memory.setRange(50, 1000)
+        self.cache_memory.setValue(self.config.get('preview_cache_memory_mb', 200))
+        self.cache_memory.setSuffix(" MB")
+        perf_layout.addRow("Cache Memory Limit:", self.cache_memory)
+        
+        # Pagination settings
+        self.pagination_enabled = QtWidgets.QCheckBox()
+        self.pagination_enabled.setChecked(self.config.get('pagination_enabled', True))
+        perf_layout.addRow("Enable Pagination:", self.pagination_enabled)
+        
+        self.items_per_page = QtWidgets.QComboBox()
+        self.items_per_page.addItems(['50', '100', '200', '500'])
+        self.items_per_page.setCurrentText(str(self.config.get('items_per_page', 100)))
+        perf_layout.addRow("Items Per Page:", self.items_per_page)
+        
+        self.background_loading = QtWidgets.QCheckBox()
+        self.background_loading.setChecked(self.config.get('background_thumbnail_loading', True))
+        perf_layout.addRow("Background Thumbnail Loading:", self.background_loading)
+        
+        perf_help = QtWidgets.QLabel(
+            "Pagination reduces memory usage and improves performance\n"
+            "for large element collections. Background loading prevents UI freezing."
+        )
+        perf_help.setStyleSheet("color: #888; font-size: 11px;")
+        perf_layout.addRow("", perf_help)
+        
+        perf_group.setLayout(perf_layout)
+        layout.addWidget(perf_group)
+        
+        layout.addStretch()
+        self.tab_widget.addTab(tab, "Network & Performance")
+    
+    def setup_processors_tab(self):
+        """Setup custom processors tab."""
+        tab = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(tab)
+        
+        help_label = QtWidgets.QLabel(
+            "Custom processors allow you to run Python scripts at key points in the workflow.\n"
+            "Leave blank to disable."
+        )
+        help_label.setStyleSheet("color: #16c6b0; font-size: 11px; padding: 10px;")
+        help_label.setWordWrap(True)
+        layout.addWidget(help_label)
+        
+        # Processor hooks
+        proc_group = QtWidgets.QGroupBox("Processor Hooks")
+        proc_layout = QtWidgets.QFormLayout()
+        
+        # Pre-ingest
+        self.pre_ingest = QtWidgets.QLineEdit(self.config.get('pre_ingest_processor') or '')
+        pre_layout = QtWidgets.QHBoxLayout()
+        pre_layout.addWidget(self.pre_ingest)
+        pre_browse = QtWidgets.QPushButton("Browse...")
+        pre_browse.clicked.connect(lambda: self.browse_file(self.pre_ingest))
+        pre_layout.addWidget(pre_browse)
+        proc_layout.addRow("Pre-Ingest Hook:", pre_layout)
+        
+        pre_help = QtWidgets.QLabel("Runs before file copy/metadata extraction")
+        pre_help.setStyleSheet("color: #888; font-size: 10px; font-style: italic;")
+        proc_layout.addRow("", pre_help)
+        
+        # Post-ingest
+        self.post_ingest = QtWidgets.QLineEdit(self.config.get('post_ingest_processor') or '')
+        post_layout = QtWidgets.QHBoxLayout()
+        post_layout.addWidget(self.post_ingest)
+        post_browse = QtWidgets.QPushButton("Browse...")
+        post_browse.clicked.connect(lambda: self.browse_file(self.post_ingest))
+        post_layout.addWidget(post_browse)
+        proc_layout.addRow("Post-Ingest Hook:", post_layout)
+        
+        post_help = QtWidgets.QLabel("Runs after asset is cataloged in database")
+        post_help.setStyleSheet("color: #888; font-size: 10px; font-style: italic;")
+        proc_layout.addRow("", post_help)
+        
+        # Post-import
+        self.post_import = QtWidgets.QLineEdit(self.config.get('post_import_processor') or '')
+        import_layout = QtWidgets.QHBoxLayout()
+        import_layout.addWidget(self.post_import)
+        import_browse = QtWidgets.QPushButton("Browse...")
+        import_browse.clicked.connect(lambda: self.browse_file(self.post_import))
+        import_layout.addWidget(import_browse)
+        proc_layout.addRow("Post-Import Hook:", import_layout)
+        
+        import_help = QtWidgets.QLabel("Runs after Nuke node creation")
+        import_help.setStyleSheet("color: #888; font-size: 10px; font-style: italic;")
+        proc_layout.addRow("", import_help)
+        
+        proc_group.setLayout(proc_layout)
+        layout.addWidget(proc_group)
+        
+        layout.addStretch()
+        self.tab_widget.addTab(tab, "Custom Processors")
+    
+    def setup_security_tab(self):
+        """Setup security and admin settings tab (Admin only)."""
+        tab = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(tab)
+        
+        # Check if admin
+        is_admin = False
+        if self.main_window and self.main_window.is_admin:
+            is_admin = True
+        
+        if not is_admin:
+            # Show locked message for non-admin users
+            lock_label = QtWidgets.QLabel(
+                "🔒 Administrator Privileges Required\n\n"
+                "This section contains sensitive settings that can only\n"
+                "be modified by users with administrator privileges.\n\n"
+                "Current user: {}\n"
+                "Role: {}".format(
+                    self.main_window.current_user['username'] if self.main_window and self.main_window.current_user else 'guest',
+                    self.main_window.current_user.get('role', 'guest') if self.main_window and self.main_window.current_user else 'guest'
+                )
+            )
+            lock_label.setAlignment(QtCore.Qt.AlignCenter)
+            lock_label.setStyleSheet("color: #ff9a3c; font-size: 13px; padding: 50px;")
+            layout.addWidget(lock_label)
+        else:
+            # Admin password change
+            pwd_group = QtWidgets.QGroupBox("Change Admin Password")
+            pwd_layout = QtWidgets.QFormLayout()
+            
+            self.current_pwd = QtWidgets.QLineEdit()
+            self.current_pwd.setEchoMode(QtWidgets.QLineEdit.Password)
+            pwd_layout.addRow("Current Password:", self.current_pwd)
+            
+            self.new_pwd = QtWidgets.QLineEdit()
+            self.new_pwd.setEchoMode(QtWidgets.QLineEdit.Password)
+            pwd_layout.addRow("New Password:", self.new_pwd)
+            
+            self.confirm_pwd = QtWidgets.QLineEdit()
+            self.confirm_pwd.setEchoMode(QtWidgets.QLineEdit.Password)
+            pwd_layout.addRow("Confirm Password:", self.confirm_pwd)
+            
+            change_pwd_btn = QtWidgets.QPushButton("Change Password")
+            change_pwd_btn.clicked.connect(self.change_admin_password)
+            pwd_layout.addRow("", change_pwd_btn)
+            
+            pwd_group.setLayout(pwd_layout)
+            layout.addWidget(pwd_group)
+            
+            # User management
+            user_group = QtWidgets.QGroupBox("User Management")
+            user_layout = QtWidgets.QVBoxLayout()
+            
+            users_label = QtWidgets.QLabel("Registered Users:")
+            users_label.setStyleSheet("font-weight: bold;")
+            user_layout.addWidget(users_label)
+            
+            self.users_list = QtWidgets.QTableWidget()
+            self.users_list.setColumnCount(4)
+            self.users_list.setHorizontalHeaderLabels(['Username', 'Role', 'Email', 'Active'])
+            self.users_list.horizontalHeader().setStretchLastSection(True)
+            self.load_users_list()
+            user_layout.addWidget(self.users_list)
+            
+            user_btn_layout = QtWidgets.QHBoxLayout()
+            
+            add_user_btn = QtWidgets.QPushButton("Add User")
+            add_user_btn.clicked.connect(self.add_user)
+            user_btn_layout.addWidget(add_user_btn)
+            
+            edit_user_btn = QtWidgets.QPushButton("Edit User")
+            edit_user_btn.clicked.connect(self.edit_user)
+            user_btn_layout.addWidget(edit_user_btn)
+            
+            deactivate_user_btn = QtWidgets.QPushButton("Deactivate User")
+            deactivate_user_btn.clicked.connect(self.deactivate_user)
+            user_btn_layout.addWidget(deactivate_user_btn)
+            
+            user_btn_layout.addStretch()
+            user_layout.addLayout(user_btn_layout)
+            
+            user_group.setLayout(user_layout)
+            layout.addWidget(user_group)
+        
+        layout.addStretch()
+        self.tab_widget.addTab(tab, "Security & Admin")
+    
+    def browse_database_path(self):
+        """Browse for database file."""
+        filename, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Select Database File", self.db_path_edit.text(), "SQLite Database (*.db)"
+        )
+        if filename:
+            self.db_path_edit.setText(filename)
     
     def browse_file(self, line_edit):
         """Browse for processor script file."""
@@ -2085,28 +2666,156 @@ class SettingsPanel(QtWidgets.QWidget):
         if filename:
             line_edit.setText(filename)
     
-    def save_settings(self):
-        """Save settings to config."""
+    def load_users_list(self):
+        """Load users into table."""
+        if not hasattr(self, 'users_list'):
+            return
+        
+        users = self.db.get_all_users()
+        self.users_list.setRowCount(len(users))
+        
+        for row, user in enumerate(users):
+            self.users_list.setItem(row, 0, QtWidgets.QTableWidgetItem(user['username']))
+            self.users_list.setItem(row, 1, QtWidgets.QTableWidgetItem(user['role']))
+            self.users_list.setItem(row, 2, QtWidgets.QTableWidgetItem(user.get('email', '') or ''))
+            self.users_list.setItem(row, 3, QtWidgets.QTableWidgetItem('Yes' if user['is_active'] else 'No'))
+            
+            # Store user_id in first column
+            self.users_list.item(row, 0).setData(QtCore.Qt.UserRole, user['user_id'])
+    
+    def add_user(self):
+        """Add new user dialog."""
+        # TODO: Implement AddUserDialog
+        QtWidgets.QMessageBox.information(self, "Coming Soon", "User management dialog will be implemented.")
+    
+    def edit_user(self):
+        """Edit selected user."""
+        # TODO: Implement EditUserDialog
+        QtWidgets.QMessageBox.information(self, "Coming Soon", "User editing dialog will be implemented.")
+    
+    def deactivate_user(self):
+        """Deactivate selected user."""
+        current_row = self.users_list.currentRow()
+        if current_row < 0:
+            QtWidgets.QMessageBox.warning(self, "No Selection", "Please select a user to deactivate.")
+            return
+        
+        user_id = self.users_list.item(current_row, 0).data(QtCore.Qt.UserRole)
+        username = self.users_list.item(current_row, 0).text()
+        
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "Confirm Deactivation",
+            "Are you sure you want to deactivate user '{}'?".format(username),
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
+        )
+        
+        if reply == QtWidgets.QMessageBox.Yes:
+            self.db.delete_user(user_id)
+            self.load_users_list()
+            QtWidgets.QMessageBox.information(self, "Success", "User deactivated successfully.")
+    
+    def change_admin_password(self):
+        """Change admin password."""
+        current = self.current_pwd.text()
+        new = self.new_pwd.text()
+        confirm = self.confirm_pwd.text()
+        
+        if not current or not new or not confirm:
+            QtWidgets.QMessageBox.warning(self, "Invalid Input", "Please fill all password fields.")
+            return
+        
+        if new != confirm:
+            QtWidgets.QMessageBox.warning(self, "Password Mismatch", "New password and confirmation do not match.")
+            return
+        
+        if len(new) < 4:
+            QtWidgets.QMessageBox.warning(self, "Weak Password", "Password must be at least 4 characters.")
+            return
+        
+        # Verify current password
+        if self.main_window and self.main_window.current_user:
+            user = self.db.authenticate_user(
+                self.main_window.current_user['username'],
+                current
+            )
+            
+            if not user:
+                QtWidgets.QMessageBox.warning(self, "Invalid Password", "Current password is incorrect.")
+                return
+            
+            # Change password
+            self.db.change_user_password(user['user_id'], new)
+            
+            # Clear fields
+            self.current_pwd.clear()
+            self.new_pwd.clear()
+            self.confirm_pwd.clear()
+            
+            QtWidgets.QMessageBox.information(self, "Success", "Admin password changed successfully!")
+    
+    def save_all_settings(self):
+        """Save all settings to config."""
+        # General settings
+        self.config.set('database_path', self.db_path_edit.text())
+        self.config.set('user_name', self.user_name_edit.text())
+        
+        # Ingestion settings
         self.config.set('default_copy_policy', self.copy_policy.currentText())
         self.config.set('auto_detect_sequences', self.auto_detect.isChecked())
+        
+        # Preview settings
         self.config.set('generate_previews', self.gen_previews.isChecked())
+        self.config.set('preview_size', self.preview_size.value())
+        self.config.set('preview_quality', self.preview_quality.value())
+        self.config.set('gif_size', self.gif_size.value())
+        self.config.set('gif_fps', self.gif_fps.value())
+        self.config.set('gif_duration', self.gif_duration.value())
+        self.config.set('ffmpeg_threads', self.ffmpeg_threads.value())
+        
+        # Network and performance settings
+        self.config.set('db_max_retries', self.db_retries.value())
+        self.config.set('db_timeout', self.db_timeout.value())
+        self.config.set('preview_cache_size', self.cache_size.value())
+        self.config.set('preview_cache_memory_mb', self.cache_memory.value())
+        self.config.set('pagination_enabled', self.pagination_enabled.isChecked())
+        self.config.set('items_per_page', int(self.items_per_page.currentText()))
+        self.config.set('background_thumbnail_loading', self.background_loading.isChecked())
+        
+        # Processor hooks
         self.config.set('pre_ingest_processor', self.pre_ingest.text() or None)
         self.config.set('post_ingest_processor', self.post_ingest.text() or None)
         self.config.set('post_import_processor', self.post_import.text() or None)
         
-        QtWidgets.QMessageBox.information(self, "Settings Saved", "Settings have been saved successfully.")
+        QtWidgets.QMessageBox.information(
+            self,
+            "Settings Saved",
+            "All settings have been saved successfully.\n\n"
+            "Some changes may require restarting the application."
+        )
         self.settings_changed.emit()
     
     def reset_settings(self):
         """Reset settings to defaults."""
         reply = QtWidgets.QMessageBox.question(
             self, "Reset Settings",
-            "Are you sure you want to reset all settings to defaults?",
+            "Are you sure you want to reset all settings to defaults?\n\n"
+            "This will not affect your database or user accounts.",
             QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
         )
         if reply == QtWidgets.QMessageBox.Yes:
             self.config.reset_to_defaults()
-            self.setup_ui()  # Reload UI
+            
+            # Recreate UI to reload defaults
+            # Clear layout
+            while self.layout().count():
+                child = self.layout().takeAt(0)
+                if child.widget():
+                    child.widget().deleteLater()
+            
+            # Rebuild UI
+            self.setup_ui()
+            
             QtWidgets.QMessageBox.information(self, "Settings Reset", "Settings have been reset to defaults.")
             self.settings_changed.emit()
 
@@ -2800,6 +3509,147 @@ class AddToPlaylistDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.critical(self, "Error", "Failed to add element: {}".format(str(e)))
 
 
+class LoginDialog(QtWidgets.QDialog):
+    """Login dialog for user authentication."""
+    
+    def __init__(self, db_manager, parent=None):
+        super(LoginDialog, self).__init__(parent)
+        self.db = db_manager
+        self.authenticated_user = None
+        
+        self.setWindowTitle("VFX Asset Hub - Login")
+        self.setModal(True)
+        self.setFixedSize(400, 250)
+        self.setup_ui()
+    
+    def setup_ui(self):
+        """Setup UI components."""
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setSpacing(15)
+        
+        # Logo/Title
+        title_label = QtWidgets.QLabel("VFX Asset Hub")
+        title_label.setStyleSheet("font-size: 24px; font-weight: bold; color: #16c6b0; padding: 10px;")
+        title_label.setAlignment(QtCore.Qt.AlignCenter)
+        layout.addWidget(title_label)
+        
+        subtitle_label = QtWidgets.QLabel("Please login to continue")
+        subtitle_label.setStyleSheet("color: #888888; font-size: 12px;")
+        subtitle_label.setAlignment(QtCore.Qt.AlignCenter)
+        layout.addWidget(subtitle_label)
+        
+        # Form layout
+        form = QtWidgets.QFormLayout()
+        form.setSpacing(10)
+        
+        # Username
+        self.username_edit = QtWidgets.QLineEdit()
+        self.username_edit.setPlaceholderText("Enter username")
+        self.username_edit.setMinimumHeight(30)
+        form.addRow("Username:", self.username_edit)
+        
+        # Password
+        self.password_edit = QtWidgets.QLineEdit()
+        self.password_edit.setPlaceholderText("Enter password")
+        self.password_edit.setEchoMode(QtWidgets.QLineEdit.Password)
+        self.password_edit.setMinimumHeight(30)
+        self.password_edit.returnPressed.connect(self.attempt_login)
+        form.addRow("Password:", self.password_edit)
+        
+        layout.addLayout(form)
+        
+        # Error label
+        self.error_label = QtWidgets.QLabel()
+        self.error_label.setStyleSheet("color: #ff6b6b; font-size: 11px;")
+        self.error_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.error_label.hide()
+        layout.addWidget(self.error_label)
+        
+        layout.addStretch()
+        
+        # Button box
+        button_layout = QtWidgets.QHBoxLayout()
+        
+        login_btn = QtWidgets.QPushButton("Login")
+        login_btn.setMinimumHeight(35)
+        login_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #16c6b0;
+                color: white;
+                font-weight: bold;
+                border: none;
+                border-radius: 3px;
+                padding: 5px 20px;
+            }
+            QPushButton:hover {
+                background-color: #14b39e;
+            }
+            QPushButton:pressed {
+                background-color: #129a87;
+            }
+        """)
+        login_btn.clicked.connect(self.attempt_login)
+        button_layout.addWidget(login_btn)
+        
+        guest_btn = QtWidgets.QPushButton("Continue as Guest")
+        guest_btn.setMinimumHeight(35)
+        guest_btn.clicked.connect(self.continue_as_guest)
+        button_layout.addWidget(guest_btn)
+        
+        layout.addLayout(button_layout)
+        
+        # Info label
+        info_label = QtWidgets.QLabel("Default: admin / admin")
+        info_label.setStyleSheet("color: #666666; font-size: 10px; font-style: italic;")
+        info_label.setAlignment(QtCore.Qt.AlignCenter)
+        layout.addWidget(info_label)
+        
+        # Focus username
+        self.username_edit.setFocus()
+    
+    def attempt_login(self):
+        """Attempt to authenticate user."""
+        username = self.username_edit.text().strip()
+        password = self.password_edit.text()
+        
+        if not username or not password:
+            self.show_error("Please enter both username and password")
+            return
+        
+        # Authenticate
+        user = self.db.authenticate_user(username, password)
+        
+        if user:
+            self.authenticated_user = user
+            
+            # Create session
+            import socket
+            machine_name = socket.gethostname()
+            self.db.create_session(user['user_id'], machine_name)
+            
+            self.accept()
+        else:
+            self.show_error("Invalid username or password")
+            self.password_edit.clear()
+            self.password_edit.setFocus()
+    
+    def continue_as_guest(self):
+        """Continue without authentication (read-only mode)."""
+        # Create a guest user object
+        self.authenticated_user = {
+            'user_id': None,
+            'username': 'guest',
+            'role': 'user',
+            'email': None
+        }
+        self.accept()
+    
+    def show_error(self, message):
+        """Show error message."""
+        self.error_label.setText(message)
+        self.error_label.show()
+
+
 class EditElementDialog(QtWidgets.QDialog):
     """Dialog for editing element metadata."""
     
@@ -2849,10 +3699,33 @@ class EditElementDialog(QtWidgets.QDialog):
         self.comment_edit.setMaximumHeight(80)
         form.addRow("Comment:", self.comment_edit)
         
-        # Tags (editable)
+        # Tags (editable with autocomplete)
+        tags_container = QtWidgets.QWidget()
+        tags_layout = QtWidgets.QVBoxLayout(tags_container)
+        tags_layout.setContentsMargins(0, 0, 0, 0)
+        
         self.tags_edit = QtWidgets.QLineEdit()
-        self.tags_edit.setPlaceholderText("Comma-separated tags")
-        form.addRow("Tags:", self.tags_edit)
+        self.tags_edit.setPlaceholderText("Comma-separated tags (e.g., fire, explosion, outdoor)")
+        
+        # Setup autocomplete for tags
+        all_tags = self.db.get_all_tags()
+        completer = QtWidgets.QCompleter(all_tags)
+        completer.setCaseSensitivity(QtCore.Qt.CaseInsensitive)
+        completer.setCompletionMode(QtWidgets.QCompleter.PopupCompletion)
+        self.tags_edit.setCompleter(completer)
+        
+        tags_layout.addWidget(self.tags_edit)
+        
+        # Tag suggestions label
+        self.tag_suggestions_label = QtWidgets.QLabel()
+        self.tag_suggestions_label.setStyleSheet("color: #16c6b0; font-size: 10px; font-style: italic;")
+        self.tag_suggestions_label.setWordWrap(True)
+        if all_tags:
+            popular_tags = all_tags[:10]  # Show first 10
+            self.tag_suggestions_label.setText("Popular tags: " + ", ".join(popular_tags))
+        tags_layout.addWidget(self.tag_suggestions_label)
+        
+        form.addRow("Tags:", tags_container)
         
         # Deprecated checkbox
         self.deprecated_checkbox = QtWidgets.QCheckBox("Mark as Deprecated")
@@ -2903,6 +3776,319 @@ class EditElementDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.critical(self, "Error", "Failed to update element: {}".format(str(e)))
 
 
+class PaginationWidget(QtWidgets.QWidget):
+    """Pagination control widget for large element lists."""
+    
+    page_changed = QtCore.Signal(int)  # Emits current page number (0-indexed)
+    
+    def __init__(self, parent=None):
+        super(PaginationWidget, self).__init__(parent)
+        self.current_page = 0
+        self.total_pages = 0
+        self.items_per_page = 100
+        self.total_items = 0
+        
+        self.setup_ui()
+    
+    def setup_ui(self):
+        """Setup pagination UI."""
+        layout = QtWidgets.QHBoxLayout(self)
+        layout.setContentsMargins(5, 5, 5, 5)
+        
+        # First page button
+        self.first_btn = QtWidgets.QPushButton("|<")
+        self.first_btn.setMaximumWidth(40)
+        self.first_btn.clicked.connect(lambda: self.go_to_page(0))
+        layout.addWidget(self.first_btn)
+        
+        # Previous button
+        self.prev_btn = QtWidgets.QPushButton("<")
+        self.prev_btn.setMaximumWidth(40)
+        self.prev_btn.clicked.connect(self.previous_page)
+        layout.addWidget(self.prev_btn)
+        
+        # Page info label
+        self.page_label = QtWidgets.QLabel("Page 0 of 0")
+        self.page_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.page_label.setMinimumWidth(150)
+        layout.addWidget(self.page_label)
+        
+        # Next button
+        self.next_btn = QtWidgets.QPushButton(">")
+        self.next_btn.setMaximumWidth(40)
+        self.next_btn.clicked.connect(self.next_page)
+        layout.addWidget(self.next_btn)
+        
+        # Last page button
+        self.last_btn = QtWidgets.QPushButton(">|")
+        self.last_btn.setMaximumWidth(40)
+        self.last_btn.clicked.connect(lambda: self.go_to_page(self.total_pages - 1))
+        layout.addWidget(self.last_btn)
+        
+        layout.addStretch()
+        
+        # Items per page selector
+        layout.addWidget(QtWidgets.QLabel("Items per page:"))
+        self.items_combo = QtWidgets.QComboBox()
+        self.items_combo.addItems(['50', '100', '200', '500'])
+        self.items_combo.setCurrentText('100')
+        self.items_combo.currentTextChanged.connect(self.on_items_per_page_changed)
+        layout.addWidget(self.items_combo)
+        
+        # Info label (showing X-Y of Z)
+        self.info_label = QtWidgets.QLabel("")
+        self.info_label.setStyleSheet("color: #888; font-size: 11px;")
+        layout.addWidget(self.info_label)
+        
+        self.update_buttons()
+    
+    def set_total_items(self, total):
+        """Set total number of items and recalculate pages."""
+        self.total_items = total
+        self.total_pages = max(1, (total + self.items_per_page - 1) // self.items_per_page)
+        
+        # Reset to first page if current page is out of range
+        if self.current_page >= self.total_pages:
+            self.current_page = 0
+        
+        self.update_ui()
+    
+    def set_items_per_page(self, count):
+        """Set items per page."""
+        self.items_per_page = count
+        self.items_combo.setCurrentText(str(count))
+        self.set_total_items(self.total_items)  # Recalculate
+    
+    def on_items_per_page_changed(self, text):
+        """Handle items per page change."""
+        self.items_per_page = int(text)
+        self.set_total_items(self.total_items)  # Recalculate
+        self.page_changed.emit(self.current_page)
+    
+    def go_to_page(self, page):
+        """Navigate to specific page."""
+        if 0 <= page < self.total_pages and page != self.current_page:
+            self.current_page = page
+            self.update_ui()
+            self.page_changed.emit(self.current_page)
+    
+    def next_page(self):
+        """Go to next page."""
+        if self.current_page < self.total_pages - 1:
+            self.go_to_page(self.current_page + 1)
+    
+    def previous_page(self):
+        """Go to previous page."""
+        if self.current_page > 0:
+            self.go_to_page(self.current_page - 1)
+    
+    def update_ui(self):
+        """Update pagination UI elements."""
+        if self.total_items == 0:
+            self.page_label.setText("Page 0 of 0")
+            self.info_label.setText("")
+        else:
+            self.page_label.setText("Page {} of {}".format(self.current_page + 1, self.total_pages))
+            
+            # Calculate item range
+            start_item = self.current_page * self.items_per_page + 1
+            end_item = min((self.current_page + 1) * self.items_per_page, self.total_items)
+            self.info_label.setText("Showing {}-{} of {} items".format(start_item, end_item, self.total_items))
+        
+        self.update_buttons()
+    
+    def update_buttons(self):
+        """Enable/disable buttons based on current page."""
+        self.first_btn.setEnabled(self.current_page > 0)
+        self.prev_btn.setEnabled(self.current_page > 0)
+        self.next_btn.setEnabled(self.current_page < self.total_pages - 1)
+        self.last_btn.setEnabled(self.current_page < self.total_pages - 1)
+    
+    def get_page_slice(self):
+        """Get (start, end) indices for current page."""
+        start = self.current_page * self.items_per_page
+        end = min(start + self.items_per_page, self.total_items)
+        return start, end
+
+
+class RegisterToolsetDialog(QtWidgets.QDialog):
+    """Dialog for registering selected Nuke nodes as a toolset."""
+    
+    def __init__(self, db_manager, nuke_bridge, config, parent=None):
+        super(RegisterToolsetDialog, self).__init__(parent)
+        self.db = db_manager
+        self.nuke_bridge = nuke_bridge
+        self.config = config
+        self.toolset_path = None
+        
+        self.setWindowTitle("Register Toolset")
+        self.setMinimumWidth(500)
+        self.setup_ui()
+    
+    def setup_ui(self):
+        """Setup dialog UI."""
+        layout = QtWidgets.QVBoxLayout(self)
+        
+        # Info label
+        info_label = QtWidgets.QLabel(
+            "Save the currently selected nodes in Nuke as a reusable toolset.\n"
+            "The toolset will be saved as a .nk file and cataloged for easy access."
+        )
+        info_label.setWordWrap(True)
+        info_label.setStyleSheet("color: #888; font-size: 11px; padding: 10px; background: #2a2a2a; border-radius: 5px;")
+        layout.addWidget(info_label)
+        
+        # Form layout
+        form = QtWidgets.QFormLayout()
+        form.setSpacing(10)
+        
+        # Toolset name
+        self.name_edit = QtWidgets.QLineEdit()
+        self.name_edit.setPlaceholderText("e.g., 'Glow and Sharpen'")
+        form.addRow("Toolset Name:", self.name_edit)
+        
+        # List selection
+        self.list_combo = QtWidgets.QComboBox()
+        self.load_lists()
+        form.addRow("Save to List:", self.list_combo)
+        
+        # Comment
+        self.comment_edit = QtWidgets.QTextEdit()
+        self.comment_edit.setPlaceholderText("Optional description of the toolset...")
+        self.comment_edit.setMaximumHeight(80)
+        form.addRow("Comment:", self.comment_edit)
+        
+        # Generate preview option
+        self.gen_preview_check = QtWidgets.QCheckBox("Generate preview image")
+        self.gen_preview_check.setChecked(True)
+        self.gen_preview_check.setToolTip("Capture a preview of the node graph")
+        form.addRow("", self.gen_preview_check)
+        
+        layout.addLayout(form)
+        
+        # Button box
+        button_box = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
+        )
+        button_box.accepted.connect(self.accept_toolset)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+    
+    def load_lists(self):
+        """Load available lists into combo box."""
+        # Get all lists from all stacks
+        stacks = self.db.get_all_stacks()
+        for stack in stacks:
+            lists = self.db.get_lists_by_stack(stack['stack_id'])
+            for lst in lists:
+                self.list_combo.addItem(
+                    "{} > {}".format(stack['name'], lst['name']),
+                    lst['list_id']
+                )
+    
+    def accept_toolset(self):
+        """Save toolset and ingest into database."""
+        name = self.name_edit.text().strip()
+        if not name:
+            QtWidgets.QMessageBox.warning(self, "Missing Name", "Please enter a toolset name.")
+            return
+        
+        list_id = self.list_combo.currentData()
+        if not list_id:
+            QtWidgets.QMessageBox.warning(self, "No List", "Please select a list to save the toolset to.")
+            return
+        
+        try:
+            # Create toolset file path
+            import tempfile
+            import hashlib
+            import time
+            
+            # Generate unique filename
+            timestamp = str(int(time.time()))
+            name_hash = hashlib.md5(name.encode('utf-8')).hexdigest()[:8]
+            filename = "toolset_{}_{}.nk".format(name_hash, timestamp)
+            
+            # Save to temporary location first
+            temp_path = os.path.join(tempfile.gettempdir(), filename)
+            
+            # Save selected nodes as toolset
+            success = self.nuke_bridge.save_selected_as_toolset(temp_path)
+            
+            if not success or not os.path.exists(temp_path):
+                QtWidgets.QMessageBox.critical(self, "Error", "Failed to save toolset from Nuke.")
+                return
+            
+            # Determine final storage path
+            repository_path = self.config.get('default_repository_path')
+            if not os.path.exists(repository_path):
+                os.makedirs(repository_path)
+            
+            final_path = os.path.join(repository_path, filename)
+            
+            # Move toolset file to repository
+            import shutil
+            shutil.move(temp_path, final_path)
+            
+            # Generate preview if requested
+            preview_path = None
+            if self.gen_preview_check.isChecked():
+                preview_dir = self.config.get('preview_dir')
+                if not os.path.exists(preview_dir):
+                    os.makedirs(preview_dir)
+                
+                preview_filename = "toolset_{}_{}.png".format(name_hash, timestamp)
+                preview_path = os.path.join(preview_dir, preview_filename)
+                
+                # Capture node graph preview (if available)
+                try:
+                    self.nuke_bridge.capture_node_graph_preview(preview_path)
+                except Exception as e:
+                    print("Preview generation failed: {}".format(str(e)))
+                    preview_path = None
+            
+            # Ingest toolset into database
+            element_data = {
+                'name': name,
+                'list_fk': list_id,
+                'type': 'toolset',
+                'format': 'nk',
+                'filepath_soft': None,  # Toolset is always hard copy
+                'filepath_hard': final_path,
+                'is_hard_copy': True,
+                'preview_path': preview_path,
+                'comment': self.comment_edit.toPlainText().strip() or None,
+                'frames': 1,
+                'width': None,
+                'height': None,
+                'size_bytes': os.path.getsize(final_path)
+            }
+            
+            element_id = self.db.add_element(**element_data)
+            
+            # Log to history
+            self.db.add_history_entry(
+                'toolset_registered',
+                "Registered toolset: {}".format(name),
+                {'element_id': element_id, 'list_id': list_id}
+            )
+            
+            QtWidgets.QMessageBox.information(
+                self,
+                "Toolset Registered",
+                "Toolset '{}' has been saved and cataloged successfully!".format(name)
+            )
+            
+            self.accept()
+            
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Error",
+                "Failed to register toolset: {}".format(str(e))
+            )
+
+
 class MainWindow(QtWidgets.QMainWindow):
     """Main application window."""
     
@@ -2919,11 +4105,18 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ingestion = IngestionCore(self.db, self.config.get_all())
         self.processor_manager = ProcessorManager(self.config.get_all())
         
+        # User authentication
+        self.current_user = None
+        self.is_admin = False
+        
         self.setWindowTitle("VFX Asset Hub")
         self.resize(1400, 800)
         
         self.setup_ui()
         self.setup_shortcuts()
+        
+        # Show login dialog
+        self.show_login()
     
     def setup_ui(self):
         """Setup the main window UI."""
@@ -2944,7 +4137,7 @@ class MainWindow(QtWidgets.QMainWindow):
         main_splitter.addWidget(self.stacks_panel)
         
         # Center: Media display
-        self.media_display = MediaDisplayWidget(self.db, self.config)
+        self.media_display = MediaDisplayWidget(self.db, self.config, self.nuke_bridge, main_window=self)
         self.media_display.element_double_clicked.connect(self.on_element_double_clicked)
         main_splitter.addWidget(self.media_display)
         
@@ -2964,7 +4157,7 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Settings panel (dockable)
         self.settings_dock = QtWidgets.QDockWidget("Settings", self)
-        self.settings_panel = SettingsPanel(self.config)
+        self.settings_panel = SettingsPanel(self.config, self.db, main_window=self)
         self.settings_panel.settings_changed.connect(self.on_settings_changed)
         self.settings_dock.setWidget(self.settings_panel)
         self.settings_dock.setVisible(False)
@@ -2995,6 +4188,11 @@ class MainWindow(QtWidgets.QMainWindow):
         
         file_menu.addSeparator()
         
+        logout_action = QtWidgets.QAction("Logout", self)
+        logout_action.setShortcut("Ctrl+L")
+        logout_action.triggered.connect(self.logout)
+        file_menu.addAction(logout_action)
+        
         exit_action = QtWidgets.QAction("Exit", self)
         exit_action.setShortcut("Ctrl+Q")
         exit_action.triggered.connect(self.close)
@@ -3007,6 +4205,15 @@ class MainWindow(QtWidgets.QMainWindow):
         advanced_search_action.setShortcut("Ctrl+F")
         advanced_search_action.triggered.connect(self.show_advanced_search)
         search_menu.addAction(advanced_search_action)
+        
+        # Nuke menu
+        nuke_menu = menubar.addMenu("Nuke")
+        
+        register_toolset_action = QtWidgets.QAction("Register Selection as Toolset...", self)
+        register_toolset_action.setShortcut("Ctrl+Shift+T")
+        register_toolset_action.triggered.connect(self.register_toolset)
+        register_toolset_action.setToolTip("Save selected Nuke nodes as a reusable toolset")
+        nuke_menu.addAction(register_toolset_action)
         
         # View menu
         view_menu = menubar.addMenu("View")
@@ -3037,6 +4244,62 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Ctrl+3 for settings
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+3"), self, self.toggle_settings)
+    
+    def show_login(self):
+        """Show login dialog."""
+        login_dialog = LoginDialog(self.db, self)
+        if login_dialog.exec_():
+            self.current_user = login_dialog.authenticated_user
+            self.is_admin = self.current_user and self.current_user.get('role') == 'admin'
+            
+            # Update window title with username
+            username = self.current_user['username'] if self.current_user else 'Guest'
+            role_text = ' (Admin)' if self.is_admin else ''
+            self.setWindowTitle("VFX Asset Hub - {}{}".format(username, role_text))
+            
+            self.statusBar().showMessage("Logged in as: {}".format(username))
+        else:
+            # User cancelled login - exit application
+            QtWidgets.QApplication.quit()
+    
+    def check_admin_permission(self, action_name="this action"):
+        """
+        Check if current user has admin permissions.
+        Shows error dialog if not.
+        
+        Args:
+            action_name (str): Name of the action being attempted
+            
+        Returns:
+            bool: True if user is admin
+        """
+        if not self.is_admin:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Permission Denied",
+                "You need administrator privileges to perform {}.\n\n"
+                "Current user: {} ({})\n\n"
+                "Please login as an administrator.".format(
+                    action_name,
+                    self.current_user['username'] if self.current_user else 'guest',
+                    self.current_user.get('role', 'guest') if self.current_user else 'guest'
+                )
+            )
+            return False
+        return True
+    
+    def logout(self):
+        """Logout current user and show login dialog."""
+        if self.current_user and self.current_user.get('user_id'):
+            # End session
+            import socket
+            machine_name = socket.gethostname()
+            session = self.db.get_active_session(self.current_user['user_id'], machine_name)
+            if session:
+                self.db.end_session(session['session_id'])
+        
+        # Show login again
+        self.show_login()
     
     def toggle_history(self):
         """Toggle history panel visibility."""
@@ -3147,6 +4410,15 @@ class MainWindow(QtWidgets.QMainWindow):
         if dialog.exec_():
             # Refresh stacks/lists after library ingestion
             self.stacks_panel.load_data()
+    
+    def register_toolset(self):
+        """Open Register Toolset dialog to save selected Nuke nodes as a toolset."""
+        dialog = RegisterToolsetDialog(self.db, self.nuke_bridge, self.config, self)
+        if dialog.exec_():
+            # Refresh media display to show new toolset
+            if hasattr(self.media_display, 'current_list_id') and self.media_display.current_list_id:
+                self.media_display.load_elements(self.media_display.current_list_id)
+            self.statusBar().showMessage("Toolset registered successfully")
     
     def on_settings_changed(self):
         """Handle settings change."""

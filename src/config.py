@@ -22,6 +22,27 @@ class Config(object):
         # Preview settings
         'preview_dir': './previews',
         'preview_size': 512,
+        'preview_quality': 85,
+        
+        # GIF settings
+        'gif_size': 256,
+        'gif_fps': 10,
+        'gif_duration': 3.0,
+        
+        # FFmpeg settings
+        'ffmpeg_threads': 4,
+        
+        # Network/Database settings
+        'db_max_retries': 10,
+        'db_timeout': 60,
+        
+        # Performance/Caching settings
+        'preview_cache_size': 200,
+        'preview_cache_memory_mb': 200,
+        'pagination_enabled': True,
+        'items_per_page': 100,  # 50, 100, or 200
+        'use_virtual_scrolling': True,
+        'background_thumbnail_loading': True,
         
         # Ingestion defaults
         'default_copy_policy': 'soft',  # 'soft' or 'hard'
@@ -62,6 +83,12 @@ class Config(object):
         self.config_path = config_path
         self.config = self.DEFAULT_CONFIG.copy()
         
+        # Check for STOCK_DB environment variable (overrides database_path)
+        stock_db_env = os.environ.get('STOCK_DB')
+        if stock_db_env:
+            self.config['database_path'] = stock_db_env
+            print("Using database from STOCK_DB environment variable: {}".format(stock_db_env))
+        
         # Auto-detect user identity
         if self.config['machine_name'] is None:
             import socket
@@ -73,6 +100,10 @@ class Config(object):
         # Load existing config if available
         if os.path.exists(config_path):
             self.load()
+            
+            # Re-apply STOCK_DB override after loading config
+            if stock_db_env:
+                self.config['database_path'] = stock_db_env
         else:
             # Create default config file
             self.save()

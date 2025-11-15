@@ -233,6 +233,33 @@ class DatabaseManager(object):
                 )
             """)
             
+            # Table 8: Users and Permissions
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL CHECK(role IN ('admin', 'user')) DEFAULT 'user',
+                    email TEXT,
+                    is_active BOOLEAN DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_login TIMESTAMP
+                )
+            """)
+            
+            # Table 9: User Sessions (for tracking logged-in users)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS user_sessions (
+                    session_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_fk INTEGER NOT NULL,
+                    machine_name TEXT NOT NULL,
+                    login_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    is_active BOOLEAN DEFAULT 1,
+                    FOREIGN KEY (user_fk) REFERENCES users(user_id) ON DELETE CASCADE
+                )
+            """)
+            
             # Create indexes for performance
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_lists_stack ON lists(stack_fk)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_elements_list ON elements(list_fk)")
@@ -245,6 +272,19 @@ class DatabaseManager(object):
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_playlist_items_element ON playlist_items(element_fk)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_history_element ON ingestion_history(element_fk)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_history_status ON ingestion_history(status)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON user_sessions(user_fk)")
+            
+            # Create default admin user if no users exist (password: "admin")
+            cursor.execute("SELECT COUNT(*) as count FROM users")
+            if cursor.fetchone()['count'] == 0:
+                import hashlib
+                password_hash = hashlib.sha256("admin".encode('utf-8')).hexdigest()
+                cursor.execute(
+                    "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
+                    ("admin", password_hash, "admin")
+                )
+                self._log("Default admin user created (username: admin, password: admin)")
             
             self._log("Database schema created with optimized indexes")
     
@@ -979,4 +1019,431 @@ class DatabaseManager(object):
                 )
             conn.commit()
             return True
+    
+    # ==================== Tag Management Methods ====================
+    
+    def get_all_tags(self):
+        """
+        Get all unique tags used across all elements.
+        
+        Returns:
+            list: Sorted list of unique tags
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT tags FROM elements WHERE tags IS NOT NULL AND tags != ''")
+            
+            # Parse comma-separated tags
+            all_tags = set()
+            for row in cursor.fetchall():
+                if row['tags']:
+                    tags = [t.strip() for t in row['tags'].split(',') if t.strip()]
+                    all_tags.update(tags)
+            
+            return sorted(list(all_tags), key=lambda x: x.lower())
+    
+    def search_elements_by_tags(self, tags, match_all=False):
+        """
+        Search elements by tags.
+        
+        Args:
+            tags (list): List of tag strings to search for
+            match_all (bool): If True, element must have all tags; if False, any tag matches
+            
+        Returns:
+            list: List of matching element dicts
+        """
+        if not tags:
+            return []
+        
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            if match_all:
+                # Element must contain all specified tags
+                query = "SELECT * FROM elements WHERE "
+                conditions = []
+                params = []
+                
+                for tag in tags:
+                    conditions.append("(tags LIKE ? OR tags LIKE ? OR tags LIKE ? OR tags = ?)")
+                    # Match: start, middle, end, or exact
+                    params.extend([
+                        tag + ',%',  # At start
+                        '%,' + tag + ',%',  # In middle
+                        '%,' + tag,  # At end
+                        tag  # Exact match (single tag)
+                    ])
+                
+                query += " AND ".join(conditions)
+                cursor.execute(query, params)
+            else:
+                # Element must contain at least one tag
+                query = "SELECT * FROM elements WHERE "
+                conditions = []
+                params = []
+                
+                for tag in tags:
+                    conditions.append("(tags LIKE ? OR tags LIKE ? OR tags LIKE ? OR tags = ?)")
+                    params.extend([
+                        tag + ',%',
+                        '%,' + tag + ',%',
+                        '%,' + tag,
+                        tag
+                    ])
+                
+                query += " OR ".join(conditions)
+                cursor.execute(query, params)
+            
+            return [dict(row) for row in cursor.fetchall()]
+    
+    def get_elements_by_tag(self, tag):
+        """
+        Get all elements with a specific tag.
+        
+        Args:
+            tag (str): Tag to search for
+            
+        Returns:
+            list: List of element dicts
+        """
+        return self.search_elements_by_tags([tag], match_all=False)
+    
+    def add_tag_to_element(self, element_id, tag):
+        """
+        Add a tag to an element (if not already present).
+        
+        Args:
+            element_id (int): Element ID
+            tag (str): Tag to add
+            
+        Returns:
+            bool: True if successful
+        """
+        tag = tag.strip()
+        if not tag:
+            return False
+        
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT tags FROM elements WHERE element_id = ?", (element_id,))
+            row = cursor.fetchone()
+            
+            if not row:
+                return False
+            
+            current_tags = row['tags'] or ''
+            tag_list = [t.strip() for t in current_tags.split(',') if t.strip()]
+            
+            # Add tag if not already present
+            if tag not in tag_list:
+                tag_list.append(tag)
+                new_tags = ', '.join(sorted(tag_list, key=lambda x: x.lower()))
+                cursor.execute("UPDATE elements SET tags = ? WHERE element_id = ?", (new_tags, element_id))
+                conn.commit()
+            
+            return True
+    
+    def remove_tag_from_element(self, element_id, tag):
+        """
+        Remove a tag from an element.
+        
+        Args:
+            element_id (int): Element ID
+            tag (str): Tag to remove
+            
+        Returns:
+            bool: True if successful
+        """
+        tag = tag.strip()
+        if not tag:
+            return False
+        
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT tags FROM elements WHERE element_id = ?", (element_id,))
+            row = cursor.fetchone()
+            
+            if not row:
+                return False
+            
+            current_tags = row['tags'] or ''
+            tag_list = [t.strip() for t in current_tags.split(',') if t.strip()]
+            
+            # Remove tag if present
+            if tag in tag_list:
+                tag_list.remove(tag)
+                new_tags = ', '.join(sorted(tag_list, key=lambda x: x.lower())) if tag_list else ''
+                cursor.execute("UPDATE elements SET tags = ? WHERE element_id = ?", (new_tags, element_id))
+                conn.commit()
+            
+            return True
+    
+    def replace_element_tags(self, element_id, tags):
+        """
+        Replace all tags for an element.
+        
+        Args:
+            element_id (int): Element ID
+            tags (list or str): List of tags or comma-separated string
+            
+        Returns:
+            bool: True if successful
+        """
+        if isinstance(tags, list):
+            tag_list = [t.strip() for t in tags if t.strip()]
+            tags_str = ', '.join(sorted(tag_list, key=lambda x: x.lower()))
+        else:
+            tag_list = [t.strip() for t in tags.split(',') if t.strip()]
+            tags_str = ', '.join(sorted(tag_list, key=lambda x: x.lower()))
+        
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE elements SET tags = ? WHERE element_id = ?", (tags_str, element_id))
+            conn.commit()
+            return cursor.rowcount > 0
+    
+    # ==================== User Management Methods ====================
+    
+    def create_user(self, username, password, role='user', email=None):
+        """
+        Create a new user with hashed password.
+        
+        Args:
+            username (str): Username (must be unique)
+            password (str): Plain text password (will be hashed)
+            role (str): User role ('admin' or 'user')
+            email (str, optional): User email
+            
+        Returns:
+            int: user_id if successful, None if failed
+        """
+        import hashlib
+        
+        password_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
+        
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "INSERT INTO users (username, password_hash, role, email) VALUES (?, ?, ?, ?)",
+                    (username, password_hash, role, email)
+                )
+                conn.commit()
+                return cursor.lastrowid
+        except sqlite3.IntegrityError:
+            # Username already exists
+            return None
+    
+    def authenticate_user(self, username, password):
+        """
+        Authenticate user with username and password.
+        
+        Args:
+            username (str): Username
+            password (str): Plain text password
+            
+        Returns:
+            dict: User dict if authenticated, None if failed
+        """
+        import hashlib
+        
+        password_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
+        
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM users WHERE username = ? AND password_hash = ? AND is_active = 1",
+                (username, password_hash)
+            )
+            row = cursor.fetchone()
+            
+            if row:
+                # Update last login time
+                cursor.execute(
+                    "UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE user_id = ?",
+                    (row['user_id'],)
+                )
+                conn.commit()
+                return dict(row)
+            
+            return None
+    
+    def get_user_by_id(self, user_id):
+        """
+        Get user by ID.
+        
+        Args:
+            user_id (int): User ID
+            
+        Returns:
+            dict: User dict or None
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+    
+    def get_user_by_username(self, username):
+        """
+        Get user by username.
+        
+        Args:
+            username (str): Username
+            
+        Returns:
+            dict: User dict or None
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+    
+    def get_all_users(self):
+        """
+        Get all users.
+        
+        Returns:
+            list: List of user dicts
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM users ORDER BY username")
+            return [dict(row) for row in cursor.fetchall()]
+    
+    def update_user(self, user_id, **kwargs):
+        """
+        Update user fields.
+        
+        Args:
+            user_id (int): User ID
+            **kwargs: Fields to update (username, email, role, is_active)
+            
+        Returns:
+            bool: True if successful
+        """
+        allowed_fields = ['username', 'email', 'role', 'is_active']
+        updates = {k: v for k, v in kwargs.items() if k in allowed_fields}
+        
+        if not updates:
+            return False
+        
+        set_clause = ', '.join(["{} = ?".format(k) for k in updates.keys()])
+        values = list(updates.values()) + [user_id]
+        
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE users SET {} WHERE user_id = ?".format(set_clause),
+                values
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+    
+    def change_user_password(self, user_id, new_password):
+        """
+        Change user password.
+        
+        Args:
+            user_id (int): User ID
+            new_password (str): New plain text password
+            
+        Returns:
+            bool: True if successful
+        """
+        import hashlib
+        
+        password_hash = hashlib.sha256(new_password.encode('utf-8')).hexdigest()
+        
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE users SET password_hash = ? WHERE user_id = ?",
+                (password_hash, user_id)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+    
+    def delete_user(self, user_id):
+        """
+        Delete user (soft delete by setting is_active = 0).
+        
+        Args:
+            user_id (int): User ID
+            
+        Returns:
+            bool: True if successful
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE users SET is_active = 0 WHERE user_id = ?",
+                (user_id,)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+    
+    def create_session(self, user_id, machine_name):
+        """
+        Create a new user session.
+        
+        Args:
+            user_id (int): User ID
+            machine_name (str): Machine identifier
+            
+        Returns:
+            int: session_id
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO user_sessions (user_fk, machine_name) VALUES (?, ?)",
+                (user_id, machine_name)
+            )
+            conn.commit()
+            return cursor.lastrowid
+    
+    def get_active_session(self, user_id, machine_name):
+        """
+        Get active session for user on machine.
+        
+        Args:
+            user_id (int): User ID
+            machine_name (str): Machine name
+            
+        Returns:
+            dict: Session dict or None
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """SELECT * FROM user_sessions 
+                   WHERE user_fk = ? AND machine_name = ? AND is_active = 1 
+                   ORDER BY login_time DESC LIMIT 1""",
+                (user_id, machine_name)
+            )
+            row = cursor.fetchone()
+            return dict(row) if row else None
+    
+    def end_session(self, session_id):
+        """
+        End user session.
+        
+        Args:
+            session_id (int): Session ID
+            
+        Returns:
+            bool: True if successful
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE user_sessions SET is_active = 0 WHERE session_id = ?",
+                (session_id,)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
 

@@ -7,6 +7,221 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
 ## [Unreleased]
 
 ### Added
+- **Live Filtering Enhancement - Tagging System** (Session 4 - Feature 1 - COMPLETE):
+  - Database tag management methods (8 total):
+    * `get_all_tags()`: Returns all unique tags across elements
+    * `search_elements_by_tags(tags, match_all)`: Search by one or multiple tags
+    * `get_elements_by_tag(tag)`: Get elements with specific tag
+    * `add_tag_to_element(element_id, tag)`: Add tag without duplicates
+    * `remove_tag_from_element(element_id, tag)`: Remove specific tag
+    * `replace_element_tags(element_id, tags)`: Replace all tags
+  - Enhanced EditElementDialog with tag autocomplete:
+    * QCompleter with all existing tags
+    * Popular tags display (top 10)
+    * Smart sorting and formatting
+  - Advanced search syntax support:
+    * `#fire` - Search by single tag
+    * `#fire,explosion` - Search by multiple tags (OR logic)
+    * `tag:fire` - Explicit tag search
+    * `tag:fire,explosion` - Multiple tags with explicit syntax
+    * Plain text - Regular name search
+  - Visual tag indicators:
+    * Tags displayed in gallery view as suffix [tag1, tag2, tag3]
+    * Tags shown in table view comment column
+    * Search hint label shows active tag filters
+  - Consolidated view update logic:
+    * `_update_views_with_elements()` helper method
+    * Handles both gallery and table views
+    * Supports favorites, deprecated, and tag indicators
+    * Integrates with GIF playback system
+  - Smart tag parsing and filtering in live search
+- **User/Permission Management System** (Session 4 - Feature 2 - COMPLETE):
+  - Database schema additions:
+    * `users` table with username, password_hash, role (admin/user), email, is_active
+    * `user_sessions` table for tracking logged-in users
+    * Default admin user created on first run (username: admin, password: admin)
+  - User management database methods (11 total):
+    * `create_user(username, password, role, email)`: Create new user with SHA256 hashed password
+    * `authenticate_user(username, password)`: Authenticate and update last_login
+    * `get_user_by_id(user_id)`: Retrieve user by ID
+    * `get_user_by_username(username)`: Retrieve user by username
+    * `get_all_users()`: Get all users
+    * `update_user(user_id, **kwargs)`: Update user fields
+    * `change_user_password(user_id, new_password)`: Change password
+    * `delete_user(user_id)`: Soft delete (set is_active = 0)
+    * `create_session(user_id, machine_name)`: Create login session
+    * `get_active_session(user_id, machine_name)`: Get active session
+    * `end_session(session_id)`: End user session
+  - LoginDialog widget:
+    * Professional styled dialog with teal accent
+    * Username and password fields
+    * "Continue as Guest" option for read-only access
+    * Error message display
+    * Auto-focus on username field
+    * Enter key support for quick login
+  - MainWindow authentication integration:
+    * Login required on application start
+    * `current_user` and `is_admin` tracking
+    * Window title displays username and role
+    * `check_admin_permission(action_name)`: Permission checking helper
+    * `logout()`: End session and re-show login dialog
+    * Ctrl+L keyboard shortcut for logout
+  - Permission-protected operations:
+    * Delete element: Admin only
+    * Edit settings: Can be extended to admin only
+    * Future: Stack/List deletion, ingestion settings
+  - Session management:
+    * Track active sessions per machine
+    * Auto-update last_activity timestamp
+    * Session termination on logout
+- **Enhanced Settings Widget** (Session 4 - Feature 7 - COMPLETE):
+  - Complete SettingsPanel rewrite with tabbed interface (6 tabs):
+    * **General Tab**: Database location, user preferences, machine name
+    * **Ingestion Tab**: Copy policy, sequence detection settings
+    * **Preview & Media Tab**: Preview size/quality, GIF settings (size/fps/duration), FFmpeg thread count
+    * **Network & Performance Tab**: DB connection retries/timeout, cache size/memory limits, **pagination settings**
+    * **Custom Processors Tab**: Pre-ingest, post-ingest, post-import hooks with descriptions
+    * **Security & Admin Tab**: Admin password change, user management table, add/edit/deactivate users (admin-only)
+  - New settings in Config:
+    * `preview_quality`: JPEG quality (1-100)
+    * `gif_size`: GIF size in pixels (128-512)
+    * `gif_fps`: GIF frame rate (5-30 fps)
+    * `gif_duration`: GIF clip duration (1-10 seconds)
+    * `ffmpeg_threads`: FFmpeg thread count (1-16)
+    * `db_max_retries`: Database connection retry attempts (1-50)
+    * `db_timeout`: Database connection timeout seconds (5-300)
+    * `preview_cache_size`: Preview cache item count (50-1000)
+    * `preview_cache_memory_mb`: Cache memory limit in MB (50-1000)
+    * `pagination_enabled`: Enable/disable pagination (true/false)
+    * `items_per_page`: Items per page (50/100/200/500)
+    * `background_thumbnail_loading`: Background loading toggle (true/false)
+  - Admin-only Security tab:
+    * Password change interface with validation
+    * User management table with username/role/email/active status
+    * Add/Edit/Deactivate user buttons
+    * Permission lock screen for non-admin users
+  - Professional UI styling:
+    * Organized group boxes with descriptions
+    * Help text and tips for complex settings
+    * SpinBox widgets with units (px, %, sec, threads, MB)
+    * Large "💾 Save All Settings" button with teal styling
+    * Current user indicator in bottom bar
+  - Smart save behavior:
+    * Saves all settings across all tabs
+    * Warns about application restart requirements
+    * Emits settings_changed signal
+  - Reset to defaults functionality with confirmation
+- **Environment Variable - STOCK_DB Path** (Session 4 - Feature 8 - COMPLETE):
+  - Support for `STOCK_DB` environment variable:
+    * Checked on Config initialization
+    * Overrides `database_path` from config.json
+    * Re-applied after loading config (takes precedence)
+    * Console message confirms when environment variable is used
+  - Deployment-friendly configuration:
+    * Set `STOCK_DB=\\network\share\vfx\stock.db` for network deployments
+    * Different database per environment (dev/staging/production)
+    * No need to modify config.json for different setups
+  - Settings panel integration:
+    * Database path field shows environment variable value if set
+    * Hint label: "Tip: Set STOCK_DB environment variable to override"
+    * Browse button allows temporary override (until restart)
+- **Performance Tuning - Pagination System** (Session 4 - Feature 3 - COMPLETE):
+  - PaginationWidget class (159 lines):
+    * First/Previous/Next/Last page buttons
+    * Page indicator label: "Page X of Y"
+    * Items per page selector (50/100/200/500)
+    * Info label: "Showing X-Y of Z items"
+    * Smart button enable/disable based on page
+    * `page_changed` signal for navigation
+    * `get_page_slice()` method returns (start, end) indices
+  - MainWindow pagination integration:
+    * `current_elements` list stores all elements
+    * `load_elements()` updated to setup pagination
+    * `on_page_changed()` handler for page navigation
+    * `_display_current_page()` displays current page slice
+    * `on_search()` updated to work with pagination
+    * Pagination visibility controlled by settings
+  - Configuration settings:
+    * `pagination_enabled`: Enable/disable pagination
+    * `items_per_page`: Configurable page size
+    * Integrated into Network & Performance settings tab
+  - Performance benefits:
+    * Reduces memory usage for large lists
+    * Prevents UI freezing with thousands of elements
+    * Smooth navigation between pages
+- **FFmpeg Multithreading - Background Preview Generation** (Session 4 - Feature 6 - COMPLETE):
+  - PreviewWorker class (QThread-based background worker):
+    * Queue-based task processing (non-blocking)
+    * Supports image, sequence, video, and GIF preview generation
+    * Uses configurable thread count from settings (`ffmpeg_threads`)
+    * Emits signals: `preview_generated`, `progress_updated`, `error_occurred`
+    * Graceful stop with queue clearing
+    * Automatic preview directory creation
+  - PreviewManager class (worker pool coordinator):
+    * Manages multiple PreviewWorker threads (default: 2 workers)
+    * Round-robin task distribution across workers
+    * Batch preview generation support
+    * Progress tracking with signals
+    * `all_previews_complete` signal when batch finishes
+    * Clear queue and reset counters functionality
+  - Integration points:
+    * Ready for MainWindow integration
+    * Compatible with ingestion pipeline
+    * Signals can update gallery/table views when previews complete
+    * Queue system prevents UI blocking during batch operations
+  - Performance benefits:
+    * Parallel preview generation (2+ threads)
+    * UI remains responsive during preview generation
+    * Progress tracking for long operations
+    * Cancellable operations via queue clearing
+- **Drag & Drop to Nuke DAG** (Session 4 - Feature 4 - COMPLETE):
+  - DragGalleryView custom widget (117 lines):
+    * Extends QListWidget with drag & drop capabilities
+    * Override `startDrag()` to set custom QMimeData
+    * Supports dragging multiple selected elements
+    * MIME data includes: element IDs, file URLs, custom app data
+    * Drag icon uses first item's preview thumbnail
+  - Smart node creation based on element type:
+    * **2D assets** → `create_read_node()` with frame range detection
+    * **3D assets** → `create_read_geo_node()` for .abc/.obj/.fbx files
+    * **Toolsets** → `paste_nodes_from_file()` for .nk files
+    * Automatic frame range detection for sequences
+  - File path resolution:
+    * Uses hard copy path if available (is_hard_copy = true)
+    * Falls back to soft copy path (original location)
+  - Integration:
+    * MediaDisplayWidget updated to accept nuke_bridge parameter
+    * Gallery view replaced with DragGalleryView
+    * `on_popup_insert()` calls `insert_to_nuke()` method
+    * MainWindow passes nuke_bridge to MediaDisplayWidget
+- **Toolset Creation & Registration** (Session 4 - Feature 5 - COMPLETE):
+  - RegisterToolsetDialog class (190 lines):
+    * User-friendly dialog for registering Nuke node selections
+    * Form inputs: Toolset name, target list, comment, preview option
+    * List selector populated from all stacks/lists
+    * "Generate preview image" checkbox for node graph capture
+    * Save/Cancel button box with validation
+  - Toolset creation workflow:
+    * Generate unique filename with MD5 hash + timestamp
+    * Call `nuke_bridge.save_selected_as_toolset()` to export .nk file
+    * Move toolset from temp to repository directory
+    * Optional: Capture node graph preview image
+    * Ingest into database with type='toolset', format='nk'
+    * Log history entry for auditing
+  - NukeBridge enhancements:
+    * `save_selected_as_toolset()`: Already existed, saves .nk files
+    * `capture_node_graph_preview()`: NEW - captures node graph as PNG
+    * Mock mode creates placeholder preview images
+    * Real Nuke mode returns warning (no built-in API for graph capture)
+  - Menu integration:
+    * New "Nuke" menu in MainWindow menubar
+    * "Register Selection as Toolset..." action (Ctrl+Shift+T)
+    * `register_toolset()` method opens dialog and refreshes on success
+  - Toolset usage:
+    * Toolsets appear in gallery/table views like any element
+    * Drag toolset into Nuke → automatically pastes nodes via `paste_nodes_from_file()`
+    * Double-click toolset → same paste behavior
+    * Preview shows node graph visualization (if generated)
 - Initial project documentation files: `Roadmap.md`, `changelog.md`.
 - Added `instructions.md` updates directing creation and maintenance of project docs.
 - Created project structure with `src/`, `tests/`, `config/` directories.

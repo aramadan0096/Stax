@@ -182,6 +182,46 @@ class NukeBridge(object):
             self.nuke.nodeCopy(output_path)
             return True
     
+    def capture_node_graph_preview(self, output_path, width=512, height=512):
+        """
+        Capture a preview image of the node graph.
+        
+        Args:
+            output_path (str): Output PNG file path
+            width (int): Preview width in pixels
+            height (int): Preview height in pixels
+            
+        Returns:
+            bool: True if successful
+        """
+        if self.mock_mode:
+            # Mock implementation - create a placeholder image
+            print("[MOCK] Captured node graph preview to: {}".format(output_path))
+            try:
+                from PIL import Image, ImageDraw, ImageFont
+                img = Image.new('RGB', (width, height), color=(40, 40, 40))
+                draw = ImageDraw.Draw(img)
+                
+                # Draw a simple representation
+                draw.text((width//2 - 50, height//2), "Node Graph", fill=(255, 255, 255))
+                
+                img.save(output_path)
+                return True
+            except Exception as e:
+                print("Mock preview generation failed: {}".format(str(e)))
+                return False
+        else:
+            # Real Nuke implementation
+            try:
+                # Nuke doesn't have a built-in node graph capture API
+                # This would require a custom screenshot or export method
+                # For now, return False to indicate it's not available
+                print("WARNING: Node graph preview capture not implemented for Nuke.")
+                return False
+            except Exception as e:
+                print("Node graph preview failed: {}".format(str(e)))
+                return False
+    
     def get_selected_nodes(self):
         """
         Get currently selected nodes.
