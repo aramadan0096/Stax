@@ -8,6 +8,9 @@ Python 2.7/3+ compatible
 import os
 import sys
 from PySide2 import QtWidgets, QtCore, QtGui
+import subprocess
+import json
+import ctypes
 
 try:
     from ffpyplayer.player import MediaPlayer as FFMediaPlayer
@@ -23,6 +26,7 @@ class FFpyVideoWidget(QtWidgets.QLabel):
         super(FFpyVideoWidget, self).__init__(parent)
         self.setAlignment(QtCore.Qt.AlignCenter)
         self.setMinimumSize(320, 240)
+        self._last_pixmap = None
         self.setStyleSheet("""
             QLabel {
                 background-color: #1e1e1e;
@@ -39,16 +43,29 @@ class FFpyVideoWidget(QtWidgets.QLabel):
             bytes_per_line = width * 3
             image = QtGui.QImage(data, width, height, bytes_per_line, QtGui.QImage.Format_RGB888)
             pix = QtGui.QPixmap.fromImage(image)
-            self.setPixmap(pix.scaled(self.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation))
+            self._last_pixmap = pix
+            self._update_scaled_pixmap()
+            if self.text():
+                self.setText("")
         except Exception as e:
             print("Failed to show frame: {}".format(e))
     
     def resizeEvent(self, event):
         """Handle resize to rescale pixmap."""
         super(FFpyVideoWidget, self).resizeEvent(event)
-        if self.pixmap() and not self.pixmap().isNull():
-            # Re-render with current pixmap scaled
-            pass
+        self._update_scaled_pixmap()
+
+    def clear_frame(self, message="No media loaded"):
+        """Clear the currently displayed frame."""
+        self._last_pixmap = None
+        self.setPixmap(QtGui.QPixmap())
+        self.setText(message)
+
+    def _update_scaled_pixmap(self):
+        """Scale and show the cached pixmap for the current widget size."""
+        if self._last_pixmap and not self._last_pixmap.isNull():
+            scaled = self._last_pixmap.scaled(self.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+            self.setPixmap(scaled)
 
 
 class PlayerController(QtCore.QObject):
@@ -75,6 +92,8 @@ class PlayerController(QtCore.QObject):
             raise RuntimeError("ffpyplayer not available. Install with: pip install ffpyplayer")
         
         self.close()
+        self._duration = 0.0
+        self._current_position = 0.0
         
         try:
             # Request rgb24 output to simplify conversion to QImage
@@ -127,14 +146,22 @@ class PlayerController(QtCore.QObject):
         """Stop playback and close player."""
         self.close()
     
-    def seek(self, position_seconds):
+    def seek(self, position_seconds, relative=False, accurate=True):
         """Seek to a specific position in seconds."""
         if not self.player:
             return
         try:
-            self.player.seek(position_seconds)
-            self._current_position = position_seconds
-            self.position_changed.emit(position_seconds)
+            self.player.seek(position_seconds, relative=relative, accurate=accurate)
+            if relative:
+                self._current_position += position_seconds
+            else:
+                self._current_position = position_seconds
+
+            if self._duration:
+                self._current_position = max(0.0, min(self._current_position, self._duration))
+            else:
+                self._current_position = max(0.0, self._current_position)
+            self.position_changed.emit(self._current_position)
         except Exception as e:
             print("Seek failed: {}".format(e))
     
@@ -165,6 +192,7 @@ class PlayerController(QtCore.QObject):
             self.player = None
         self._playing = False
         self._current_position = 0.0
+        self._duration = 0.0
     
     def _on_timer(self):
         """Timer callback to fetch and emit frames."""
@@ -246,7 +274,8 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         self.db = db_manager
         self.config = config
         self.current_element = None
-        self.is_playing = False
+        self._resume_after_scrub = False
+        self._duration_known = False
         
         # Create player controller
         self.player_controller = PlayerController(self)
@@ -314,7 +343,7 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         
         self.timeline_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self.timeline_slider.setMinimum(0)
-        self.timeline_slider.setMaximum(100)
+        self.timeline_slider.setMaximum(0)
         self.timeline_slider.setValue(0)
         self.timeline_slider.setEnabled(False)
         self.timeline_slider.sliderPressed.connect(self.on_slider_pressed)
@@ -354,6 +383,8 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         self.play_pause_btn = QtWidgets.QPushButton()
         play_icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icons', 'play.svg')
         pause_icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icons', 'pause.svg')
+        self._play_icon_path = play_icon_path
+        self._pause_icon_path = pause_icon_path
         if os.path.exists(play_icon_path):
             self.play_pause_btn.setIcon(QtGui.QIcon(play_icon_path))
         self.play_pause_btn.setIconSize(QtCore.QSize(20, 20))
@@ -366,11 +397,12 @@ class VideoPlayerWidget(QtWidgets.QWidget):
             QPushButton:hover { background-color: rgba(22,198,176,0.08); border-radius: 4px; }
         """)
         self.play_pause_btn.clicked.connect(self.toggle_playback)
+        self.play_pause_btn.setEnabled(False)
         controls_layout.addWidget(self.play_pause_btn)
         
         # Stop button (SVG)
         self.stop_btn = QtWidgets.QPushButton()
-        stop_icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icons', 'stop.svg')
+        stop_icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icons', 'stop_filled.svg')
         if os.path.exists(stop_icon_path):
             self.stop_btn.setIcon(QtGui.QIcon(stop_icon_path))
         self.stop_btn.setIconSize(QtCore.QSize(18, 18))
@@ -382,6 +414,17 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         self.stop_btn.clicked.connect(self.stop_playback)
         controls_layout.addWidget(self.stop_btn)
         
+        # External player / Fullscreen button
+        self.external_btn = QtWidgets.QPushButton()
+        ext_icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icons', 'external_player.svg')
+        if os.path.exists(ext_icon_path):
+            self.external_btn.setIcon(QtGui.QIcon(ext_icon_path))
+        self.external_btn.setIconSize(QtCore.QSize(18, 18))
+        self.external_btn.setToolTip('Open in external player')
+        self.external_btn.clicked.connect(self.open_in_external_player)
+        self.external_btn.setEnabled(False)
+        controls_layout.addWidget(self.external_btn)
+        
         # Frame navigation
         # Previous frame button (SVG)
         self.prev_frame_btn = QtWidgets.QPushButton()
@@ -392,6 +435,7 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         self.prev_frame_btn.setMaximumWidth(40)
         self.prev_frame_btn.setToolTip("Previous Frame")
         self.prev_frame_btn.clicked.connect(lambda: self.step_frame(-1))
+        self.prev_frame_btn.setEnabled(False)
         controls_layout.addWidget(self.prev_frame_btn)
 
         # Next frame button (SVG)
@@ -403,6 +447,7 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         self.next_frame_btn.setMaximumWidth(40)
         self.next_frame_btn.setToolTip("Next Frame")
         self.next_frame_btn.clicked.connect(lambda: self.step_frame(1))
+        self.next_frame_btn.setEnabled(False)
         controls_layout.addWidget(self.next_frame_btn)
         
         controls_layout.addStretch()
@@ -452,18 +497,118 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         layout.addWidget(metadata_group)
         
         layout.addStretch()
+
+    def _set_controls_enabled(self, enabled):
+        """Enable or disable playback-related controls."""
+        self.play_pause_btn.setEnabled(enabled)
+        self.stop_btn.setEnabled(enabled)
+        self.timeline_slider.setEnabled(enabled)
+        self.prev_frame_btn.setEnabled(enabled)
+        self.next_frame_btn.setEnabled(enabled)
+
+    def _set_play_button_state(self, is_playing):
+        """Update the play button's icon and tooltip based on state."""
+        icon_path = self._pause_icon_path if is_playing else self._play_icon_path
+        if icon_path and os.path.exists(icon_path):
+            self.play_pause_btn.setIcon(QtGui.QIcon(icon_path))
+        tooltip = "Pause" if is_playing else "Play"
+        self.play_pause_btn.setToolTip(tooltip)
+
+    def _shutdown_player(self, clear_element_state=False):
+        """Completely stop playback and reset the UI state."""
+        self.player_controller.stop()
+        self._set_play_button_state(False)
+        self._set_controls_enabled(False)
+        self.timeline_slider.setValue(0)
+        self.timeline_slider.setMaximum(0)
+        self._duration_known = False
+        self._resume_after_scrub = False
+        self.current_time_label.setText("00:00:00")
+        self.total_time_label.setText("00:00:00")
+        self.frame_label.setText("Frame: 0 / 0")
+        self.video_widget.clear_frame("No media loaded")
+        if clear_element_state:
+            self.current_element = None
+
+    def _get_config_player(self):
+        """Retrieve configured external player path from the provided config or prompt the user."""
+        try:
+            cfg_path = None
+            if hasattr(self, 'config') and isinstance(self.config, dict):
+                player = self.config.get('external_player')
+                if player:
+                    return player
+        except Exception:
+            pass
+
+        # Ask user to pick an executable
+        dlg = QtWidgets.QFileDialog(self, 'Select external player executable')
+        dlg.setFileMode(QtWidgets.QFileDialog.ExistingFile)
+        if dlg.exec_():
+            files = dlg.selectedFiles()
+            if files:
+                player_path = files[0]
+                # store (best-effort) back to config if possible
+                try:
+                    if hasattr(self, 'config') and isinstance(self.config, dict):
+                        self.config['external_player'] = player_path
+                        # try to write to disk to the project's config if present
+                        cfg_file = getattr(self, '_config_file_path', None)
+                        if not cfg_file:
+                            # look for common project config location
+                            possible = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'config.json'))
+                            if os.path.exists(os.path.dirname(possible)):
+                                cfg_file = possible
+                        if cfg_file:
+                            try:
+                                with open(cfg_file, 'w') as f:
+                                    json.dump(self.config, f, indent=2)
+                                # remember where we stored it
+                                self._config_file_path = cfg_file
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+                return player_path
+        return None
+
+    def open_in_external_player(self):
+        """Open the current element in an external player chosen by the user."""
+        if not self.current_element:
+            return
+
+        filepath = self.current_element.get('filepath_hard') or self.current_element.get('filepath_soft')
+        if not filepath or not os.path.exists(filepath):
+            QtWidgets.QMessageBox.warning(self, 'File not found', 'Media file not available for external playback')
+            return
+
+        player = self._get_config_player()
+        if not player:
+            return
+
+        try:
+            # On Windows, use shell execute when user provides command like "C:\Program Files\..." or a URL
+            if sys.platform == 'win32':
+                # Use subprocess.Popen to preserve non-blocking UI
+                subprocess.Popen([player, filepath], shell=False)
+            else:
+                subprocess.Popen([player, filepath])
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, 'Launch Error', 'Failed to start external player:\n{}'.format(e))
     
     def load_element(self, element_id):
         """Load element data and prepare for playback."""
-        self.current_element = self.db.get_element_by_id(element_id)
-        
-        if not self.current_element:
+        element = self.db.get_element_by_id(element_id)
+        if not element:
+            self._shutdown_player(clear_element_state=True)
             return
-        
-        # Stop any existing playback
-        self.stop_playback()
-        
-        # Update metadata display
+
+        self.current_element = element
+        self._shutdown_player()
+        self._duration_known = False
+        self.timeline_slider.setMaximum(0)
+
+        # Update metadata display with the newly selected element
         self.update_metadata_display()
         
         # Get file path
@@ -471,7 +616,7 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         
         # Check for image sequences (not supported by ffpyplayer MediaPlayer)
         if filepath and '%' in filepath:
-            self.video_widget.setText("Image sequences not supported\n\nffpyplayer can only play video files")
+            self.video_widget.clear_frame("Image sequences not supported")
             QtWidgets.QMessageBox.warning(
                 self,
                 "Format Not Supported",
@@ -479,8 +624,6 @@ class VideoPlayerWidget(QtWidgets.QWidget):
                 "ffpyplayer can only play video files (mp4, mov, avi, mkv, etc.).\n\n"
                 "File: {}".format(filepath)
             )
-            self.play_pause_btn.setEnabled(False)
-            self.timeline_slider.setEnabled(False)
             return
         
         if not filepath:
@@ -512,18 +655,16 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         
         # Try to open the media file with ffpyplayer
         try:
+            self.video_widget.clear_frame("Loading preview…")
             self.player_controller.open(filepath)
-            
-            # Enable controls
-            self.play_pause_btn.setEnabled(True)
-            self.timeline_slider.setEnabled(True)
-            self.stop_btn.setEnabled(False)
-            
-            # Update video widget
-            self.video_widget.setText("Ready to play")
-            
+            self._set_controls_enabled(True)
+            self._set_play_button_state(self.player_controller.is_playing())
+            self.stop_btn.setEnabled(True)
+            self.external_btn.setEnabled(True)
+            self.video_widget.clear_frame("Ready to play")
             print("Media loaded with ffpyplayer: {}".format(filepath))
         except Exception as e:
+            self._shutdown_player()
             QtWidgets.QMessageBox.critical(
                 self,
                 "Playback Error",
@@ -541,12 +682,9 @@ class VideoPlayerWidget(QtWidgets.QWidget):
     def on_playback_finished(self):
         """Handle playback finished signal."""
         print("Playback finished")
-        self.is_playing = False
-        self.play_pause_btn.setText("Play")
-        play_icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icons', 'play.svg')
-        if os.path.exists(play_icon_path):
-            self.play_pause_btn.setIcon(QtGui.QIcon(play_icon_path))
-        self.stop_btn.setEnabled(False)
+        self._set_play_button_state(False)
+        self.timeline_slider.setValue(self.timeline_slider.maximum())
+        self.current_time_label.setText(self.total_time_label.text())
     
     def play_with_ffplay(self, filepath):
         """Deprecated - no longer needed with ffpyplayer."""
@@ -605,34 +743,31 @@ class VideoPlayerWidget(QtWidgets.QWidget):
     
     def toggle_playback(self):
         """Toggle play/pause state."""
+        if not self.player_controller.player:
+            return
+
         if self.player_controller.is_playing():
             self.player_controller.pause()
-            self.is_playing = False
-            self.play_pause_btn.setText("Play")
-            play_icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icons', 'play.svg')
-            if os.path.exists(play_icon_path):
-                self.play_pause_btn.setIcon(QtGui.QIcon(play_icon_path))
+            self._set_play_button_state(False)
         else:
             self.player_controller.play()
-            self.is_playing = True
-            self.play_pause_btn.setText("Pause")
-            pause_icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icons', 'pause.svg')
-            if os.path.exists(pause_icon_path):
-                self.play_pause_btn.setIcon(QtGui.QIcon(pause_icon_path))
-            self.stop_btn.setEnabled(True)
+            self._set_play_button_state(True)
+        self.stop_btn.setEnabled(True)
     
     def stop_playback(self):
         """Stop video playback and reset."""
-        self.player_controller.stop()
-        self.is_playing = False
+        if not self.player_controller.player:
+            return
+
+        self.player_controller.pause()
+        self.player_controller.seek(0.0, relative=False)
+        self._set_play_button_state(False)
         self.timeline_slider.setValue(0)
         self.current_time_label.setText("00:00:00")
-        self.frame_label.setText("Frame: 0 / 0")
-        self.stop_btn.setEnabled(False)
-        self.play_pause_btn.setText("Play")
-        play_icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icons', 'play.svg')
-        if os.path.exists(play_icon_path):
-            self.play_pause_btn.setIcon(QtGui.QIcon(play_icon_path))
+        duration = self.player_controller.get_duration()
+        total_frames = int(duration * 24.0) if duration > 0 else "?"
+        self.frame_label.setText("Frame: 0 / {}".format(total_frames))
+        self.stop_btn.setEnabled(True)
     
     def on_state_changed(self, state):
         """Deprecated - not used with ffpyplayer."""
@@ -640,32 +775,44 @@ class VideoPlayerWidget(QtWidgets.QWidget):
     
     def on_position_changed(self, position_seconds):
         """Handle playback position changes from player controller."""
-        # Update timeline slider (convert seconds to milliseconds for consistency)
+        position_seconds = max(0.0, position_seconds)
         position_ms = int(position_seconds * 1000)
+
+        if not self._duration_known and position_ms > self.timeline_slider.maximum():
+            self.timeline_slider.setMaximum(position_ms)
+
         if not self.timeline_slider.isSliderDown():
-            self.timeline_slider.setValue(position_ms)
-        
+            slider_max = self.timeline_slider.maximum()
+            if slider_max > 0:
+                self.timeline_slider.setValue(min(position_ms, slider_max))
+            else:
+                self.timeline_slider.setValue(position_ms)
+
         # Update time label
         self.current_time_label.setText(self.format_time(position_seconds))
-        
-        # Update frame counter if we have duration
+
         duration = self.player_controller.get_duration()
         if duration > 0:
             total_frames = int(duration * 24.0)  # Assume 24 fps
-            current_frame = int(position_seconds * 24.0)
+            current_frame = int(min(position_seconds, duration) * 24.0)
             self.frame_label.setText("Frame: {} / {}".format(current_frame, total_frames))
+        else:
+            current_frame = int(position_seconds * 24.0)
+            self.frame_label.setText("Frame: {} / ?".format(current_frame))
     
     def on_duration_changed(self, duration_seconds):
         """Handle duration changes from player controller."""
         # Set timeline slider maximum (convert seconds to milliseconds)
+        duration_seconds = max(0.0, duration_seconds)
         duration_ms = int(duration_seconds * 1000)
         self.timeline_slider.setMaximum(duration_ms)
+        self._duration_known = duration_seconds > 0
         
         # Update total time label
         self.total_time_label.setText(self.format_time(duration_seconds))
         
         # Update frame counter
-        total_frames = int(duration_seconds * 24.0)  # Assume 24 fps
+        total_frames = int(duration_seconds * 24.0) if duration_seconds > 0 else "?"
         self.frame_label.setText("Frame: 0 / {}".format(total_frames))
     
     def on_player_error(self):
@@ -674,18 +821,25 @@ class VideoPlayerWidget(QtWidgets.QWidget):
     
     def on_slider_pressed(self):
         """Handle slider press - pause during scrubbing."""
-        if self.player_controller.is_playing():
+        if not self.player_controller.player:
+            return
+
+        self._resume_after_scrub = self.player_controller.is_playing()
+        if self._resume_after_scrub:
             self.player_controller.pause()
     
     def on_slider_released(self):
         """Handle slider release - seek to position."""
+        if not self.player_controller.player:
+            return
+
         position_ms = self.timeline_slider.value()
         position_seconds = position_ms / 1000.0
-        self.player_controller.seek(position_seconds)
-        
-        # Resume playback if it was playing
-        if self.is_playing:
+        self.player_controller.seek(position_seconds, relative=False)
+
+        if self._resume_after_scrub:
             self.player_controller.play()
+        self._resume_after_scrub = False
     
     def on_timeline_scrub(self, position_ms):
         """Handle timeline scrubbing."""
@@ -695,14 +849,20 @@ class VideoPlayerWidget(QtWidgets.QWidget):
     
     def step_frame(self, direction):
         """Step forward or backward by one frame."""
+        if not self.player_controller.player:
+            return
+
         current_pos = self.player_controller.get_position()
         frame_duration = 1.0 / 24.0  # ~0.0417 seconds for 24fps
         new_pos = current_pos + (direction * frame_duration)
         
         # Clamp to valid range
         duration = self.player_controller.get_duration()
-        new_pos = max(0.0, min(new_pos, duration))
-        self.player_controller.seek(new_pos)
+        if duration > 0:
+            new_pos = max(0.0, min(new_pos, duration))
+        else:
+            new_pos = max(0.0, new_pos)
+        self.player_controller.seek(new_pos, relative=False)
     
     def format_time(self, seconds):
         """Format seconds as HH:MM:SS."""
@@ -713,23 +873,17 @@ class VideoPlayerWidget(QtWidgets.QWidget):
     
     def close_panel(self):
         """Close the preview panel."""
-        self.stop_playback()
-        self.current_element = None
+        self._shutdown_player(clear_element_state=True)
         self.closed.emit()
         self.hide()
     
     def clear(self):
         """Clear the panel and stop playback."""
-        self.stop_playback()
-        self.current_element = None
+        self._shutdown_player(clear_element_state=True)
         self.metadata_text.clear()
-        self.video_widget.clear()
-        self.video_widget.setText("No preview available")
-        self.play_pause_btn.setEnabled(False)
-        self.timeline_slider.setEnabled(False)
-        self.timeline_slider.setValue(0)
+        self.video_widget.clear_frame("No preview available")
     
     def closeEvent(self, event):
         """Handle widget close event."""
-        self.stop_playback()
+        self._shutdown_player()
         super(VideoPlayerWidget, self).closeEvent(event)

@@ -1,6 +1,6 @@
 # StaX
 
-Professional VFX asset management pipeline clone designed for Foundry Nuke integration.
+Advanced solution for mass production stock footage management clone designed for Foundry Nuke integration.
 
 ## Project Status
 

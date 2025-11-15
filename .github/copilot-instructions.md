@@ -1,7 +1,7 @@
 # Copilot Instructions for StaX
 
 ## Project Overview
-StaX is a professional VFX asset management pipeline clone targeting the Cragl smartElements feature set. This is a **greenfield project** currently in the planning/documentation phase with no implementation yet.
+StaX is a Advanced solution for mass production stock footage management clone targeting the Cragl smartElements feature set. This is a **greenfield project** currently in the planning/documentation phase with no implementation yet.
 
 **Status:** Pre-Alpha (documentation complete, implementation pending)  
 **Target:** Feature-complete media browser for VFX studios integrating with Foundry Nuke
