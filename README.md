@@ -67,10 +67,10 @@ Professional VFX asset management pipeline clone designed for Foundry Nuke integ
 cd d:\Scripts\modern-stock-browser
 
 # Create virtual environment (Python 3 recommended for development)
-python -m venv .venvPy3
+python -m venv .venv
 
 # Activate virtual environment
-.\.venvPy3\Scripts\activate
+.\.venv\Scripts\activate
 
 # Install dependencies
 pip install PySide2 Pillow

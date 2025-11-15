@@ -1,0 +1,8 @@
+# VFX_Asset_Hub Requirements
+# Python 2.7 compatible dependencies
+
+# Note: For Python 3 development, use these versions instead:
+# PySide2>=5.15.0
+
+# Python 2.7 versions (legacy VFX pipelines):
+PySide2
