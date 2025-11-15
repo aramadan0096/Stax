@@ -19,11 +19,11 @@ from src.nuke_bridge import NukeBridge, NukeIntegration
 from src.extensibility_hooks import ProcessorManager
 from src.ffmpeg_wrapper import FFmpegWrapper
 from src.preview_cache import get_preview_cache
+from src.icon_loader import get_icon, get_pixmap
 
 
 class AdvancedSearchDialog(QtWidgets.QDialog):
     """Advanced search dialog with property and match type selection."""
-    
     def __init__(self, db_manager, parent=None):
         super(AdvancedSearchDialog, self).__init__(parent)
         self.db = db_manager
@@ -62,6 +62,7 @@ class AdvancedSearchDialog(QtWidgets.QDialog):
         
         # Search button
         search_btn = QtWidgets.QPushButton("Search")
+        search_btn.setIcon(get_icon('search', size=20))
         search_btn.clicked.connect(self.perform_search)
         search_btn.setDefault(True)
         layout.addWidget(search_btn)
@@ -246,7 +247,8 @@ class MediaInfoPopup(QtWidgets.QDialog):
         # Playback buttons
         playback_layout = QtWidgets.QHBoxLayout()
         
-        self.play_btn = QtWidgets.QPushButton("▶ Play")
+        self.play_btn = QtWidgets.QPushButton("Play")
+        self.play_btn.setIcon(get_icon('play', size=20))
         self.play_btn.setStyleSheet("""
             QPushButton {
                 background-color: #16c6b0;
@@ -262,7 +264,8 @@ class MediaInfoPopup(QtWidgets.QDialog):
         self.play_btn.clicked.connect(self.on_play_clicked)
         playback_layout.addWidget(self.play_btn)
         
-        self.stop_btn = QtWidgets.QPushButton("⏹ Stop")
+        self.stop_btn = QtWidgets.QPushButton("Stop")
+        self.stop_btn.setIcon(get_icon('stop', size=20))
         self.stop_btn.setStyleSheet("""
             QPushButton {
                 background-color: #ff9a3c;
@@ -331,6 +334,7 @@ class MediaInfoPopup(QtWidgets.QDialog):
         button_layout = QtWidgets.QHBoxLayout()
         
         self.insert_btn = QtWidgets.QPushButton("Insert into Nuke")
+        self.insert_btn.setIcon(get_icon('add', size=20))
         self.insert_btn.setStyleSheet("""
             QPushButton {
                 background-color: #4a90e2;
@@ -351,6 +355,7 @@ class MediaInfoPopup(QtWidgets.QDialog):
         button_layout.addWidget(self.insert_btn)
         
         self.reveal_btn = QtWidgets.QPushButton("Reveal in Explorer")
+        self.reveal_btn.setIcon(get_icon('folder', size=20))
         self.reveal_btn.setStyleSheet("""
             QPushButton {
                 background-color: #5a5a5a;
@@ -714,7 +719,8 @@ class StacksListsPanel(QtWidgets.QWidget):
         layout.addWidget(title)
         
         # Favorites button
-        self.favorites_btn = QtWidgets.QPushButton("⭐ Favorites")
+        self.favorites_btn = QtWidgets.QPushButton("Favorites")
+        self.favorites_btn.setIcon(get_icon('favorite', size=20))
         self.favorites_btn.setProperty("class", "primary")
         self.favorites_btn.clicked.connect(self.on_favorites_clicked)
         layout.addWidget(self.favorites_btn)
@@ -731,8 +737,9 @@ class StacksListsPanel(QtWidgets.QWidget):
         playlists_label.setStyleSheet("font-weight: bold; padding: 5px;")
         playlists_header.addWidget(playlists_label)
         
-        self.add_playlist_btn = QtWidgets.QPushButton("+ New")
-        self.add_playlist_btn.setMaximumWidth(60)
+        self.add_playlist_btn = QtWidgets.QPushButton("New")
+        self.add_playlist_btn.setIcon(get_icon('playlist', size=16))
+        self.add_playlist_btn.setMaximumWidth(80)
         self.add_playlist_btn.clicked.connect(self.add_playlist)
         playlists_header.addWidget(self.add_playlist_btn)
         
@@ -767,11 +774,15 @@ class StacksListsPanel(QtWidgets.QWidget):
         # Buttons
         button_layout = QtWidgets.QHBoxLayout()
         
-        self.add_stack_btn = QtWidgets.QPushButton("+ Stack")
+        self.add_stack_btn = QtWidgets.QPushButton("Stack")
+        self.add_stack_btn.setIcon(get_icon('stack', size=20))
+        self.add_stack_btn.setToolTip("Add new Stack")
         self.add_stack_btn.clicked.connect(self.add_stack)
         button_layout.addWidget(self.add_stack_btn)
         
-        self.add_list_btn = QtWidgets.QPushButton("+ List")
+        self.add_list_btn = QtWidgets.QPushButton("List")
+        self.add_list_btn.setIcon(get_icon('add', size=20))
+        self.add_list_btn.setToolTip("Add new List")
         self.add_list_btn.clicked.connect(self.add_list)
         button_layout.addWidget(self.add_list_btn)
         
@@ -1169,13 +1180,17 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         toolbar.addWidget(search_container, 1)  # Give it stretch priority
         
         # View mode toggle
-        self.gallery_btn = QtWidgets.QPushButton("Gallery")
+        self.gallery_btn = QtWidgets.QPushButton()
+        self.gallery_btn.setIcon(get_icon('gallery', size=20))
+        self.gallery_btn.setToolTip("Gallery View")
         self.gallery_btn.setCheckable(True)
         self.gallery_btn.setChecked(True)
         self.gallery_btn.clicked.connect(lambda: self.set_view_mode('gallery'))
         toolbar.addWidget(self.gallery_btn)
         
-        self.list_btn = QtWidgets.QPushButton("List")
+        self.list_btn = QtWidgets.QPushButton()
+        self.list_btn.setIcon(get_icon('list', size=20))
+        self.list_btn.setToolTip("List View")
         self.list_btn.setCheckable(True)
         self.list_btn.clicked.connect(lambda: self.set_view_mode('list'))
         toolbar.addWidget(self.list_btn)
@@ -2161,6 +2176,7 @@ class HistoryPanel(QtWidgets.QWidget):
         
         # Refresh button
         refresh_btn = QtWidgets.QPushButton("Refresh")
+        refresh_btn.setIcon(get_icon('refresh', size=20))
         refresh_btn.clicked.connect(self.load_history)
         layout.addWidget(refresh_btn)
     
@@ -2240,7 +2256,8 @@ class SettingsPanel(QtWidgets.QWidget):
         # Bottom buttons
         button_layout = QtWidgets.QHBoxLayout()
         
-        save_btn = QtWidgets.QPushButton("💾 Save All Settings")
+        save_btn = QtWidgets.QPushButton("Save All Settings")
+        save_btn.setIcon(get_icon('settings', size=20))
         save_btn.setStyleSheet("""
             QPushButton {
                 background-color: #16c6b0;
@@ -2255,6 +2272,7 @@ class SettingsPanel(QtWidgets.QWidget):
         button_layout.addWidget(save_btn)
         
         reset_btn = QtWidgets.QPushButton("Reset to Defaults")
+        reset_btn.setIcon(get_icon('refresh', size=20))
         reset_btn.clicked.connect(self.reset_settings)
         button_layout.addWidget(reset_btn)
         
@@ -3796,13 +3814,17 @@ class PaginationWidget(QtWidgets.QWidget):
         layout.setContentsMargins(5, 5, 5, 5)
         
         # First page button
-        self.first_btn = QtWidgets.QPushButton("|<")
+        self.first_btn = QtWidgets.QPushButton()
+        self.first_btn.setIcon(get_icon('previous', size=16))
+        self.first_btn.setToolTip("First Page")
         self.first_btn.setMaximumWidth(40)
         self.first_btn.clicked.connect(lambda: self.go_to_page(0))
         layout.addWidget(self.first_btn)
         
         # Previous button
-        self.prev_btn = QtWidgets.QPushButton("<")
+        self.prev_btn = QtWidgets.QPushButton()
+        self.prev_btn.setIcon(get_icon('previous', size=16))
+        self.prev_btn.setToolTip("Previous Page")
         self.prev_btn.setMaximumWidth(40)
         self.prev_btn.clicked.connect(self.previous_page)
         layout.addWidget(self.prev_btn)
@@ -3814,13 +3836,17 @@ class PaginationWidget(QtWidgets.QWidget):
         layout.addWidget(self.page_label)
         
         # Next button
-        self.next_btn = QtWidgets.QPushButton(">")
+        self.next_btn = QtWidgets.QPushButton()
+        self.next_btn.setIcon(get_icon('next', size=16))
+        self.next_btn.setToolTip("Next Page")
         self.next_btn.setMaximumWidth(40)
         self.next_btn.clicked.connect(self.next_page)
         layout.addWidget(self.next_btn)
         
         # Last page button
-        self.last_btn = QtWidgets.QPushButton(">|")
+        self.last_btn = QtWidgets.QPushButton()
+        self.last_btn.setIcon(get_icon('next', size=16))
+        self.last_btn.setToolTip("Last Page")
         self.last_btn.setMaximumWidth(40)
         self.last_btn.clicked.connect(lambda: self.go_to_page(self.total_pages - 1))
         layout.addWidget(self.last_btn)
@@ -4112,6 +4138,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setWindowTitle("VFX Asset Hub")
         self.resize(1400, 800)
         
+        # Set application icon
+        icon_path = os.path.join(os.path.dirname(__file__), 'resources', 'logo.png')
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QtGui.QIcon(icon_path))
+        
         self.setup_ui()
         self.setup_shortcuts()
         
@@ -4177,11 +4208,13 @@ class MainWindow(QtWidgets.QMainWindow):
         file_menu = menubar.addMenu("File")
         
         ingest_action = QtWidgets.QAction("Ingest Files...", self)
+        ingest_action.setIcon(get_icon('upload', size=16))
         ingest_action.setShortcut("Ctrl+I")
         ingest_action.triggered.connect(self.ingest_files)
         file_menu.addAction(ingest_action)
         
         ingest_library_action = QtWidgets.QAction("Ingest Library...", self)
+        ingest_library_action.setIcon(get_icon('folder', size=16))
         ingest_library_action.setShortcut("Ctrl+Shift+I")
         ingest_library_action.triggered.connect(self.ingest_library)
         file_menu.addAction(ingest_library_action)
@@ -4202,6 +4235,7 @@ class MainWindow(QtWidgets.QMainWindow):
         search_menu = menubar.addMenu("Search")
         
         advanced_search_action = QtWidgets.QAction("Advanced Search...", self)
+        advanced_search_action.setIcon(get_icon('search', size=16))
         advanced_search_action.setShortcut("Ctrl+F")
         advanced_search_action.triggered.connect(self.show_advanced_search)
         search_menu.addAction(advanced_search_action)
@@ -4210,6 +4244,7 @@ class MainWindow(QtWidgets.QMainWindow):
         nuke_menu = menubar.addMenu("Nuke")
         
         register_toolset_action = QtWidgets.QAction("Register Selection as Toolset...", self)
+        register_toolset_action.setIcon(get_icon('add', size=16))
         register_toolset_action.setShortcut("Ctrl+Shift+T")
         register_toolset_action.triggered.connect(self.register_toolset)
         register_toolset_action.setToolTip("Save selected Nuke nodes as a reusable toolset")
@@ -4219,12 +4254,14 @@ class MainWindow(QtWidgets.QMainWindow):
         view_menu = menubar.addMenu("View")
         
         history_action = QtWidgets.QAction("History Panel", self)
+        history_action.setIcon(get_icon('history', size=16))
         history_action.setShortcut("Ctrl+2")
         history_action.setCheckable(True)
         history_action.triggered.connect(self.toggle_history)
         view_menu.addAction(history_action)
         
         settings_action = QtWidgets.QAction("Settings Panel", self)
+        settings_action.setIcon(get_icon('settings', size=16))
         settings_action.setShortcut("Ctrl+3")
         settings_action.setCheckable(True)
         settings_action.triggered.connect(self.toggle_settings)
