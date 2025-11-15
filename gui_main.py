@@ -810,7 +810,8 @@ class StacksListsPanel(QtWidgets.QWidget):
         
         playlists = self.db.get_all_playlists()
         for playlist in playlists:
-            item = QtWidgets.QListWidgetItem("📋 " + playlist['name'])
+            item = QtWidgets.QListWidgetItem(playlist['name'])
+            item.setIcon(get_icon('playlist', size=16))
             item.setData(QtCore.Qt.UserRole, playlist['playlist_id'])
             self.playlists_list.addItem(item)
     
@@ -826,7 +827,7 @@ class StacksListsPanel(QtWidgets.QWidget):
         for stack in stacks:
             stack_item = QtWidgets.QTreeWidgetItem([stack['name']])
             stack_item.setData(0, QtCore.Qt.UserRole, ('stack', stack['stack_id']))
-            stack_item.setIcon(0, self.style().standardIcon(QtWidgets.QStyle.SP_DirIcon))
+            stack_item.setIcon(0, get_icon('stack', size=18))
             self.tree.addTopLevelItem(stack_item)
             
             # Load top-level lists for this stack (no parent)
@@ -850,7 +851,7 @@ class StacksListsPanel(QtWidgets.QWidget):
         """
         list_item = QtWidgets.QTreeWidgetItem([lst['name']])
         list_item.setData(0, QtCore.Qt.UserRole, ('list', lst['list_id'], stack_id))
-        list_item.setIcon(0, self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon))
+        list_item.setIcon(0, get_icon('list', size=16))
         
         # Recursively load sub-lists
         sub_lists = self.db.get_sub_lists(lst['list_id'])
@@ -879,28 +880,43 @@ class StacksListsPanel(QtWidgets.QWidget):
             self.load_data()
     
     def add_list(self):
-        """Add new list dialog."""
-        # Get selected stack
+        """Add new list or sub-list dialog."""
+        # Get selected item
         current_item = self.tree.currentItem()
         stack_id = None
+        list_id = None
         
         if current_item:
             data = current_item.data(0, QtCore.Qt.UserRole)
-            if data:
-                item_type, item_id = data
+            if data and len(data) >= 2:
+                item_type = data[0]
+                item_id = data[1]
+                
                 if item_type == 'stack':
                     stack_id = item_id
                 elif item_type == 'list':
-                    # Get parent stack
-                    parent = current_item.parent()
-                    if parent:
-                        parent_data = parent.data(0, QtCore.Qt.UserRole)
-                        if parent_data:
-                            stack_id = parent_data[1]
+                    # List is selected - offer to create sub-list
+                    list_id = item_id
+                    # Stack ID is the 3rd element if present, otherwise get from parent
+                    if len(data) >= 3:
+                        stack_id = data[2]
+                    else:
+                        parent = current_item.parent()
+                        if parent:
+                            parent_data = parent.data(0, QtCore.Qt.UserRole)
+                            if parent_data and len(parent_data) >= 2:
+                                stack_id = parent_data[1]
         
-        dialog = AddListDialog(self.db, stack_id, self)
-        if dialog.exec_():
-            self.load_data()
+        # If a list is selected, create sub-list
+        if list_id and stack_id:
+            dialog = AddSubListDialog(self.db, list_id, stack_id, self)
+            if dialog.exec_():
+                self.load_data()
+        else:
+            # Otherwise, create top-level list
+            dialog = AddListDialog(self.db, stack_id, self)
+            if dialog.exec_():
+                self.load_data()
     
     def show_tree_context_menu(self, position):
         """Show context menu for tree items."""
@@ -920,9 +936,9 @@ class StacksListsPanel(QtWidgets.QWidget):
             
             if item_type == 'stack':
                 # Stack context menu
-                add_list_action = menu.addAction("➕ Add List")
+                add_list_action = menu.addAction(get_icon('add', size=16), "Add List")
                 menu.addSeparator()
-                delete_stack_action = menu.addAction("🗑 Delete Stack")
+                delete_stack_action = menu.addAction(get_icon('delete', size=16), "Delete Stack")
                 
                 action = menu.exec_(self.tree.viewport().mapToGlobal(position))
                 
@@ -935,9 +951,9 @@ class StacksListsPanel(QtWidgets.QWidget):
                 # List context menu
                 stack_id = data[2] if len(data) > 2 else None
                 
-                add_sublist_action = menu.addAction("➕ Add Sub-List")
+                add_sublist_action = menu.addAction(get_icon('add', size=16), "Add Sub-List")
                 menu.addSeparator()
-                delete_list_action = menu.addAction("🗑 Delete List")
+                delete_list_action = menu.addAction(get_icon('delete', size=16), "Delete List")
                 
                 action = menu.exec_(self.tree.viewport().mapToGlobal(position))
                 
@@ -1148,6 +1164,8 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.preview_cache = get_preview_cache()  # Initialize preview cache
         self.gif_movies = {}  # Cache for QMovie objects {element_id: QMovie}
         self.current_gif_item = None  # Currently hovering item with GIF
+        self.element_items = {}  # Map element_id -> QListWidgetItem
+        self.element_flags = {}  # Map element_id -> status flags (favorite/deprecated)
         self.setup_ui()
         
         # Enable mouse tracking for hover events
@@ -1208,12 +1226,6 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         toolbar.addWidget(self.size_slider)
         
         toolbar.addStretch()
-        
-        # Bulk operations button
-        self.bulk_btn = QtWidgets.QPushButton("Bulk Operations ▼")
-        self.bulk_btn.setToolTip("Perform actions on selected elements")
-        self.bulk_btn.clicked.connect(self.show_bulk_menu)
-        toolbar.addWidget(self.bulk_btn)
         
         layout.addLayout(toolbar)
         
@@ -1279,9 +1291,13 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         """Handle thumbnail size change - reload elements with new size."""
         self.gallery_view.setIconSize(QtCore.QSize(value, value))
         
-        # Reload current elements to rescale images
-        if self.current_list_id:
-            self.load_elements(self.current_list_id)
+        # Reload visible items to rescale images
+        if not self.current_elements:
+            return
+        if self.config.get('pagination_enabled', True) and self.current_list_id:
+            self._display_current_page()
+        else:
+            self._update_views_with_elements(self.current_elements)
     
     def load_elements(self, list_id):
         """Load elements for a list with preview caching and pagination."""
@@ -1393,125 +1409,168 @@ class MediaDisplayWidget(QtWidgets.QWidget):
     
     def _update_views_with_elements(self, elements):
         """Update gallery and table views with given elements."""
-        # Update gallery view with cached previews
+        self.stop_current_gif()
+        self.current_gif_item = None
         self.gallery_view.clear()
         icon_size = self.gallery_view.iconSize()
-        
+        self.element_items = {}
+        self.element_flags = {}
+
         for element in elements:
+            element_id = element.get('element_id')
+            is_favorite = bool(element_id and self.db.is_favorite(element_id))
+            is_deprecated = bool(element.get('is_deprecated'))
+            if element_id:
+                self.element_flags[element_id] = {
+                    'favorite': is_favorite,
+                    'deprecated': is_deprecated
+                }
+
             item = QtWidgets.QListWidgetItem()
-            
-            # Add visual indicator for favorites and deprecated
             display_name = element['name']
-            if self.db.is_favorite(element['element_id']):
-                display_name = u"⭐ " + display_name
-            if element.get('is_deprecated'):
-                display_name = u"⚠ " + display_name
-            
-            # Add tags as suffix if present
             if element.get('tags'):
                 tag_list = [t.strip() for t in element['tags'].split(',') if t.strip()]
                 if tag_list:
-                    display_name += u" [" + ", ".join(tag_list[:3]) + u"]"  # Show first 3 tags
-            
+                    display_name += " [" + ", ".join(tag_list[:3]) + "]"
+
             item.setText(display_name)
-            item.setData(QtCore.Qt.UserRole, element['element_id'])
-            
-            # Check if GIF preview exists
+            item.setData(QtCore.Qt.UserRole, element_id)
+            if element_id:
+                self.element_items[element_id] = item
+
             gif_path = element.get('gif_preview_path')
-            has_gif = gif_path and os.path.exists(gif_path)
-            
+            has_gif = bool(gif_path and element_id and os.path.exists(gif_path))
+
             if has_gif:
-                # Load GIF but show static first frame (Ulaavi pattern)
-                element_id = element['element_id']
-                
-                if element_id not in self.gif_movies:
+                movie = self.gif_movies.get(element_id)
+                if not movie:
                     movie = QtGui.QMovie(gif_path)
                     if movie.isValid():
                         movie.setCacheMode(QtGui.QMovie.CacheAll)
+                        movie.frameChanged.connect(lambda frame_num, eid=element_id: self._update_gif_frame(eid))
                         self.gif_movies[element_id] = movie
-                        
-                        # Connect frame update signal (frameChanged emits frame number)
-                        movie.frameChanged.connect(lambda frame_num, it=item, m=movie: self._update_gif_frame(it, m))
-                        
-                        # Load GIF, stop at first frame (static preview)
-                        movie.jumpToFrame(0)
-                        pixmap = movie.currentPixmap()
-                        if not pixmap.isNull():
-                            scaled_pixmap = pixmap.scaled(
-                                icon_size,
-                                QtCore.Qt.KeepAspectRatio,
-                                QtCore.Qt.SmoothTransformation
-                            )
-                            item.setIcon(QtGui.QIcon(scaled_pixmap))
                     else:
-                        # GIF invalid, fall back to static preview
-                        has_gif = False
-            
-            # If no GIF or GIF failed, use static PNG preview
-            if not has_gif:
-                preview_path = element.get('preview_path')
-                if preview_path and os.path.exists(preview_path):
-                    # Try cache first
-                    cached_pixmap = self.preview_cache.get(preview_path)
-                    if not cached_pixmap:
-                        # Load from disk and cache original
-                        cached_pixmap = QtGui.QPixmap(preview_path)
-                        if not cached_pixmap.isNull():
-                            self.preview_cache.put(preview_path, cached_pixmap)
-                    
-                    # Scale to current icon size
-                    if cached_pixmap and not cached_pixmap.isNull():
-                        scaled_pixmap = cached_pixmap.scaled(
+                        movie = None
+
+                if movie and movie.isValid():
+                    movie.jumpToFrame(0)
+                    pixmap = movie.currentPixmap()
+                    if not pixmap.isNull():
+                        scaled_pixmap = pixmap.scaled(
                             icon_size,
                             QtCore.Qt.KeepAspectRatio,
                             QtCore.Qt.SmoothTransformation
                         )
+                        scaled_pixmap = self._apply_status_badges(scaled_pixmap, element_id)
                         item.setIcon(QtGui.QIcon(scaled_pixmap))
-                    else:
-                        # Fallback to default icon
-                        item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon))
                 else:
-                    # Default icon based on type
-                    if element['type'] == '2D':
-                        item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon))
-                    elif element['type'] == '3D':
-                        item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DriveFDIcon))
-                    else:
-                        item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_FileDialogDetailedView))
-            
+                    has_gif = False
+
+            if not has_gif:
+                static_pixmap = self._load_preview_pixmap(element, icon_size)
+                if static_pixmap:
+                    item.setIcon(QtGui.QIcon(static_pixmap))
+                else:
+                    item.setIcon(self._get_default_icon_for_type(element.get('type')))
+
             self.gallery_view.addItem(item)
-        
-        # Update table view
+
         self.table_view.setRowCount(len(elements))
         for row, element in enumerate(elements):
-            # Name with indicators
-            name_text = element['name']
-            if self.db.is_favorite(element['element_id']):
-                name_text = u"⭐ " + name_text
-            if element.get('is_deprecated'):
-                name_text = u"⚠ " + name_text
-            
-            self.table_view.setItem(row, 0, QtWidgets.QTableWidgetItem(name_text))
-            self.table_view.setItem(row, 1, QtWidgets.QTableWidgetItem(element['format'] or ''))
-            self.table_view.setItem(row, 2, QtWidgets.QTableWidgetItem(element['frame_range'] or ''))
-            self.table_view.setItem(row, 3, QtWidgets.QTableWidgetItem(element['type']))
-            
+            element_id = element.get('element_id')
+            flags = self.element_flags.get(element_id, {})
+
+            name_item = QtWidgets.QTableWidgetItem(element['name'])
+            if flags.get('favorite'):
+                name_item.setIcon(get_icon('favorite', size=16))
+            if flags.get('deprecated'):
+                name_item.setForeground(QtGui.QColor('#d88400'))
+            self.table_view.setItem(row, 0, name_item)
+
+            self.table_view.setItem(row, 1, QtWidgets.QTableWidgetItem(element.get('format') or ''))
+            self.table_view.setItem(row, 2, QtWidgets.QTableWidgetItem(element.get('frame_range') or ''))
+            self.table_view.setItem(row, 3, QtWidgets.QTableWidgetItem(element.get('type') or ''))
+
             size_str = ''
-            if element['file_size']:
+            if element.get('file_size'):
                 size_mb = element['file_size'] / (1024.0 * 1024.0)
                 if size_mb < 1024:
                     size_str = "{:.1f} MB".format(size_mb)
                 else:
                     size_str = "{:.2f} GB".format(size_mb / 1024.0)
             self.table_view.setItem(row, 4, QtWidgets.QTableWidgetItem(size_str))
-            
-            # Comment with tags
-            comment_text = element['comment'] or ''
+
+            comment_text = element.get('comment') or ''
             if element.get('tags'):
                 comment_text += " [Tags: " + element['tags'] + "]"
             self.table_view.setItem(row, 5, QtWidgets.QTableWidgetItem(comment_text))
-            
-            self.table_view.item(row, 0).setData(QtCore.Qt.UserRole, element['element_id'])
+
+            self.table_view.item(row, 0).setData(QtCore.Qt.UserRole, element_id)
+
+    def _load_preview_pixmap(self, element, icon_size):
+        """Load and scale a static preview pixmap for an element."""
+        preview_path = element.get('preview_path')
+        if not preview_path or not os.path.exists(preview_path):
+            return None
+
+        cached_pixmap = self.preview_cache.get(preview_path)
+        if not cached_pixmap:
+            cached_pixmap = QtGui.QPixmap(preview_path)
+            if not cached_pixmap.isNull():
+                self.preview_cache.put(preview_path, cached_pixmap)
+
+        if cached_pixmap and not cached_pixmap.isNull():
+            scaled_pixmap = cached_pixmap.scaled(
+                icon_size,
+                QtCore.Qt.KeepAspectRatio,
+                QtCore.Qt.SmoothTransformation
+            )
+            element_id = element.get('element_id')
+            if element_id:
+                scaled_pixmap = self._apply_status_badges(scaled_pixmap, element_id)
+            return scaled_pixmap
+        return None
+
+    def _get_default_icon_for_type(self, element_type):
+        """Return a fallback icon when no preview is available."""
+        if element_type == '2D':
+            return self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon)
+        if element_type == '3D':
+            return self.style().standardIcon(QtWidgets.QStyle.SP_DriveFDIcon)
+        return self.style().standardIcon(QtWidgets.QStyle.SP_FileDialogDetailedView)
+
+    def _apply_status_badges(self, pixmap, element_id):
+        """Overlay favorite/deprecated badges onto a pixmap."""
+        flags = self.element_flags.get(element_id)
+        if not flags:
+            return pixmap
+
+        overlays = []
+        if flags.get('favorite'):
+            overlays.append(get_pixmap('favorite', size=18))
+        if flags.get('deprecated'):
+            overlays.append(get_pixmap('deprecated', size=18))
+
+        overlays = [ov for ov in overlays if ov and not ov.isNull()]
+        if not overlays:
+            return pixmap
+
+        result = QtGui.QPixmap(pixmap)
+        painter = QtGui.QPainter(result)
+        margin = 6
+        offset = margin
+        for overlay in overlays:
+            badge = overlay.scaled(
+                18,
+                18,
+                QtCore.Qt.KeepAspectRatio,
+                QtCore.Qt.SmoothTransformation
+            )
+            painter.drawPixmap(offset, margin, badge)
+            offset += badge.width() + 4
+        painter.end()
+
+        return result
     
     def on_item_clicked(self, item):
         """Handle gallery item click."""
@@ -1616,35 +1675,37 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         movie.jumpToFrame(0)
         movie.start()
     
-    def _update_gif_frame(self, item, movie):
-        """Update item icon with current GIF frame."""
-        # Check if item still exists (prevent RuntimeError)
+    def _update_gif_frame(self, element_id):
+        """Update the gallery icon with the current GIF frame."""
+        if element_id not in self.gif_movies:
+            return
+        movie = self.gif_movies.get(element_id)
+        item = self.element_items.get(element_id)
+        if not movie or not item:
+            return
+
         try:
-            if not item or not movie:
-                return
-            # Try to access item data to verify it's still valid
             _ = item.data(QtCore.Qt.UserRole)
         except RuntimeError:
-            # Item has been deleted, stop the movie
-            if movie:
-                movie.stop()
+            movie.stop()
             return
-        
+
         pixmap = movie.currentPixmap()
-        if not pixmap.isNull():
-            # Scale to icon size
-            icon_size = self.gallery_view.iconSize()
-            scaled_pixmap = pixmap.scaled(
-                icon_size,
-                QtCore.Qt.KeepAspectRatio,
-                QtCore.Qt.SmoothTransformation
-            )
-            try:
-                item.setIcon(QtGui.QIcon(scaled_pixmap))
-            except RuntimeError:
-                # Item was deleted during icon update
-                if movie:
-                    movie.stop()
+        if pixmap.isNull():
+            return
+
+        icon_size = self.gallery_view.iconSize()
+        scaled_pixmap = pixmap.scaled(
+            icon_size,
+            QtCore.Qt.KeepAspectRatio,
+            QtCore.Qt.SmoothTransformation
+        )
+        scaled_pixmap = self._apply_status_badges(scaled_pixmap, element_id)
+
+        try:
+            item.setIcon(QtGui.QIcon(scaled_pixmap))
+        except RuntimeError:
+            movie.stop()
     
     def stop_current_gif(self):
         """Stop currently playing GIF and return to static first frame (Ulaavi pattern)."""
@@ -1657,7 +1718,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 movie.stop()
                 movie.jumpToFrame(0)
                 # Update icon to show first frame
-                self._update_gif_frame(self.current_gif_item, movie)
+                self._update_gif_frame(element_id)
     
     def keyPressEvent(self, event):
         """Handle key press events."""
@@ -1722,67 +1783,114 @@ class MediaDisplayWidget(QtWidgets.QWidget):
     
     def show_context_menu(self, position, element_id):
         """
-        Show context menu for element.
+        Show context menu for element(s).
+        Supports both single and bulk operations.
         
         Args:
             position (QPoint): Position to show menu
-            element_id (int): Element ID
+            element_id (int): Element ID (for single selection)
         """
+        # Get all selected element IDs
+        selected_ids = self.get_selected_element_ids()
+        
         menu = QtWidgets.QMenu(self)
         
-        # Check if already favorited
-        is_fav = self.db.is_favorite(
-            element_id,
-            self.config.get('user_name'),
-            self.config.get('machine_name')
-        )
+        # If multiple items selected, show bulk operations menu
+        if len(selected_ids) > 1:
+            # Bulk operations header
+            header_label = QtWidgets.QLabel("  {} items selected  ".format(len(selected_ids)))
+            header_label.setStyleSheet("font-weight: bold; color: #16c6b0; padding: 5px;")
+            header_action = QtWidgets.QWidgetAction(self)
+            header_action.setDefaultWidget(header_label)
+            menu.addAction(header_action)
+            
+            menu.addSeparator()
+            
+            # Bulk add to favorites
+            bulk_fav_action = menu.addAction(get_icon('favorite', size=16), "Add All to Favorites")
+            
+            # Bulk add to playlist
+            bulk_playlist_action = menu.addAction(get_icon('playlist', size=16), "Add All to Playlist...")
+            
+            menu.addSeparator()
+            
+            # Bulk mark as deprecated (admin only)
+            bulk_deprecate_action = menu.addAction(get_icon('deprecated', size=16), "Mark All as Deprecated")
+            if not self.parent().is_admin:
+                bulk_deprecate_action.setEnabled(False)
+            
+            # Bulk delete (admin only)
+            bulk_delete_action = menu.addAction(get_icon('delete', size=16), "Delete All Selected")
+            if not self.parent().is_admin:
+                bulk_delete_action.setEnabled(False)
+            
+            # Execute menu
+            action = menu.exec_(position)
+            
+            if action == bulk_fav_action:
+                self.bulk_add_to_favorites(selected_ids)
+            elif action == bulk_playlist_action:
+                self.bulk_add_to_playlist(selected_ids)
+            elif action == bulk_deprecate_action:
+                self.bulk_mark_deprecated(selected_ids)
+            elif action == bulk_delete_action:
+                self.bulk_delete(selected_ids)
         
-        # Add/Remove favorite action
-        if is_fav:
-            fav_action = menu.addAction("⭐ Remove from Favorites")
         else:
-            fav_action = menu.addAction("☆ Add to Favorites")
-        
-        # Add to playlist action
-        add_playlist_action = menu.addAction("📋 Add to Playlist...")
-        
-        menu.addSeparator()
-        
-        # Insert into Nuke action
-        insert_action = menu.addAction("Insert into Nuke")
-        
-        # Edit metadata action
-        edit_action = menu.addAction("✏ Edit Metadata...")
-        
-        menu.addSeparator()
-        
-        # Get element to check deprecated status
-        element = self.db.get_element_by_id(element_id)
-        
-        # Toggle deprecated action
-        if element and element.get('is_deprecated'):
-            deprecated_action = menu.addAction("↺ Unmark as Deprecated")
-        else:
-            deprecated_action = menu.addAction("⚠ Mark as Deprecated")
+            # Single item context menu (existing behavior)
+            # Check if already favorited
+            is_fav = self.db.is_favorite(
+                element_id,
+                self.config.get('user_name'),
+                self.config.get('machine_name')
+            )
+            
+            # Add/Remove favorite action
+            if is_fav:
+                fav_action = menu.addAction(get_icon('favorite', size=16), "Remove from Favorites")
+            else:
+                fav_action = menu.addAction(get_icon('favorite', size=16), "Add to Favorites")
+            
+            # Add to playlist action
+            add_playlist_action = menu.addAction(get_icon('playlist', size=16), "Add to Playlist...")
+            
+            menu.addSeparator()
+            
+            # Insert into Nuke action
+            insert_action = menu.addAction("Insert into Nuke")
+            
+            # Edit metadata action
+            edit_action = menu.addAction(get_icon('edit', size=16), "Edit Metadata...")
+            
+            menu.addSeparator()
+            
+            # Get element to check deprecated status
+            element = self.db.get_element_by_id(element_id)
+            
+            # Toggle deprecated action
+            if element and element.get('is_deprecated'):
+                deprecated_action = menu.addAction(get_icon('deprecated', size=16), "Unmark as Deprecated")
+            else:
+                deprecated_action = menu.addAction(get_icon('deprecated', size=16), "Mark as Deprecated")
 
-        # Delete action
-        delete_action = menu.addAction("🗑 Delete Element")
+            # Delete action
+            delete_action = menu.addAction(get_icon('delete', size=16), "Delete Element")
 
-        # Execute menu
-        action = menu.exec_(position)
-        
-        if action == fav_action:
-            self.toggle_favorite(element_id)
-        elif action == add_playlist_action:
-            self.add_to_playlist(element_id)
-        elif action == insert_action:
-            self.element_double_clicked.emit(element_id)
-        elif action == edit_action:
-            self.edit_element(element_id)
-        elif action == deprecated_action:
-            self.toggle_deprecated(element_id)
-        elif action == delete_action:
-            self.delete_element(element_id)
+            # Execute menu
+            action = menu.exec_(position)
+            
+            if action == fav_action:
+                self.toggle_favorite(element_id)
+            elif action == add_playlist_action:
+                self.add_to_playlist(element_id)
+            elif action == insert_action:
+                self.element_double_clicked.emit(element_id)
+            elif action == edit_action:
+                self.edit_element(element_id)
+            elif action == deprecated_action:
+                self.toggle_deprecated(element_id)
+            elif action == delete_action:
+                self.delete_element(element_id)
     
     def add_to_playlist(self, element_id):
         """Show dialog to add element to playlist."""
@@ -1886,18 +1994,18 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         menu = QtWidgets.QMenu(self)
         
         # Bulk add to favorites
-        bulk_fav_action = menu.addAction("⭐ Add All to Favorites")
+        bulk_fav_action = menu.addAction(get_icon('favorite', size=16), "Add All to Favorites")
         
         # Bulk add to playlist
-        bulk_playlist_action = menu.addAction("📋 Add All to Playlist...")
+        bulk_playlist_action = menu.addAction(get_icon('playlist', size=16), "Add All to Playlist...")
         
         menu.addSeparator()
         
         # Bulk mark as deprecated
-        bulk_deprecate_action = menu.addAction("⚠ Mark All as Deprecated")
+        bulk_deprecate_action = menu.addAction(get_icon('deprecated', size=16), "Mark All as Deprecated")
         
         # Bulk delete
-        bulk_delete_action = menu.addAction("🗑 Delete All Selected")
+        bulk_delete_action = menu.addAction(get_icon('delete', size=16), "Delete All Selected")
         
         # Execute menu
         action = menu.exec_(QtGui.QCursor.pos())
@@ -2048,47 +2156,10 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         favorites = self.db.get_favorites(user, machine)
         
         self.current_list_id = None  # Clear current list
+        self.current_elements = favorites
+        self.pagination.setVisible(False)
         self.info_label.setText("Favorites ({} items)".format(len(favorites)))
-        
-        # Update gallery view
-        self.gallery_view.clear()
-        for element in favorites:
-            item = QtWidgets.QListWidgetItem()
-            item.setText("⭐ " + element['name'])  # Add star prefix
-            item.setData(QtCore.Qt.UserRole, element['element_id'])
-            
-            if element['preview_path'] and os.path.exists(element['preview_path']):
-                pixmap = QtGui.QPixmap(element['preview_path'])
-                item.setIcon(QtGui.QIcon(pixmap))
-            else:
-                if element['type'] == '2D':
-                    item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon))
-                elif element['type'] == '3D':
-                    item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DriveFDIcon))
-                else:
-                    item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_FileDialogDetailedView))
-            
-            self.gallery_view.addItem(item)
-        
-        # Update table view
-        self.table_view.setRowCount(len(favorites))
-        for row, element in enumerate(favorites):
-            self.table_view.setItem(row, 0, QtWidgets.QTableWidgetItem("⭐ " + element['name']))
-            self.table_view.setItem(row, 1, QtWidgets.QTableWidgetItem(element['format'] or ''))
-            self.table_view.setItem(row, 2, QtWidgets.QTableWidgetItem(element['frame_range'] or ''))
-            self.table_view.setItem(row, 3, QtWidgets.QTableWidgetItem(element['type']))
-            
-            size_str = ''
-            if element['file_size']:
-                size_mb = element['file_size'] / (1024.0 * 1024.0)
-                if size_mb < 1024:
-                    size_str = "{:.1f} MB".format(size_mb)
-                else:
-                    size_str = "{:.2f} GB".format(size_mb / 1024.0)
-            self.table_view.setItem(row, 4, QtWidgets.QTableWidgetItem(size_str))
-            
-            self.table_view.setItem(row, 5, QtWidgets.QTableWidgetItem(element['comment'] or ''))
-            self.table_view.item(row, 0).setData(QtCore.Qt.UserRole, element['element_id'])
+        self._update_views_with_elements(favorites)
     
     def load_playlist(self, playlist_id):
         """Load and display playlist elements."""
@@ -2099,47 +2170,10 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         elements = self.db.get_playlist_elements(playlist_id)
         
         self.current_list_id = None  # Clear current list
+        self.current_elements = elements
+        self.pagination.setVisible(False)
         self.info_label.setText("Playlist: {} ({} items)".format(playlist['name'], len(elements)))
-        
-        # Update gallery view
-        self.gallery_view.clear()
-        for element in elements:
-            item = QtWidgets.QListWidgetItem()
-            item.setText("📋 " + element['name'])  # Add playlist prefix
-            item.setData(QtCore.Qt.UserRole, element['element_id'])
-            
-            if element['preview_path'] and os.path.exists(element['preview_path']):
-                pixmap = QtGui.QPixmap(element['preview_path'])
-                item.setIcon(QtGui.QIcon(pixmap))
-            else:
-                if element['type'] == '2D':
-                    item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon))
-                elif element['type'] == '3D':
-                    item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DriveFDIcon))
-                else:
-                    item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_FileDialogDetailedView))
-            
-            self.gallery_view.addItem(item)
-        
-        # Update table view
-        self.table_view.setRowCount(len(elements))
-        for row, element in enumerate(elements):
-            self.table_view.setItem(row, 0, QtWidgets.QTableWidgetItem("📋 " + element['name']))
-            self.table_view.setItem(row, 1, QtWidgets.QTableWidgetItem(element['format'] or ''))
-            self.table_view.setItem(row, 2, QtWidgets.QTableWidgetItem(element['frame_range'] or ''))
-            self.table_view.setItem(row, 3, QtWidgets.QTableWidgetItem(element['type']))
-            
-            size_str = ''
-            if element['file_size']:
-                size_mb = element['file_size'] / (1024.0 * 1024.0)
-                if size_mb < 1024:
-                    size_str = "{:.1f} MB".format(size_mb)
-                else:
-                    size_str = "{:.2f} GB".format(size_mb / 1024.0)
-            self.table_view.setItem(row, 4, QtWidgets.QTableWidgetItem(size_str))
-            
-            self.table_view.setItem(row, 5, QtWidgets.QTableWidgetItem(element['comment'] or ''))
-            self.table_view.item(row, 0).setData(QtCore.Qt.UserRole, element['element_id'])
+        self._update_views_with_elements(elements)
     
     def contextMenuEvent(self, event):
         """Handle context menu request."""
@@ -2365,8 +2399,8 @@ class SettingsPanel(QtWidgets.QWidget):
         policy_layout.addRow("Default Copy Policy:", self.copy_policy)
         
         policy_help = QtWidgets.QLabel(
-            "• Soft: Store reference to original file location\n"
-            "• Hard: Copy file to repository"
+            "- Soft: Store reference to original file location\n"
+            "- Hard: Copy file to repository"
         )
         policy_help.setStyleSheet("color: #888; font-size: 11px;")
         policy_layout.addRow("", policy_help)
@@ -2609,7 +2643,7 @@ class SettingsPanel(QtWidgets.QWidget):
         if not is_admin:
             # Show locked message for non-admin users
             lock_label = QtWidgets.QLabel(
-                "🔒 Administrator Privileges Required\n\n"
+                "Administrator Privileges Required\n\n"
                 "This section contains sensitive settings that can only\n"
                 "be modified by users with administrator privileges.\n\n"
                 "Current user: {}\n"
@@ -3039,11 +3073,11 @@ class IngestLibraryDialog(QtWidgets.QDialog):
         instructions = QtWidgets.QLabel(
             "<b>Bulk Library Ingestion</b><br/>"
             "This feature scans a folder hierarchy and automatically creates:<br/>"
-            "• <b>Stacks</b> from top-level folders<br/>"
-            "• <b>Lists</b> from subfolders<br/>"
-            "• <b>Sub-Lists</b> from nested subfolders<br/>"
-            "• Ingests all media files in each folder<br/><br/>"
-            "<i>Example: ActionFX/explosions/aerial → Stack: 'ActionFX', List: 'explosions', Sub-List: 'aerial'</i>"
+            "- <b>Stacks</b> from top-level folders<br/>"
+            "- <b>Lists</b> from subfolders<br/>"
+            "- <b>Sub-Lists</b> from nested subfolders<br/>"
+            "- Ingests all media files in each folder<br/><br/>"
+            "<i>Example: ActionFX/explosions/aerial -> Stack: 'ActionFX', List: 'explosions', Sub-List: 'aerial'</i>"
         )
         instructions.setWordWrap(True)
         instructions.setStyleSheet("color: #cccccc; padding: 10px; background-color: #2a2a2a; border-radius: 5px;")
@@ -3504,7 +3538,7 @@ class AddToPlaylistDialog(QtWidgets.QDialog):
             
             item = QtWidgets.QListWidgetItem()
             if is_in:
-                item.setText("✓ " + playlist['name'] + " (already added)")
+                item.setText("[Added] " + playlist['name'] + " (already added)")
                 item.setForeground(QtGui.QColor('gray'))
                 item.setFlags(item.flags() & ~QtCore.Qt.ItemIsEnabled)
             else:

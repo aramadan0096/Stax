@@ -6,7 +6,17 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
 
 ## [Unreleased]
 
+### Added
+- **Roadmap Requested Tasks Implementation** (Session 5):
+  - **Task 2 - SVG Icons**: Verified all 3 required icons (stack.svg, list.svg, playlist.svg) exist in resources/icons/ with proper SVG structure and color tinting support
+  - **Task 3 - Sub-list Creation**: Modified `add_list()` button to create sub-lists when a list is selected, top-level lists otherwise. Leverages existing `AddSubListDialog` and hierarchical tree display
+  - **Task 4 - Context Menu Bulk Operations**: Removed "Bulk Operations ▼" toolbar button. Bulk actions (Add to Favorites, Add to Playlist, Mark Deprecated, Delete Selected) now accessible via right-click context menu when multiple items are selected. Includes selection count header and permission checks
+
 ### Fixed
+- **Sub-list Data Unpacking** (Session 5 - Bug Fix):
+  - Fixed ValueError in `add_list()` when unpacking tree item data (expected 2 values, got 3)
+  - Added length check before unpacking to handle variable-length data tuples
+  - Properly extracts stack_id from 3rd element or parent item
 - **Database Migration Issues** (Session 4 - Bug Fix):
   - Fixed missing `users` and `user_sessions` tables in existing databases
   - Added Migration 3: Auto-creates `users` table with default admin account
@@ -461,6 +471,14 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
 - Added hasattr guards to prevent accessing table_view/gallery_view before widget initialization
 - **Fixed NumPy 2.0 compatibility issue with PySide2** - Added numpy<2.0.0 constraint
 - Created FIX_NUMPY_ISSUE.md with troubleshooting guide
+- **Stabilized GIF hover playback across all views:**
+  - Rebuilt MediaDisplayWidget rendering to keep element/QMovie associations in sync
+  - Favorites, playlists, and paginated lists now share the same preview pipeline
+  - Hover playback resumes reliably after resizing or switching collections
+- **Replaced Unicode status glyphs with SVG icons:**
+  - Gallery/table badges now use `favorite.svg` and `deprecated.svg`
+  - Navigation tree, playlists, and bulk/context menus use `stack.svg`, `list.svg`, `playlist.svg`, etc.
+  - Removed hardcoded emoji/bullet characters to ensure consistent cross-platform rendering
 - **Fixed ModuleNotFoundError in ingestion_core.py** (Session 3):
   - Changed "from ffmpeg_wrapper import" to "from src.ffmpeg_wrapper import"
   - Fixed missing src. prefix for relative imports
