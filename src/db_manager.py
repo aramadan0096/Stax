@@ -18,16 +18,18 @@ class DatabaseManager(object):
     Implements network-aware file locking and connection pooling.
     """
     
-    def __init__(self, db_path):
+    def __init__(self, db_path, enable_logging=False):
         """
         Initialize database manager.
         
         Args:
             db_path (str): Path to SQLite database file
+            enable_logging (bool): Enable detailed operation logging
         """
         self.db_path = db_path
-        self.max_retries = 5
-        self.retry_delay = 0.5  # seconds
+        self.max_retries = 10  # Increased for network environments
+        self.retry_delay = 0.3  # seconds (exponential backoff)
+        self.enable_logging = enable_logging
         
         # Ensure database directory exists
         db_dir = os.path.dirname(db_path)
@@ -38,37 +40,89 @@ class DatabaseManager(object):
         if not os.path.exists(db_path):
             self._create_schema()
     
+    def _log(self, message):
+        """Log message if logging is enabled."""
+        if self.enable_logging:
+            print("[DB] {}".format(message))
+    
     @contextmanager
     def get_connection(self):
         """
         Context manager for database connections with retry logic.
-        Implements file locking for network-shared databases.
+        Implements file locking for network-shared databases with exponential backoff.
         
         Yields:
             sqlite3.Connection: Database connection
+            
+        Raises:
+            sqlite3.OperationalError: If connection fails after all retries
         """
         conn = None
+        last_error = None
+        
         for attempt in range(self.max_retries):
             try:
+                self._log("Connection attempt {} of {}".format(attempt + 1, self.max_retries))
+                
                 conn = sqlite3.connect(
                     self.db_path,
-                    timeout=30.0,  # 30 second timeout for locks
-                    isolation_level='DEFERRED'
+                    timeout=60.0,  # 60 second timeout for network locks
+                    isolation_level='DEFERRED',
+                    check_same_thread=False  # Allow multi-threaded access
                 )
                 conn.row_factory = sqlite3.Row  # Enable dict-like access
+                
                 # Enable foreign keys
                 conn.execute("PRAGMA foreign_keys = ON")
+                
+                # Optimize for network file systems
+                conn.execute("PRAGMA synchronous = NORMAL")  # Balance between safety and speed
+                conn.execute("PRAGMA journal_mode = WAL")  # Write-Ahead Logging for better concurrency
+                conn.execute("PRAGMA cache_size = -16000")  # 16MB cache
+                
+                self._log("Connection successful")
+                
                 yield conn
                 conn.commit()
+                self._log("Transaction committed")
                 break
+                
             except sqlite3.OperationalError as e:
-                if attempt < self.max_retries - 1:
-                    time.sleep(self.retry_delay * (attempt + 1))
+                last_error = e
+                error_msg = str(e).lower()
+                
+                # Detect lock-related errors
+                if 'locked' in error_msg or 'busy' in error_msg:
+                    if attempt < self.max_retries - 1:
+                        # Exponential backoff with jitter
+                        delay = self.retry_delay * (2 ** attempt) + (time.time() % 0.1)
+                        self._log("Database locked, retrying in {:.2f}s...".format(delay))
+                        time.sleep(delay)
+                        continue
+                    else:
+                        self._log("Max retries reached. Database still locked.")
+                        raise RuntimeError(
+                            "Database locked after {} retries. "
+                            "Another process may be holding a long transaction. "
+                            "Error: {}".format(self.max_retries, str(e))
+                        )
                 else:
+                    # Non-lock error, raise immediately
+                    self._log("Database error: {}".format(str(e)))
                     raise
+                    
+            except Exception as e:
+                last_error = e
+                self._log("Unexpected error: {}".format(str(e)))
+                raise
+                
             finally:
                 if conn:
-                    conn.close()
+                    try:
+                        conn.close()
+                        self._log("Connection closed")
+                    except:
+                        pass
     
     def _create_schema(self):
         """Create database schema with all required tables."""
@@ -175,8 +229,15 @@ class DatabaseManager(object):
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_elements_list ON elements(list_fk)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_elements_type ON elements(type)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_elements_name ON elements(name)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_elements_deprecated ON elements(is_deprecated)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_favorites_element ON favorites(element_fk)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_favorites_user ON favorites(machine_name, user_name)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_playlist_items_playlist ON playlist_items(playlist_fk)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_playlist_items_element ON playlist_items(element_fk)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_history_element ON ingestion_history(element_fk)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_history_status ON ingestion_history(status)")
+            
+            self._log("Database schema created with optimized indexes")
     
     # ======================
     # STACK OPERATIONS
@@ -324,13 +385,15 @@ class DatabaseManager(object):
             )
             return cursor.lastrowid
     
-    def get_elements_by_list(self, list_id, include_deprecated=False):
+    def get_elements_by_list(self, list_id, include_deprecated=False, limit=None, offset=0):
         """
-        Get all elements for a list.
+        Get elements for a list with optional pagination.
         
         Args:
             list_id (int): List ID
             include_deprecated (bool): Include deprecated elements
+            limit (int): Maximum number of results (None = all)
+            offset (int): Number of results to skip (for pagination)
             
         Returns:
             list: List of element dictionaries
@@ -344,8 +407,35 @@ class DatabaseManager(object):
                 query += " AND is_deprecated = 0"
             
             query += " ORDER BY name"
+            
+            if limit is not None:
+                query += " LIMIT ? OFFSET ?"
+                params.extend([limit, offset])
+            
             cursor.execute(query, params)
             return [dict(row) for row in cursor.fetchall()]
+    
+    def get_elements_count(self, list_id, include_deprecated=False):
+        """
+        Get total count of elements in a list.
+        
+        Args:
+            list_id (int): List ID
+            include_deprecated (bool): Include deprecated elements
+            
+        Returns:
+            int: Total element count
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            query = "SELECT COUNT(*) FROM elements WHERE list_fk = ?"
+            params = [list_id]
+            
+            if not include_deprecated:
+                query += " AND is_deprecated = 0"
+            
+            cursor.execute(query, params)
+            return cursor.fetchone()[0]
     
     def get_element_by_id(self, element_id):
         """Get element by ID."""
@@ -519,3 +609,307 @@ class DatabaseManager(object):
                     writer.writeheader()
                     for row in rows:
                         writer.writerow(dict(row))
+    
+    # Favorites management
+    
+    def add_favorite(self, element_id, user_name=None, machine_name=None):
+        """
+        Add element to favorites.
+        
+        Args:
+            element_id (int): Element ID
+            user_name (str): User name (optional, uses config if None)
+            machine_name (str): Machine name (optional, uses config if None)
+            
+        Returns:
+            int: Favorite ID or None if already exists
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Check if already favorited
+            cursor.execute(
+                "SELECT favorite_id FROM favorites WHERE element_fk = ? AND user_name = ? AND machine_name = ?",
+                (element_id, user_name or '', machine_name or '')
+            )
+            if cursor.fetchone():
+                return None  # Already favorited
+            
+            cursor.execute(
+                "INSERT INTO favorites (element_fk, user_name, machine_name) VALUES (?, ?, ?)",
+                (element_id, user_name or '', machine_name or '')
+            )
+            conn.commit()
+            return cursor.lastrowid
+    
+    def remove_favorite(self, element_id, user_name=None, machine_name=None):
+        """
+        Remove element from favorites.
+        
+        Args:
+            element_id (int): Element ID
+            user_name (str): User name
+            machine_name (str): Machine name
+            
+        Returns:
+            bool: True if removed, False if not found
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM favorites WHERE element_fk = ? AND user_name = ? AND machine_name = ?",
+                (element_id, user_name or '', machine_name or '')
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+    
+    def is_favorite(self, element_id, user_name=None, machine_name=None):
+        """
+        Check if element is in favorites.
+        
+        Args:
+            element_id (int): Element ID
+            user_name (str): User name
+            machine_name (str): Machine name
+            
+        Returns:
+            bool: True if favorited, False otherwise
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT 1 FROM favorites WHERE element_fk = ? AND user_name = ? AND machine_name = ?",
+                (element_id, user_name or '', machine_name or '')
+            )
+            return cursor.fetchone() is not None
+    
+    def get_favorites(self, user_name=None, machine_name=None):
+        """
+        Get all favorite elements for user/machine.
+        
+        Args:
+            user_name (str): User name
+            machine_name (str): Machine name
+            
+        Returns:
+            list: List of element dicts
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT e.* FROM elements e
+                INNER JOIN favorites f ON e.element_id = f.element_fk
+                WHERE f.user_name = ? AND f.machine_name = ?
+                ORDER BY f.favorited_at DESC
+            """, (user_name or '', machine_name or ''))
+            return [dict(row) for row in cursor.fetchall()]
+    
+    # Playlists management
+    
+    def create_playlist(self, name, description=None, user_name=None, machine_name=None):
+        """
+        Create a new playlist.
+        
+        Args:
+            name (str): Playlist name
+            description (str): Optional description
+            user_name (str): Creator user name
+            machine_name (str): Creator machine name
+            
+        Returns:
+            int: Playlist ID
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO playlists (name, description, created_by, created_on_machine) VALUES (?, ?, ?, ?)",
+                (name, description or '', user_name or '', machine_name or '')
+            )
+            conn.commit()
+            return cursor.lastrowid
+    
+    def get_all_playlists(self):
+        """
+        Get all playlists.
+        
+        Returns:
+            list: List of playlist dicts
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM playlists ORDER BY created_at DESC")
+            return [dict(row) for row in cursor.fetchall()]
+    
+    def get_playlist_by_id(self, playlist_id):
+        """
+        Get playlist by ID.
+        
+        Args:
+            playlist_id (int): Playlist ID
+            
+        Returns:
+            dict: Playlist data or None
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM playlists WHERE playlist_id = ?", (playlist_id,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+    
+    def update_playlist(self, playlist_id, name=None, description=None):
+        """
+        Update playlist details.
+        
+        Args:
+            playlist_id (int): Playlist ID
+            name (str): New name (optional)
+            description (str): New description (optional)
+            
+        Returns:
+            bool: True if updated
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            if name:
+                cursor.execute("UPDATE playlists SET name = ? WHERE playlist_id = ?", (name, playlist_id))
+            if description is not None:
+                cursor.execute("UPDATE playlists SET description = ? WHERE playlist_id = ?", (description, playlist_id))
+            conn.commit()
+            return cursor.rowcount > 0
+    
+    def delete_playlist(self, playlist_id):
+        """
+        Delete a playlist and all its items.
+        
+        Args:
+            playlist_id (int): Playlist ID
+            
+        Returns:
+            bool: True if deleted
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            # Delete items first
+            cursor.execute("DELETE FROM playlist_items WHERE playlist_fk = ?", (playlist_id,))
+            # Delete playlist
+            cursor.execute("DELETE FROM playlists WHERE playlist_id = ?", (playlist_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+    
+    def add_element_to_playlist(self, playlist_id, element_id, order_index=None):
+        """
+        Add element to playlist.
+        
+        Args:
+            playlist_id (int): Playlist ID
+            element_id (int): Element ID
+            order_index (int): Optional order index
+            
+        Returns:
+            int: Playlist item ID or None if already exists
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Check if already in playlist
+            cursor.execute(
+                "SELECT item_id FROM playlist_items WHERE playlist_fk = ? AND element_fk = ?",
+                (playlist_id, element_id)
+            )
+            if cursor.fetchone():
+                return None  # Already in playlist
+            
+            # Get max order if not specified
+            if order_index is None:
+                cursor.execute("SELECT MAX(order_index) FROM playlist_items WHERE playlist_fk = ?", (playlist_id,))
+                max_order = cursor.fetchone()[0]
+                order_index = (max_order or 0) + 1
+            
+            cursor.execute(
+                "INSERT INTO playlist_items (playlist_fk, element_fk, order_index) VALUES (?, ?, ?)",
+                (playlist_id, element_id, order_index)
+            )
+            conn.commit()
+            return cursor.lastrowid
+    
+    def remove_element_from_playlist(self, playlist_id, element_id):
+        """
+        Remove element from playlist.
+        
+        Args:
+            playlist_id (int): Playlist ID
+            element_id (int): Element ID
+            
+        Returns:
+            bool: True if removed
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM playlist_items WHERE playlist_fk = ? AND element_fk = ?",
+                (playlist_id, element_id)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+    
+    def get_playlist_elements(self, playlist_id):
+        """
+        Get all elements in a playlist.
+        
+        Args:
+            playlist_id (int): Playlist ID
+            
+        Returns:
+            list: List of element dicts with order_index
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT e.*, pi.order_index, pi.added_at as playlist_added_at
+                FROM elements e
+                INNER JOIN playlist_items pi ON e.element_id = pi.element_fk
+                WHERE pi.playlist_fk = ?
+                ORDER BY pi.order_index ASC
+            """, (playlist_id,))
+            return [dict(row) for row in cursor.fetchall()]
+    
+    def is_element_in_playlist(self, playlist_id, element_id):
+        """
+        Check if element is in playlist.
+        
+        Args:
+            playlist_id (int): Playlist ID
+            element_id (int): Element ID
+            
+        Returns:
+            bool: True if in playlist
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT 1 FROM playlist_items WHERE playlist_fk = ? AND element_fk = ?",
+                (playlist_id, element_id)
+            )
+            return cursor.fetchone() is not None
+    
+    def reorder_playlist_items(self, playlist_id, element_order):
+        """
+        Reorder elements in playlist.
+        
+        Args:
+            playlist_id (int): Playlist ID
+            element_order (list): List of element IDs in desired order
+            
+        Returns:
+            bool: True if successful
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            for index, element_id in enumerate(element_order):
+                cursor.execute(
+                    "UPDATE playlist_items SET order_index = ? WHERE playlist_fk = ? AND element_fk = ?",
+                    (index, playlist_id, element_id)
+                )
+            conn.commit()
+            return True
+

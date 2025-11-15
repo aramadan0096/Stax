@@ -9,7 +9,7 @@ import os
 import re
 import shutil
 import hashlib
-from PIL import Image
+from src.ffmpeg_wrapper import get_ffmpeg
 
 
 class SequenceDetector(object):
@@ -157,7 +157,7 @@ class MetadataExtractor(object):
     @staticmethod
     def get_image_info(filepath):
         """
-        Get image dimensions and format.
+        Get image dimensions and format using FFmpeg.
         
         Args:
             filepath (str): Image file path
@@ -166,29 +166,32 @@ class MetadataExtractor(object):
             dict: {'width': int, 'height': int, 'format': str}
         """
         try:
-            with Image.open(filepath) as img:
+            ffmpeg = get_ffmpeg()
+            info = ffmpeg.get_media_info(filepath)
+            if info:
                 return {
-                    'width': img.width,
-                    'height': img.height,
-                    'format': img.format
+                    'width': info.get('width'),
+                    'height': info.get('height'),
+                    'format': info.get('format')
                 }
+            return None
         except Exception:
             return None
 
 
 class PreviewGenerator(object):
-    """Generates preview thumbnails for assets."""
+    """Generates preview thumbnails for assets using FFmpeg."""
     
-    PREVIEW_SIZE = (512, 512)
+    PREVIEW_SIZE = 512
     
     @staticmethod
     def generate_image_preview(source_path, preview_path):
         """
-        Generate thumbnail for image file.
+        Generate thumbnail for image file using FFmpeg.
         
         Args:
             source_path (str): Source image path
-            preview_path (str): Output preview path
+            preview_path (str): Output preview path (PNG)
             
         Returns:
             bool: True if successful
@@ -199,15 +202,12 @@ class PreviewGenerator(object):
             if not os.path.exists(preview_dir):
                 os.makedirs(preview_dir)
             
-            with Image.open(source_path) as img:
-                # Convert to RGB if necessary
-                if img.mode not in ('RGB', 'RGBA'):
-                    img = img.convert('RGB')
-                
-                # Create thumbnail
-                img.thumbnail(PreviewGenerator.PREVIEW_SIZE, Image.ANTIALIAS)
-                img.save(preview_path, 'JPEG', quality=85)
-                return True
+            # Ensure output is PNG
+            if not preview_path.lower().endswith('.png'):
+                preview_path = os.path.splitext(preview_path)[0] + '.png'
+            
+            ffmpeg = get_ffmpeg()
+            return ffmpeg.generate_thumbnail(source_path, preview_path, PreviewGenerator.PREVIEW_SIZE)
         except Exception as e:
             print("Preview generation failed: {}".format(e))
             return False
@@ -215,11 +215,11 @@ class PreviewGenerator(object):
     @staticmethod
     def generate_sequence_preview(sequence_files, preview_path):
         """
-        Generate preview from middle frame of sequence.
+        Generate preview from middle frame of sequence using FFmpeg.
         
         Args:
             sequence_files (list): List of sequence file paths
-            preview_path (str): Output preview path
+            preview_path (str): Output preview path (PNG)
             
         Returns:
             bool: True if successful
@@ -232,6 +232,36 @@ class PreviewGenerator(object):
         middle_frame = sequence_files[middle_index]
         
         return PreviewGenerator.generate_image_preview(middle_frame, preview_path)
+    
+    @staticmethod
+    def generate_video_preview(source_path, preview_path):
+        """
+        Generate video preview using FFmpeg.
+        
+        Args:
+            source_path (str): Source video path
+            preview_path (str): Output preview path (MP4 or PNG for thumbnail)
+            
+        Returns:
+            bool: True if successful
+        """
+        try:
+            # Ensure preview directory exists
+            preview_dir = os.path.dirname(preview_path)
+            if not os.path.exists(preview_dir):
+                os.makedirs(preview_dir)
+            
+            ffmpeg = get_ffmpeg()
+            
+            # For thumbnails, extract middle frame as PNG
+            if preview_path.lower().endswith('.png'):
+                return ffmpeg.generate_thumbnail(source_path, preview_path, PreviewGenerator.PREVIEW_SIZE)
+            # For video previews, generate short MP4
+            else:
+                return ffmpeg.generate_video_preview(source_path, preview_path, PreviewGenerator.PREVIEW_SIZE)
+        except Exception as e:
+            print("Video preview generation failed: {}".format(e))
+            return False
 
 
 class IngestionCore(object):

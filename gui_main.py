@@ -17,244 +17,8 @@ from src.db_manager import DatabaseManager
 from src.ingestion_core import IngestionCore
 from src.nuke_bridge import NukeBridge, NukeIntegration
 from src.extensibility_hooks import ProcessorManager
-
-
-class MediaInfoPopup(QtWidgets.QDialog):
-    """
-    Non-modal popup for displaying media information.
-    Triggered by Alt+Hover over element.
-    """
-    
-    # Signals
-    insert_requested = QtCore.Signal(int)  # element_id
-    reveal_requested = QtCore.Signal(str)  # filepath
-    
-    def __init__(self, parent=None):
-        super(MediaInfoPopup, self).__init__(parent)
-        self.element_data = None
-        self.setWindowFlags(
-            QtCore.Qt.Tool | 
-            QtCore.Qt.FramelessWindowHint | 
-            QtCore.Qt.WindowStaysOnTopHint
-        )
-        self.setAttribute(QtCore.Qt.WA_ShowWithoutActivating)
-        self.setup_ui()
-    
-    def setup_ui(self):
-        """Setup UI components."""
-        self.setFixedSize(400, 550)
-        
-        # Main layout with border
-        main_layout = QtWidgets.QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # Container with styling
-        container = QtWidgets.QWidget()
-        container.setStyleSheet("""
-            QWidget {
-                background-color: #2b2b2b;
-                border: 2px solid #555555;
-                border-radius: 4px;
-            }
-        """)
-        container_layout = QtWidgets.QVBoxLayout(container)
-        container_layout.setContentsMargins(10, 10, 10, 10)
-        
-        # Title
-        self.title_label = QtWidgets.QLabel("Element Info")
-        self.title_label.setStyleSheet("""
-            font-weight: bold; 
-            font-size: 14px; 
-            color: #ffffff;
-            border: none;
-        """)
-        container_layout.addWidget(self.title_label)
-        
-        # Preview image
-        self.preview_label = QtWidgets.QLabel()
-        self.preview_label.setFixedSize(380, 280)
-        self.preview_label.setAlignment(QtCore.Qt.AlignCenter)
-        self.preview_label.setStyleSheet("""
-            background-color: #1e1e1e;
-            border: 1px solid #444444;
-            color: #888888;
-        """)
-        self.preview_label.setText("No Preview")
-        container_layout.addWidget(self.preview_label)
-        
-        # Metadata section
-        metadata_widget = QtWidgets.QWidget()
-        metadata_widget.setStyleSheet("border: none;")
-        metadata_layout = QtWidgets.QFormLayout(metadata_widget)
-        metadata_layout.setContentsMargins(0, 10, 0, 10)
-        
-        label_style = "color: #aaaaaa; border: none;"
-        value_style = "color: #ffffff; border: none; font-weight: bold;"
-        
-        self.name_label = QtWidgets.QLabel()
-        self.name_label.setStyleSheet(value_style)
-        self.name_label.setWordWrap(True)
-        metadata_layout.addRow(self._create_label("Name:", label_style), self.name_label)
-        
-        self.type_label = QtWidgets.QLabel()
-        self.type_label.setStyleSheet(value_style)
-        metadata_layout.addRow(self._create_label("Type:", label_style), self.type_label)
-        
-        self.format_label = QtWidgets.QLabel()
-        self.format_label.setStyleSheet(value_style)
-        metadata_layout.addRow(self._create_label("Format:", label_style), self.format_label)
-        
-        self.frames_label = QtWidgets.QLabel()
-        self.frames_label.setStyleSheet(value_style)
-        metadata_layout.addRow(self._create_label("Frames:", label_style), self.frames_label)
-        
-        self.size_label = QtWidgets.QLabel()
-        self.size_label.setStyleSheet(value_style)
-        metadata_layout.addRow(self._create_label("Size:", label_style), self.size_label)
-        
-        self.path_label = QtWidgets.QLabel()
-        self.path_label.setStyleSheet(value_style)
-        self.path_label.setWordWrap(True)
-        self.path_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
-        metadata_layout.addRow(self._create_label("Path:", label_style), self.path_label)
-        
-        self.comment_label = QtWidgets.QLabel()
-        self.comment_label.setStyleSheet(value_style)
-        self.comment_label.setWordWrap(True)
-        metadata_layout.addRow(self._create_label("Comment:", label_style), self.comment_label)
-        
-        container_layout.addWidget(metadata_widget)
-        
-        # Buttons
-        button_layout = QtWidgets.QHBoxLayout()
-        
-        self.insert_btn = QtWidgets.QPushButton("Insert into Nuke")
-        self.insert_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #4a90e2;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 3px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #357abd;
-            }
-            QPushButton:pressed {
-                background-color: #2868a6;
-            }
-        """)
-        self.insert_btn.clicked.connect(self.on_insert_clicked)
-        button_layout.addWidget(self.insert_btn)
-        
-        self.reveal_btn = QtWidgets.QPushButton("Reveal in Explorer")
-        self.reveal_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #5a5a5a;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 3px;
-            }
-            QPushButton:hover {
-                background-color: #6a6a6a;
-            }
-            QPushButton:pressed {
-                background-color: #4a4a4a;
-            }
-        """)
-        self.reveal_btn.clicked.connect(self.on_reveal_clicked)
-        button_layout.addWidget(self.reveal_btn)
-        
-        container_layout.addLayout(button_layout)
-        
-        main_layout.addWidget(container)
-    
-    def _create_label(self, text, style):
-        """Helper to create styled label."""
-        label = QtWidgets.QLabel(text)
-        label.setStyleSheet(style)
-        return label
-    
-    def show_element(self, element_data, position=None):
-        """
-        Show popup with element data.
-        
-        Args:
-            element_data (dict): Element data from database
-            position (QPoint): Optional position to show popup
-        """
-        self.element_data = element_data
-        
-        # Update title
-        self.title_label.setText(element_data.get('name', 'Unknown'))
-        
-        # Update metadata
-        self.name_label.setText(element_data.get('name', 'N/A'))
-        self.type_label.setText(element_data.get('type', 'N/A'))
-        self.format_label.setText(element_data.get('format', 'N/A') or 'N/A')
-        self.frames_label.setText(element_data.get('frame_range', 'N/A') or 'N/A')
-        
-        # Format file size
-        file_size = element_data.get('file_size', 0)
-        if file_size:
-            size_mb = file_size / (1024.0 * 1024.0)
-            if size_mb < 1024:
-                size_str = "{:.1f} MB".format(size_mb)
-            else:
-                size_str = "{:.2f} GB".format(size_mb / 1024.0)
-        else:
-            size_str = 'N/A'
-        self.size_label.setText(size_str)
-        
-        # Show path
-        filepath = element_data.get('filepath_hard') if element_data.get('is_hard_copy') else element_data.get('filepath_soft')
-        self.path_label.setText(filepath or 'N/A')
-        
-        # Show comment
-        comment = element_data.get('comment', '')
-        self.comment_label.setText(comment or 'No comment')
-        
-        # Load preview
-        preview_path = element_data.get('preview_path')
-        if preview_path and os.path.exists(preview_path):
-            pixmap = QtGui.QPixmap(preview_path)
-            scaled_pixmap = pixmap.scaled(
-                380, 280,
-                QtCore.Qt.KeepAspectRatio,
-                QtCore.Qt.SmoothTransformation
-            )
-            self.preview_label.setPixmap(scaled_pixmap)
-        else:
-            self.preview_label.clear()
-            self.preview_label.setText("No Preview Available")
-        
-        # Position popup
-        if position:
-            # Offset to the right and down a bit from cursor
-            self.move(position.x() + 20, position.y() + 20)
-        
-        # Show popup
-        self.show()
-        self.raise_()
-    
-    def on_insert_clicked(self):
-        """Handle Insert button click."""
-        if self.element_data:
-            self.insert_requested.emit(self.element_data['element_id'])
-            self.hide()
-    
-    def on_reveal_clicked(self):
-        """Handle Reveal button click."""
-        if self.element_data:
-            filepath = self.element_data.get('filepath_hard') if self.element_data.get('is_hard_copy') else self.element_data.get('filepath_soft')
-            if filepath:
-                self.reveal_requested.emit(filepath)
-    
-    def mousePressEvent(self, event):
-        """Close popup on click anywhere."""
-        self.hide()
+from src.ffmpeg_wrapper import FFmpegWrapper
+from src.preview_cache import get_preview_cache
 
 
 class AdvancedSearchDialog(QtWidgets.QDialog):
@@ -373,6 +137,7 @@ class MediaInfoPopup(QtWidgets.QDialog):
     """
     Non-modal popup for displaying media information.
     Triggered by Alt+Hover over element.
+    Enhanced with video playback controls and frame scrubbing.
     """
     
     # Signals
@@ -382,6 +147,14 @@ class MediaInfoPopup(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super(MediaInfoPopup, self).__init__(parent)
         self.element_data = None
+        self.ffmpeg = FFmpegWrapper()  # FFmpeg wrapper instance
+        self.playback_process = None  # FFplay process handle
+        self.is_video = False  # Track if current element is video
+        self.is_sequence = False  # Track if element is sequence
+        self.frame_count = 0  # Total frames for scrubbing
+        self.current_frame = 0  # Current frame position
+        self.media_filepath = None  # Full path to media
+        
         self.setWindowFlags(
             QtCore.Qt.Tool | 
             QtCore.Qt.FramelessWindowHint | 
@@ -392,7 +165,7 @@ class MediaInfoPopup(QtWidgets.QDialog):
     
     def setup_ui(self):
         """Setup UI components."""
-        self.setFixedSize(400, 550)
+        self.setFixedSize(400, 700)  # Increased height for video controls
         
         # Main layout with border
         main_layout = QtWidgets.QVBoxLayout(self)
@@ -431,6 +204,85 @@ class MediaInfoPopup(QtWidgets.QDialog):
         """)
         self.preview_label.setText("No Preview")
         container_layout.addWidget(self.preview_label)
+        
+        # Video/Sequence Controls (initially hidden)
+        self.video_controls_widget = QtWidgets.QWidget()
+        self.video_controls_widget.setStyleSheet("border: none;")
+        self.video_controls_widget.setVisible(False)
+        video_controls_layout = QtWidgets.QVBoxLayout(self.video_controls_widget)
+        video_controls_layout.setContentsMargins(0, 5, 0, 5)
+        
+        # Frame scrubber
+        scrubber_layout = QtWidgets.QHBoxLayout()
+        self.frame_label = QtWidgets.QLabel("Frame: 0")
+        self.frame_label.setStyleSheet("color: #aaaaaa; border: none; font-size: 11px;")
+        scrubber_layout.addWidget(self.frame_label)
+        
+        self.frame_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.frame_slider.setStyleSheet("""
+            QSlider::groove:horizontal {
+                border: 1px solid #444444;
+                height: 6px;
+                background: #1e1e1e;
+                margin: 2px 0;
+            }
+            QSlider::handle:horizontal {
+                background: #16c6b0;
+                border: 1px solid #16c6b0;
+                width: 12px;
+                margin: -4px 0;
+                border-radius: 6px;
+            }
+            QSlider::handle:horizontal:hover {
+                background: #1ed4be;
+            }
+        """)
+        self.frame_slider.setMinimum(0)
+        self.frame_slider.valueChanged.connect(self.on_frame_slider_changed)
+        scrubber_layout.addWidget(self.frame_slider)
+        
+        video_controls_layout.addLayout(scrubber_layout)
+        
+        # Playback buttons
+        playback_layout = QtWidgets.QHBoxLayout()
+        
+        self.play_btn = QtWidgets.QPushButton("▶ Play")
+        self.play_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #16c6b0;
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 3px;
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #1ed4be; }
+            QPushButton:pressed { background-color: #12a393; }
+        """)
+        self.play_btn.clicked.connect(self.on_play_clicked)
+        playback_layout.addWidget(self.play_btn)
+        
+        self.stop_btn = QtWidgets.QPushButton("⏹ Stop")
+        self.stop_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ff9a3c;
+                color: white;
+                border: none;
+                padding: 6px 12px;
+                border-radius: 3px;
+                font-weight: bold;
+            }
+            QPushButton:hover { background-color: #ffaa5c; }
+            QPushButton:pressed { background-color: #e58a2c; }
+        """)
+        self.stop_btn.clicked.connect(self.on_stop_clicked)
+        self.stop_btn.setEnabled(False)
+        playback_layout.addWidget(self.stop_btn)
+        
+        playback_layout.addStretch()
+        video_controls_layout.addLayout(playback_layout)
+        
+        container_layout.addWidget(self.video_controls_widget)
         
         # Metadata section
         metadata_widget = QtWidgets.QWidget()
@@ -537,6 +389,223 @@ class MediaInfoPopup(QtWidgets.QDialog):
         """
         self.element_data = element_data
         
+        # Stop any existing playback
+        self.stop_playback()
+        
+        # Update title
+        self.title_label.setText(element_data.get('name', 'Unknown'))
+        
+        # Update metadata
+        self.name_label.setText(element_data.get('name', 'N/A'))
+        self.type_label.setText(element_data.get('type', 'N/A'))
+        self.format_label.setText(element_data.get('format', 'N/A') or 'N/A')
+        self.frames_label.setText(element_data.get('frame_range', 'N/A') or 'N/A')
+        
+        # Format file size
+        file_size = element_data.get('file_size', 0)
+        if file_size:
+            size_mb = file_size / (1024.0 * 1024.0)
+            if size_mb < 1024:
+                size_str = "{:.1f} MB".format(size_mb)
+            else:
+                size_str = "{:.2f} GB".format(size_mb / 1024.0)
+        else:
+            size_str = 'N/A'
+        self.size_label.setText(size_str)
+        
+        # Get filepath
+        self.media_filepath = element_data.get('filepath_hard') if element_data.get('is_hard_copy') else element_data.get('filepath_soft')
+        self.path_label.setText(self.media_filepath or 'N/A')
+        
+        # Show comment
+        comment = element_data.get('comment', '')
+        self.comment_label.setText(comment or 'No comment')
+        
+        # Determine if video or sequence
+        element_type = element_data.get('type', '').lower()
+        self.is_video = element_type == 'video'
+        self.is_sequence = element_type == 'sequence'
+        
+        # Show/hide video controls
+        if self.is_video or self.is_sequence:
+            self.video_controls_widget.setVisible(True)
+            self._setup_video_controls()
+        else:
+            self.video_controls_widget.setVisible(False)
+        
+        # Load preview
+        preview_path = element_data.get('preview_path')
+        if preview_path and os.path.exists(preview_path):
+            pixmap = QtGui.QPixmap(preview_path)
+            scaled_pixmap = pixmap.scaled(
+                380, 280,
+                QtCore.Qt.KeepAspectRatio,
+                QtCore.Qt.SmoothTransformation
+            )
+            self.preview_label.setPixmap(scaled_pixmap)
+        else:
+            self.preview_label.clear()
+            self.preview_label.setText("No Preview Available")
+        
+        # Position popup
+        if position:
+            # Offset to the right and down a bit from cursor
+            self.move(position.x() + 20, position.y() + 20)
+        
+        # Show popup
+        self.show()
+        self.raise_()
+    
+    def _setup_video_controls(self):
+        """Setup video/sequence controls based on element type."""
+        if not self.media_filepath or not os.path.exists(self.media_filepath):
+            return
+        
+        # Get media info
+        try:
+            info = self.ffmpeg.get_media_info(self.media_filepath)
+            
+            if self.is_video and info:
+                # For videos, get frame count
+                self.frame_count = self.ffmpeg.get_frame_count(self.media_filepath)
+                if self.frame_count:
+                    self.frame_slider.setMaximum(self.frame_count - 1)
+                    self.frame_slider.setValue(0)
+                    self.frame_label.setText("Frame: 0 / {}".format(self.frame_count))
+                else:
+                    # Fallback to duration-based scrubbing
+                    duration = info.get('duration', 0)
+                    if duration:
+                        fps = info.get('fps', 24)
+                        self.frame_count = int(duration * fps)
+                        self.frame_slider.setMaximum(self.frame_count - 1)
+                        self.frame_slider.setValue(0)
+                        self.frame_label.setText("Frame: 0 / {}".format(self.frame_count))
+            
+            elif self.is_sequence:
+                # For sequences, parse frame range
+                frame_range = self.element_data.get('frame_range', '')
+                if frame_range and '-' in frame_range:
+                    try:
+                        start_frame, end_frame = frame_range.split('-')
+                        start_frame = int(start_frame.strip())
+                        end_frame = int(end_frame.strip())
+                        self.frame_count = end_frame - start_frame + 1
+                        self.frame_slider.setMinimum(start_frame)
+                        self.frame_slider.setMaximum(end_frame)
+                        self.frame_slider.setValue(start_frame)
+                        self.current_frame = start_frame
+                        self.frame_label.setText("Frame: {} / {}".format(start_frame, end_frame))
+                    except:
+                        pass
+        except Exception as e:
+            print("Error setting up video controls: {}".format(str(e)))
+    
+    def on_frame_slider_changed(self, value):
+        """Handle frame slider value change."""
+        self.current_frame = value
+        
+        if self.is_sequence:
+            frame_range = self.element_data.get('frame_range', '')
+            if frame_range and '-' in frame_range:
+                start_frame, end_frame = frame_range.split('-')
+                self.frame_label.setText("Frame: {} / {}".format(value, end_frame.strip()))
+        else:
+            self.frame_label.setText("Frame: {} / {}".format(value, self.frame_count))
+        
+        # Update preview for current frame (optional - resource intensive)
+        # self._update_frame_preview(value)
+    
+    def on_play_clicked(self):
+        """Handle Play button click."""
+        if not self.media_filepath or not os.path.exists(self.media_filepath):
+            return
+        
+        # Use FFmpeg to play media
+        try:
+            # Get start time from current frame
+            if self.is_video and self.frame_count > 0:
+                info = self.ffmpeg.get_media_info(self.media_filepath)
+                fps = info.get('fps', 24) if info else 24
+                start_time = self.current_frame / float(fps)
+            else:
+                start_time = 0
+            
+            # Start playback
+            self.playback_process = self.ffmpeg.play_media(
+                self.media_filepath,
+                loop=False,
+                start_time=start_time
+            )
+            
+            if self.playback_process:
+                self.play_btn.setEnabled(False)
+                self.stop_btn.setEnabled(True)
+        except Exception as e:
+            print("Error playing media: {}".format(str(e)))
+    
+    def on_stop_clicked(self):
+        """Handle Stop button click."""
+        self.stop_playback()
+    
+    def stop_playback(self):
+        """Stop any active playback."""
+        if self.playback_process:
+            try:
+                self.playback_process.terminate()
+                self.playback_process.wait(timeout=2)
+            except:
+                try:
+                    self.playback_process.kill()
+                except:
+                    pass
+            finally:
+                self.playback_process = None
+        
+        self.play_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
+    
+    def _update_frame_preview(self, frame_number):
+        """Update preview to show specific frame (optional, resource intensive)."""
+        if not self.media_filepath:
+            return
+        
+        import tempfile
+        try:
+            # Generate temp file for frame
+            temp_dir = tempfile.gettempdir()
+            temp_preview = os.path.join(temp_dir, "vah_frame_preview.png")
+            
+            # Extract frame
+            success = self.ffmpeg.extract_frame(self.media_filepath, frame_number, temp_preview)
+            
+            if success and os.path.exists(temp_preview):
+                pixmap = QtGui.QPixmap(temp_preview)
+                scaled_pixmap = pixmap.scaled(
+                    380, 280,
+                    QtCore.Qt.KeepAspectRatio,
+                    QtCore.Qt.SmoothTransformation
+                )
+                self.preview_label.setPixmap(scaled_pixmap)
+                
+                # Clean up
+                try:
+                    os.remove(temp_preview)
+                except:
+                    pass
+        except Exception as e:
+            print("Error updating frame preview: {}".format(str(e)))
+    
+    def show_element(self, element_data, position=None):
+        """
+        Show popup with element data.
+        
+        Args:
+            element_data (dict): Element data from database
+            position (QPoint): Optional position to show popup
+        """
+        self.element_data = element_data
+        
         # Update title
         self.title_label.setText(element_data.get('name', 'Unknown'))
         
@@ -605,18 +674,31 @@ class MediaInfoPopup(QtWidgets.QDialog):
     def mousePressEvent(self, event):
         """Close popup on click anywhere."""
         self.hide()
+    
+    def hideEvent(self, event):
+        """Cleanup when hiding popup."""
+        self.stop_playback()
+        super(MediaInfoPopup, self).hideEvent(event)
+    
+    def closeEvent(self, event):
+        """Cleanup when closing popup."""
+        self.stop_playback()
+        super(MediaInfoPopup, self).closeEvent(event)
 
 
 class StacksListsPanel(QtWidgets.QWidget):
-    """Left sidebar panel for Stacks and Lists navigation."""
+    """Left sidebar panel for Stacks, Lists, Favorites, and Playlists navigation."""
     
     # Signals
     stack_selected = QtCore.Signal(int)  # stack_id
     list_selected = QtCore.Signal(int)   # list_id
+    favorites_selected = QtCore.Signal()  # Show favorites
+    playlist_selected = QtCore.Signal(int)  # playlist_id
     
-    def __init__(self, db_manager, parent=None):
+    def __init__(self, db_manager, config, parent=None):
         super(StacksListsPanel, self).__init__(parent)
         self.db = db_manager
+        self.config = config
         self.setup_ui()
         self.load_data()
     
@@ -626,9 +708,52 @@ class StacksListsPanel(QtWidgets.QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         
         # Title
-        title = QtWidgets.QLabel("Stacks & Lists")
+        title = QtWidgets.QLabel("Navigation")
         title.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")
+        title.setProperty("class", "title")
         layout.addWidget(title)
+        
+        # Favorites button
+        self.favorites_btn = QtWidgets.QPushButton("⭐ Favorites")
+        self.favorites_btn.setProperty("class", "primary")
+        self.favorites_btn.clicked.connect(self.on_favorites_clicked)
+        layout.addWidget(self.favorites_btn)
+        
+        # Separator
+        separator = QtWidgets.QFrame()
+        separator.setFrameShape(QtWidgets.QFrame.HLine)
+        separator.setFrameShadow(QtWidgets.QFrame.Sunken)
+        layout.addWidget(separator)
+        
+        # Playlists section
+        playlists_header = QtWidgets.QHBoxLayout()
+        playlists_label = QtWidgets.QLabel("Playlists")
+        playlists_label.setStyleSheet("font-weight: bold; padding: 5px;")
+        playlists_header.addWidget(playlists_label)
+        
+        self.add_playlist_btn = QtWidgets.QPushButton("+ New")
+        self.add_playlist_btn.setMaximumWidth(60)
+        self.add_playlist_btn.clicked.connect(self.add_playlist)
+        playlists_header.addWidget(self.add_playlist_btn)
+        
+        layout.addLayout(playlists_header)
+        
+        # Playlists list
+        self.playlists_list = QtWidgets.QListWidget()
+        self.playlists_list.setMaximumHeight(150)
+        self.playlists_list.itemClicked.connect(self.on_playlist_clicked)
+        layout.addWidget(self.playlists_list)
+        
+        # Separator
+        separator2 = QtWidgets.QFrame()
+        separator2.setFrameShape(QtWidgets.QFrame.HLine)
+        separator2.setFrameShadow(QtWidgets.QFrame.Sunken)
+        layout.addWidget(separator2)
+        
+        # Stacks & Lists label
+        stacks_label = QtWidgets.QLabel("Stacks & Lists")
+        stacks_label.setStyleSheet("font-weight: bold; padding: 5px;")
+        layout.addWidget(stacks_label)
         
         # Tree widget
         self.tree = QtWidgets.QTreeWidget()
@@ -650,10 +775,40 @@ class StacksListsPanel(QtWidgets.QWidget):
         
         layout.addLayout(button_layout)
     
+    def on_favorites_clicked(self):
+        """Handle favorites button click."""
+        self.favorites_selected.emit()
+    
+    def on_playlist_clicked(self, item):
+        """Handle playlist click."""
+        playlist_id = item.data(QtCore.Qt.UserRole)
+        if playlist_id:
+            self.playlist_selected.emit(playlist_id)
+    
+    def add_playlist(self):
+        """Add new playlist dialog."""
+        dialog = CreatePlaylistDialog(self.db, self.config, self)
+        if dialog.exec_():
+            self.load_playlists()
+    
+    def load_playlists(self):
+        """Load playlists from database."""
+        self.playlists_list.clear()
+        
+        playlists = self.db.get_all_playlists()
+        for playlist in playlists:
+            item = QtWidgets.QListWidgetItem("📋 " + playlist['name'])
+            item.setData(QtCore.Qt.UserRole, playlist['playlist_id'])
+            self.playlists_list.addItem(item)
+    
     def load_data(self):
-        """Load stacks and lists from database."""
+        """Load stacks, lists, and playlists from database."""
         self.tree.clear()
         
+        # Load playlists
+        self.load_playlists()
+        
+        # Load stacks and lists
         stacks = self.db.get_all_stacks()
         for stack in stacks:
             stack_item = QtWidgets.QTreeWidgetItem([stack['name']])
@@ -733,6 +888,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.media_popup = MediaInfoPopup(self)
         self.media_popup.insert_requested.connect(self.on_popup_insert)
         self.media_popup.reveal_requested.connect(self.on_popup_reveal)
+        self.preview_cache = get_preview_cache()  # Initialize preview cache
         self.setup_ui()
         
         # Enable mouse tracking for hover events
@@ -776,6 +932,14 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.size_slider.valueChanged.connect(self.on_size_changed)
         toolbar.addWidget(self.size_slider)
         
+        toolbar.addStretch()
+        
+        # Bulk operations button
+        self.bulk_btn = QtWidgets.QPushButton("Bulk Operations ▼")
+        self.bulk_btn.setToolTip("Perform actions on selected elements")
+        self.bulk_btn.clicked.connect(self.show_bulk_menu)
+        toolbar.addWidget(self.bulk_btn)
+        
         layout.addLayout(toolbar)
         
         # Stacked widget for different views
@@ -788,6 +952,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.gallery_view.setIconSize(QtCore.QSize(256, 256))
         self.gallery_view.setSpacing(10)
         self.gallery_view.setDragEnabled(True)
+        self.gallery_view.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)  # Multi-select
         self.gallery_view.itemClicked.connect(self.on_item_clicked)
         self.gallery_view.itemDoubleClicked.connect(self.on_item_double_clicked)
         self.gallery_view.setMouseTracking(True)  # Enable hover tracking
@@ -800,6 +965,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.table_view.setHorizontalHeaderLabels(['Name', 'Format', 'Frames', 'Type', 'Size', 'Comment'])
         self.table_view.horizontalHeader().setStretchLastSection(True)
         self.table_view.setSelectionBehavior(QtWidgets.QTableWidget.SelectRows)
+        self.table_view.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)  # Multi-select
         self.table_view.itemClicked.connect(self.on_table_item_clicked)
         self.table_view.itemDoubleClicked.connect(self.on_table_item_double_clicked)
         self.table_view.setMouseTracking(True)  # Enable hover tracking
@@ -834,7 +1000,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.gallery_view.setIconSize(QtCore.QSize(value, value))
     
     def load_elements(self, list_id):
-        """Load elements for a list."""
+        """Load elements for a list with preview caching."""
         self.current_list_id = list_id
         elements = self.db.get_elements_by_list(list_id)
         
@@ -847,17 +1013,24 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             if lst:
                 self.info_label.setText("No elements in '{}'".format(lst['name']))
         
-        # Update gallery view
+        # Update gallery view with cached previews
         self.gallery_view.clear()
         for element in elements:
             item = QtWidgets.QListWidgetItem()
             item.setText(element['name'])
             item.setData(QtCore.Qt.UserRole, element['element_id'])
             
-            # Load preview if available
+            # Load preview with caching
             if element['preview_path'] and os.path.exists(element['preview_path']):
-                pixmap = QtGui.QPixmap(element['preview_path'])
-                item.setIcon(QtGui.QIcon(pixmap))
+                # Try cache first
+                cached_pixmap = self.preview_cache.get(element['preview_path'])
+                if cached_pixmap:
+                    item.setIcon(QtGui.QIcon(cached_pixmap))
+                else:
+                    # Load from disk and cache
+                    pixmap = QtGui.QPixmap(element['preview_path'])
+                    self.preview_cache.put(element['preview_path'], pixmap)
+                    item.setIcon(QtGui.QIcon(pixmap))
             else:
                 # Default icon based on type
                 if element['type'] == '2D':
@@ -1067,6 +1240,439 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 subprocess.Popen(['open', '-R', filepath])
             else:  # Linux
                 subprocess.Popen(['xdg-open', directory])
+    
+    def show_context_menu(self, position, element_id):
+        """
+        Show context menu for element.
+        
+        Args:
+            position (QPoint): Position to show menu
+            element_id (int): Element ID
+        """
+        menu = QtWidgets.QMenu(self)
+        
+        # Check if already favorited
+        is_fav = self.db.is_favorite(
+            element_id,
+            self.config.get('user_name'),
+            self.config.get('machine_name')
+        )
+        
+        # Add/Remove favorite action
+        if is_fav:
+            fav_action = menu.addAction("⭐ Remove from Favorites")
+        else:
+            fav_action = menu.addAction("☆ Add to Favorites")
+        
+        # Add to playlist action
+        add_playlist_action = menu.addAction("📋 Add to Playlist...")
+        
+        menu.addSeparator()
+        
+        # Insert into Nuke action
+        insert_action = menu.addAction("Insert into Nuke")
+        
+        # Edit metadata action
+        edit_action = menu.addAction("✏ Edit Metadata...")
+        
+        menu.addSeparator()
+        
+        # Get element to check deprecated status
+        element = self.db.get_element_by_id(element_id)
+        
+        # Toggle deprecated action
+        if element and element.get('is_deprecated'):
+            deprecated_action = menu.addAction("↺ Unmark as Deprecated")
+        else:
+            deprecated_action = menu.addAction("⚠ Mark as Deprecated")
+        
+        # Delete action
+        delete_action = menu.addAction("🗑 Delete Element")
+        delete_action.setStyleSheet("color: #ff5555;")
+        
+        # Execute menu
+        action = menu.exec_(position)
+        
+        if action == fav_action:
+            self.toggle_favorite(element_id)
+        elif action == add_playlist_action:
+            self.add_to_playlist(element_id)
+        elif action == insert_action:
+            self.element_double_clicked.emit(element_id)
+        elif action == edit_action:
+            self.edit_element(element_id)
+        elif action == deprecated_action:
+            self.toggle_deprecated(element_id)
+        elif action == delete_action:
+            self.delete_element(element_id)
+    
+    def add_to_playlist(self, element_id):
+        """Show dialog to add element to playlist."""
+        dialog = AddToPlaylistDialog(self.db, element_id, self)
+        dialog.exec_()
+    
+    def toggle_favorite(self, element_id):
+        """Toggle favorite status of element."""
+        user = self.config.get('user_name')
+        machine = self.config.get('machine_name')
+        
+        is_fav = self.db.is_favorite(element_id, user, machine)
+        
+        if is_fav:
+            self.db.remove_favorite(element_id, user, machine)
+        else:
+            self.db.add_favorite(element_id, user, machine)
+        
+        # Refresh display to update star icons
+        if self.current_list_id:
+            self.load_elements(self.current_list_id)
+    
+    def edit_element(self, element_id):
+        """Show edit element dialog."""
+        try:
+            dialog = EditElementDialog(self.db, element_id, self)
+            if dialog.exec_() == QtWidgets.QDialog.Accepted:
+                # Refresh display
+                if self.current_list_id:
+                    self.load_elements(self.current_list_id)
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", "Failed to open edit dialog: {}".format(str(e)))
+    
+    def toggle_deprecated(self, element_id):
+        """Toggle deprecated status of element."""
+        try:
+            element = self.db.get_element_by_id(element_id)
+            if not element:
+                return
+            
+            # Toggle deprecated status
+            new_status = 0 if element.get('is_deprecated') else 1
+            self.db.update_element(element_id, is_deprecated=new_status)
+            
+            status_text = "deprecated" if new_status else "active"
+            QtWidgets.QMessageBox.information(self, "Success", "Element marked as {}.".format(status_text))
+            
+            # Refresh display
+            if self.current_list_id:
+                self.load_elements(self.current_list_id)
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", "Failed to update element: {}".format(str(e)))
+    
+    def delete_element(self, element_id):
+        """Delete element after confirmation."""
+        try:
+            element = self.db.get_element_by_id(element_id)
+            if not element:
+                return
+            
+            # Confirmation dialog
+            reply = QtWidgets.QMessageBox.question(
+                self,
+                "Confirm Deletion",
+                "Are you sure you want to delete '{}'?\n\nThis action cannot be undone.".format(element['name']),
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                QtWidgets.QMessageBox.No
+            )
+            
+            if reply == QtWidgets.QMessageBox.Yes:
+                # Delete from database
+                self.db.delete_element(element_id)
+                
+                # TODO: Optionally delete physical files
+                # filepath = element.get('filepath_hard') or element.get('filepath_soft')
+                # if filepath and os.path.exists(filepath):
+                #     os.remove(filepath)
+                
+                QtWidgets.QMessageBox.information(self, "Success", "Element deleted successfully.")
+                
+                # Refresh display
+                if self.current_list_id:
+                    self.load_elements(self.current_list_id)
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", "Failed to delete element: {}".format(str(e)))
+    
+    def show_bulk_menu(self):
+        """Show bulk operations menu."""
+        # Get selected elements
+        selected_ids = self.get_selected_element_ids()
+        
+        if not selected_ids:
+            QtWidgets.QMessageBox.information(self, "No Selection", "Please select one or more elements.\n\nTip: Hold Ctrl/Cmd to select multiple items.")
+            return
+        
+        # Create menu
+        menu = QtWidgets.QMenu(self)
+        
+        # Bulk add to favorites
+        bulk_fav_action = menu.addAction("⭐ Add All to Favorites")
+        
+        # Bulk add to playlist
+        bulk_playlist_action = menu.addAction("📋 Add All to Playlist...")
+        
+        menu.addSeparator()
+        
+        # Bulk mark as deprecated
+        bulk_deprecate_action = menu.addAction("⚠ Mark All as Deprecated")
+        
+        # Bulk delete
+        bulk_delete_action = menu.addAction("🗑 Delete All Selected")
+        bulk_delete_action.setStyleSheet("color: #ff5555;")
+        
+        # Execute menu
+        action = menu.exec_(QtGui.QCursor.pos())
+        
+        if action == bulk_fav_action:
+            self.bulk_add_to_favorites(selected_ids)
+        elif action == bulk_playlist_action:
+            self.bulk_add_to_playlist(selected_ids)
+        elif action == bulk_deprecate_action:
+            self.bulk_mark_deprecated(selected_ids)
+        elif action == bulk_delete_action:
+            self.bulk_delete(selected_ids)
+    
+    def get_selected_element_ids(self):
+        """Get list of selected element IDs from current view."""
+        selected_ids = []
+        
+        if self.view_mode == 'gallery':
+            for item in self.gallery_view.selectedItems():
+                element_id = item.data(QtCore.Qt.UserRole)
+                if element_id:
+                    selected_ids.append(element_id)
+        else:  # list view
+            for item in self.table_view.selectedItems():
+                # Only get from first column to avoid duplicates
+                if item.column() == 0:
+                    element_id = item.data(QtCore.Qt.UserRole)
+                    if element_id:
+                        selected_ids.append(element_id)
+        
+        return selected_ids
+    
+    def bulk_add_to_favorites(self, element_ids):
+        """Add multiple elements to favorites."""
+        user = self.config.get('user_name')
+        machine = self.config.get('machine_name')
+        
+        added_count = 0
+        for element_id in element_ids:
+            if not self.db.is_favorite(element_id, user, machine):
+                self.db.add_favorite(element_id, user, machine)
+                added_count += 1
+        
+        QtWidgets.QMessageBox.information(
+            self,
+            "Success",
+            "Added {} element(s) to favorites.".format(added_count)
+        )
+        
+        # Refresh display
+        if self.current_list_id:
+            self.load_elements(self.current_list_id)
+    
+    def bulk_add_to_playlist(self, element_ids):
+        """Add multiple elements to a playlist."""
+        # Get all playlists
+        playlists = self.db.get_all_playlists()
+        
+        if not playlists:
+            QtWidgets.QMessageBox.warning(self, "No Playlists", "No playlists available. Create one first.")
+            return
+        
+        # Simple selection dialog
+        playlist_names = [p['name'] for p in playlists]
+        playlist_name, ok = QtWidgets.QInputDialog.getItem(
+            self,
+            "Select Playlist",
+            "Choose playlist to add {} element(s) to:".format(len(element_ids)),
+            playlist_names,
+            0,
+            False
+        )
+        
+        if ok and playlist_name:
+            # Find playlist ID
+            playlist_id = None
+            for p in playlists:
+                if p['name'] == playlist_name:
+                    playlist_id = p['playlist_id']
+                    break
+            
+            if playlist_id:
+                added_count = 0
+                for element_id in element_ids:
+                    result = self.db.add_element_to_playlist(playlist_id, element_id)
+                    if result is not None:
+                        added_count += 1
+                
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "Success",
+                    "Added {} element(s) to playlist '{}'.".format(added_count, playlist_name)
+                )
+    
+    def bulk_mark_deprecated(self, element_ids):
+        """Mark multiple elements as deprecated."""
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "Confirm Bulk Operation",
+            "Mark {} element(s) as deprecated?".format(len(element_ids)),
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No
+        )
+        
+        if reply == QtWidgets.QMessageBox.Yes:
+            for element_id in element_ids:
+                self.db.update_element(element_id, is_deprecated=1)
+            
+            QtWidgets.QMessageBox.information(
+                self,
+                "Success",
+                "Marked {} element(s) as deprecated.".format(len(element_ids))
+            )
+            
+            # Refresh display
+            if self.current_list_id:
+                self.load_elements(self.current_list_id)
+    
+    def bulk_delete(self, element_ids):
+        """Delete multiple elements."""
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "Confirm Bulk Deletion",
+            "Are you sure you want to delete {} element(s)?\n\nThis action cannot be undone.".format(len(element_ids)),
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No
+        )
+        
+        if reply == QtWidgets.QMessageBox.Yes:
+            for element_id in element_ids:
+                self.db.delete_element(element_id)
+            
+            QtWidgets.QMessageBox.information(
+                self,
+                "Success",
+                "Deleted {} element(s).".format(len(element_ids))
+            )
+            
+            # Refresh display
+            if self.current_list_id:
+                self.load_elements(self.current_list_id)
+    
+    def load_favorites(self):
+        """Load and display favorite elements."""
+        user = self.config.get('user_name')
+        machine = self.config.get('machine_name')
+        
+        favorites = self.db.get_favorites(user, machine)
+        
+        self.current_list_id = None  # Clear current list
+        self.info_label.setText("Favorites ({} items)".format(len(favorites)))
+        
+        # Update gallery view
+        self.gallery_view.clear()
+        for element in favorites:
+            item = QtWidgets.QListWidgetItem()
+            item.setText("⭐ " + element['name'])  # Add star prefix
+            item.setData(QtCore.Qt.UserRole, element['element_id'])
+            
+            if element['preview_path'] and os.path.exists(element['preview_path']):
+                pixmap = QtGui.QPixmap(element['preview_path'])
+                item.setIcon(QtGui.QIcon(pixmap))
+            else:
+                if element['type'] == '2D':
+                    item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon))
+                elif element['type'] == '3D':
+                    item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DriveFDIcon))
+                else:
+                    item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_FileDialogDetailedView))
+            
+            self.gallery_view.addItem(item)
+        
+        # Update table view
+        self.table_view.setRowCount(len(favorites))
+        for row, element in enumerate(favorites):
+            self.table_view.setItem(row, 0, QtWidgets.QTableWidgetItem("⭐ " + element['name']))
+            self.table_view.setItem(row, 1, QtWidgets.QTableWidgetItem(element['format'] or ''))
+            self.table_view.setItem(row, 2, QtWidgets.QTableWidgetItem(element['frame_range'] or ''))
+            self.table_view.setItem(row, 3, QtWidgets.QTableWidgetItem(element['type']))
+            
+            size_str = ''
+            if element['file_size']:
+                size_mb = element['file_size'] / (1024.0 * 1024.0)
+                if size_mb < 1024:
+                    size_str = "{:.1f} MB".format(size_mb)
+                else:
+                    size_str = "{:.2f} GB".format(size_mb / 1024.0)
+            self.table_view.setItem(row, 4, QtWidgets.QTableWidgetItem(size_str))
+            
+            self.table_view.setItem(row, 5, QtWidgets.QTableWidgetItem(element['comment'] or ''))
+            self.table_view.item(row, 0).setData(QtCore.Qt.UserRole, element['element_id'])
+    
+    def load_playlist(self, playlist_id):
+        """Load and display playlist elements."""
+        playlist = self.db.get_playlist_by_id(playlist_id)
+        if not playlist:
+            return
+        
+        elements = self.db.get_playlist_elements(playlist_id)
+        
+        self.current_list_id = None  # Clear current list
+        self.info_label.setText("Playlist: {} ({} items)".format(playlist['name'], len(elements)))
+        
+        # Update gallery view
+        self.gallery_view.clear()
+        for element in elements:
+            item = QtWidgets.QListWidgetItem()
+            item.setText("📋 " + element['name'])  # Add playlist prefix
+            item.setData(QtCore.Qt.UserRole, element['element_id'])
+            
+            if element['preview_path'] and os.path.exists(element['preview_path']):
+                pixmap = QtGui.QPixmap(element['preview_path'])
+                item.setIcon(QtGui.QIcon(pixmap))
+            else:
+                if element['type'] == '2D':
+                    item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon))
+                elif element['type'] == '3D':
+                    item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_DriveFDIcon))
+                else:
+                    item.setIcon(self.style().standardIcon(QtWidgets.QStyle.SP_FileDialogDetailedView))
+            
+            self.gallery_view.addItem(item)
+        
+        # Update table view
+        self.table_view.setRowCount(len(elements))
+        for row, element in enumerate(elements):
+            self.table_view.setItem(row, 0, QtWidgets.QTableWidgetItem("📋 " + element['name']))
+            self.table_view.setItem(row, 1, QtWidgets.QTableWidgetItem(element['format'] or ''))
+            self.table_view.setItem(row, 2, QtWidgets.QTableWidgetItem(element['frame_range'] or ''))
+            self.table_view.setItem(row, 3, QtWidgets.QTableWidgetItem(element['type']))
+            
+            size_str = ''
+            if element['file_size']:
+                size_mb = element['file_size'] / (1024.0 * 1024.0)
+                if size_mb < 1024:
+                    size_str = "{:.1f} MB".format(size_mb)
+                else:
+                    size_str = "{:.2f} GB".format(size_mb / 1024.0)
+            self.table_view.setItem(row, 4, QtWidgets.QTableWidgetItem(size_str))
+            
+            self.table_view.setItem(row, 5, QtWidgets.QTableWidgetItem(element['comment'] or ''))
+            self.table_view.item(row, 0).setData(QtCore.Qt.UserRole, element['element_id'])
+    
+    def contextMenuEvent(self, event):
+        """Handle context menu request."""
+        # Get item under cursor
+        if self.view_mode == 'gallery':
+            item = self.gallery_view.itemAt(self.gallery_view.viewport().mapFromGlobal(event.globalPos()))
+            if item:
+                element_id = item.data(QtCore.Qt.UserRole)
+                self.show_context_menu(event.globalPos(), element_id)
+        else:
+            item = self.table_view.itemAt(self.table_view.viewport().mapFromGlobal(event.globalPos()))
+            if item:
+                element_id = self.table_view.item(item.row(), 0).data(QtCore.Qt.UserRole)
+                self.show_context_menu(event.globalPos(), element_id)
 
 
 class HistoryPanel(QtWidgets.QWidget):
@@ -1372,6 +1978,225 @@ class AddListDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.critical(self, "Error", "Failed to create list: {}".format(str(e)))
 
 
+class CreatePlaylistDialog(QtWidgets.QDialog):
+    """Dialog for creating a new playlist."""
+    
+    def __init__(self, db_manager, config, parent=None):
+        super(CreatePlaylistDialog, self).__init__(parent)
+        self.db = db_manager
+        self.config = config
+        self.setWindowTitle("Create Playlist")
+        self.setup_ui()
+    
+    def setup_ui(self):
+        """Setup UI components."""
+        layout = QtWidgets.QFormLayout(self)
+        
+        self.name_edit = QtWidgets.QLineEdit()
+        layout.addRow("Playlist Name:", self.name_edit)
+        
+        self.desc_edit = QtWidgets.QTextEdit()
+        self.desc_edit.setMaximumHeight(80)
+        self.desc_edit.setPlaceholderText("Optional description...")
+        layout.addRow("Description:", self.desc_edit)
+        
+        # Buttons
+        button_box = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
+        )
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addRow(button_box)
+    
+    def accept(self):
+        """Validate and create playlist."""
+        name = self.name_edit.text().strip()
+        description = self.desc_edit.toPlainText().strip()
+        
+        if not name:
+            QtWidgets.QMessageBox.warning(self, "Invalid Input", "Please provide a playlist name.")
+            return
+        
+        try:
+            self.db.create_playlist(
+                name,
+                description,
+                self.config.get('user_name'),
+                self.config.get('machine_name')
+            )
+            super(CreatePlaylistDialog, self).accept()
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", "Failed to create playlist: {}".format(str(e)))
+
+
+class AddToPlaylistDialog(QtWidgets.QDialog):
+    """Dialog for adding element to playlist."""
+    
+    def __init__(self, db_manager, element_id, parent=None):
+        super(AddToPlaylistDialog, self).__init__(parent)
+        self.db = db_manager
+        self.element_id = element_id
+        self.setWindowTitle("Add to Playlist")
+        self.setup_ui()
+    
+    def setup_ui(self):
+        """Setup UI components."""
+        layout = QtWidgets.QVBoxLayout(self)
+        
+        label = QtWidgets.QLabel("Select playlist to add element:")
+        layout.addWidget(label)
+        
+        # List of playlists
+        self.playlist_list = QtWidgets.QListWidget()
+        playlists = self.db.get_all_playlists()
+        
+        for playlist in playlists:
+            # Check if element already in playlist
+            is_in = self.db.is_element_in_playlist(playlist['playlist_id'], self.element_id)
+            
+            item = QtWidgets.QListWidgetItem()
+            if is_in:
+                item.setText("✓ " + playlist['name'] + " (already added)")
+                item.setForeground(QtGui.QColor('gray'))
+                item.setFlags(item.flags() & ~QtCore.Qt.ItemIsEnabled)
+            else:
+                item.setText(playlist['name'])
+            
+            item.setData(QtCore.Qt.UserRole, playlist['playlist_id'])
+            self.playlist_list.addItem(item)
+        
+        layout.addWidget(self.playlist_list)
+        
+        # Buttons
+        button_box = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
+        )
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+    
+    def accept(self):
+        """Add element to selected playlist."""
+        current = self.playlist_list.currentItem()
+        if not current:
+            QtWidgets.QMessageBox.warning(self, "No Selection", "Please select a playlist.")
+            return
+        
+        playlist_id = current.data(QtCore.Qt.UserRole)
+        
+        try:
+            result = self.db.add_element_to_playlist(playlist_id, self.element_id)
+            if result is None:
+                QtWidgets.QMessageBox.information(self, "Already Added", "Element is already in this playlist.")
+            else:
+                super(AddToPlaylistDialog, self).accept()
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", "Failed to add element: {}".format(str(e)))
+
+
+class EditElementDialog(QtWidgets.QDialog):
+    """Dialog for editing element metadata."""
+    
+    def __init__(self, db_manager, element_id, parent=None):
+        super(EditElementDialog, self).__init__(parent)
+        self.db = db_manager
+        self.element_id = element_id
+        self.element_data = self.db.get_element_by_id(element_id)
+        
+        if not self.element_data:
+            raise ValueError("Element not found")
+        
+        self.setWindowTitle("Edit Element: {}".format(self.element_data['name']))
+        self.setModal(True)
+        self.setup_ui()
+        self.load_data()
+    
+    def setup_ui(self):
+        """Setup UI components."""
+        layout = QtWidgets.QVBoxLayout(self)
+        
+        # Form layout for fields
+        form = QtWidgets.QFormLayout()
+        
+        # Name (read-only for display)
+        self.name_label = QtWidgets.QLabel(self.element_data['name'])
+        self.name_label.setStyleSheet("font-weight: bold; color: #ffffff;")
+        form.addRow("Name:", self.name_label)
+        
+        # Type (read-only)
+        self.type_label = QtWidgets.QLabel(self.element_data['type'])
+        form.addRow("Type:", self.type_label)
+        
+        # Format (read-only)
+        format_str = self.element_data.get('format', 'N/A') or 'N/A'
+        self.format_label = QtWidgets.QLabel(format_str)
+        form.addRow("Format:", self.format_label)
+        
+        # Frame Range (editable for sequences)
+        self.frame_range_edit = QtWidgets.QLineEdit()
+        self.frame_range_edit.setPlaceholderText("e.g., 1001-1100")
+        form.addRow("Frame Range:", self.frame_range_edit)
+        
+        # Comment (editable)
+        self.comment_edit = QtWidgets.QTextEdit()
+        self.comment_edit.setPlaceholderText("Add descriptive comment...")
+        self.comment_edit.setMaximumHeight(80)
+        form.addRow("Comment:", self.comment_edit)
+        
+        # Tags (editable)
+        self.tags_edit = QtWidgets.QLineEdit()
+        self.tags_edit.setPlaceholderText("Comma-separated tags")
+        form.addRow("Tags:", self.tags_edit)
+        
+        # Deprecated checkbox
+        self.deprecated_checkbox = QtWidgets.QCheckBox("Mark as Deprecated")
+        self.deprecated_checkbox.setStyleSheet("color: #ff9a3c;")
+        form.addRow("", self.deprecated_checkbox)
+        
+        layout.addLayout(form)
+        
+        # Info label
+        info_label = QtWidgets.QLabel("Note: Name, type, and format cannot be changed after ingestion.")
+        info_label.setStyleSheet("color: #888888; font-style: italic; font-size: 11px;")
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+        
+        # Button box
+        button_box = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Save | QtWidgets.QDialogButtonBox.Cancel
+        )
+        button_box.accepted.connect(self.save_changes)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+    
+    def load_data(self):
+        """Load element data into form fields."""
+        self.frame_range_edit.setText(self.element_data.get('frame_range', '') or '')
+        self.comment_edit.setPlainText(self.element_data.get('comment', '') or '')
+        self.tags_edit.setText(self.element_data.get('tags', '') or '')
+        self.deprecated_checkbox.setChecked(self.element_data.get('is_deprecated', 0) == 1)
+    
+    def save_changes(self):
+        """Save changes to database."""
+        try:
+            # Gather updated data
+            updates = {
+                'frame_range': self.frame_range_edit.text().strip() or None,
+                'comment': self.comment_edit.toPlainText().strip() or None,
+                'tags': self.tags_edit.text().strip() or None,
+                'is_deprecated': 1 if self.deprecated_checkbox.isChecked() else 0
+            }
+            
+            # Update database
+            self.db.update_element(self.element_id, **updates)
+            
+            QtWidgets.QMessageBox.information(self, "Success", "Element updated successfully!")
+            self.accept()
+            
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", "Failed to update element: {}".format(str(e)))
+
+
 class MainWindow(QtWidgets.QMainWindow):
     """Main application window."""
     
@@ -1406,8 +2231,10 @@ class MainWindow(QtWidgets.QMainWindow):
         main_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
         
         # Left: Stacks/Lists panel
-        self.stacks_panel = StacksListsPanel(self.db)
+        self.stacks_panel = StacksListsPanel(self.db, self.config)
         self.stacks_panel.list_selected.connect(self.on_list_selected)
+        self.stacks_panel.favorites_selected.connect(self.on_favorites_selected)
+        self.stacks_panel.playlist_selected.connect(self.on_playlist_selected)
         main_splitter.addWidget(self.stacks_panel)
         
         # Center: Media display
@@ -1520,6 +2347,18 @@ class MainWindow(QtWidgets.QMainWindow):
             stack = self.db.get_stack_by_id(lst['stack_fk'])
             if stack:
                 self.statusBar().showMessage("Viewing: {} > {}".format(stack['name'], lst['name']))
+    
+    def on_favorites_selected(self):
+        """Handle favorites button click."""
+        self.media_display.load_favorites()
+        self.statusBar().showMessage("Viewing: Favorites")
+    
+    def on_playlist_selected(self, playlist_id):
+        """Handle playlist selection."""
+        self.media_display.load_playlist(playlist_id)
+        playlist = self.db.get_playlist_by_id(playlist_id)
+        if playlist:
+            self.statusBar().showMessage("Viewing Playlist: {}".format(playlist['name']))
     
     def on_element_double_clicked(self, element_id):
         """Handle element double-click (insert into Nuke)."""
@@ -1692,6 +2531,19 @@ def main():
     
     # Set application style
     app.setStyle('Fusion')
+    
+    # Load and apply stylesheet
+    stylesheet_path = os.path.join(os.path.dirname(__file__), 'resources', 'style.qss')
+    if os.path.exists(stylesheet_path):
+        try:
+            with open(stylesheet_path, 'r') as f:
+                stylesheet = f.read()
+                app.setStyleSheet(stylesheet)
+                print("Applied stylesheet from: {}".format(stylesheet_path))
+        except Exception as e:
+            print("Failed to load stylesheet: {}".format(e))
+    else:
+        print("Stylesheet not found at: {}".format(stylesheet_path))
     
     # Create and show main window
     window = MainWindow()
