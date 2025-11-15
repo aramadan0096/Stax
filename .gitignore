@@ -42,4 +42,4 @@ desktop.ini
 bin/
 
 examples/
-installers/
+installers/gui_main_backup.py
