@@ -7,12 +7,80 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
 ## [Unreleased]
 
 ### Added
+- **Video Playback Preview Pane** (Session 5 - NEW FEATURE - ffpyplayer Implementation):
+  - Created `VideoPlayerWidget` (500+ lines) - professional embedded video player using ffpyplayer library
+  - **ffpyplayer Integration**: Python bindings to FFmpeg for native frame-by-frame playback
+  - **FFpyVideoWidget**: Custom QLabel widget that renders RGB24 frames from ffpyplayer
+  - **PlayerController**: Qt-based controller wrapping ffpyplayer.MediaPlayer with signal/slot architecture
+  - **Universal Format Support**: Plays ALL video formats including .mov, .mkv, .webm, .flv, .mp4, .avi, etc.
+  - **No External Dependencies**: No Windows codec requirements, no DirectShow limitations
+  - Right-side preview pane appears when single element selected
+  - Automatic hide when multiple elements selected
+  - **Playback Features**:
+    * Embedded video playback for all formats (no codec installation needed)
+    * Frame-by-frame decoding with RGB24 output
+    * Real-time frame rendering with automatic scaling
+    * Timeline slider with real-time position synchronization
+    * Playback controls: Play/Pause toggle, Stop, Frame stepping
+    * Time display (HH:MM:SS format) with current and total time labels
+    * Frame counter with approximate 24fps calculation
+    * Seek support (scrub timeline to any position)
+    * Metadata display section with formatted element information
+    * Tags display with bullet points
+    * Deprecated status indicator
+    * Close button with automatic cleanup
+  - **Technical Architecture**:
+    * `PlayerController`: Manages ffpyplayer.MediaPlayer lifecycle
+    * Signal emissions: frame_ready, finished, duration_changed, position_changed
+    * QTimer-based frame polling loop
+    * Automatic format detection (rgb24 output)
+    * Memory-efficient frame handling with memoryview/bytearray conversion
+    * QImage rendering from raw RGB24 data (3 bytes per pixel)
+  - **Error Handling**:
+    * Format validation before loading
+    * ffpyplayer availability detection
+    * File existence checks
+    * Clear error messages with installation instructions
+    * Debug output for troubleshooting
+  - **Timeline Scrubbing**: Drag slider to seek, pause-during-scrub, resume after
+  - Integrated into MainWindow with 3-panel splitter layout (left: 250px, center: 900px, right: 400px)
+  - Selection change handlers for automatic show/hide behavior
+  - **Dependencies**: Requires `pip install ffpyplayer` (includes FFmpeg binaries)
 - **Roadmap Requested Tasks Implementation** (Session 5):
   - **Task 2 - SVG Icons**: Verified all 3 required icons (stack.svg, list.svg, playlist.svg) exist in resources/icons/ with proper SVG structure and color tinting support
   - **Task 3 - Sub-list Creation**: Modified `add_list()` button to create sub-lists when a list is selected, top-level lists otherwise. Leverages existing `AddSubListDialog` and hierarchical tree display
   - **Task 4 - Context Menu Bulk Operations**: Removed "Bulk Operations ▼" toolbar button. Bulk actions (Add to Favorites, Add to Playlist, Mark Deprecated, Delete Selected) now accessible via right-click context menu when multiple items are selected. Includes selection count header and permission checks
 
 ### Fixed
+- **Video Playback Universal Format Support** (Session 5 - ffpyplayer Solution):
+  - Completely replaced QMediaPlayer/FFplay hybrid with ffpyplayer library
+  - Issue: Windows DirectShow codec limitations prevented .mov, .mkv, .webm playback
+  - Issue: QMediaPlayer required system codecs (DirectShow error 0x80040266)
+  - Issue: FFplay fallback required external windows and lost control integration
+  - Solution: ffpyplayer provides native Python bindings to FFmpeg
+  - Benefits:
+    * Plays ALL video formats without codec installation
+    * Fully embedded playback (no external windows)
+    * Frame-by-frame control with RGB24 output
+    * Cross-platform compatibility
+    * Professional VFX pipeline ready
+  - Architecture: PlayerController wraps ffpyplayer.MediaPlayer with Qt signals
+  - Custom FFpyVideoWidget renders decoded frames in QLabel with QPixmap
+  - Maintains full timeline control, scrubbing, and playback state management
+- **Video Playback Embedding** (Session 5 - Refactoring):
+  - Refactored VideoPlayerWidget from external ffplay subprocess to embedded QMediaPlayer
+  - User feedback: "it should be played inside the video player widget itself"
+  - Converted 650-line ffplay implementation to 500-line Qt Multimedia implementation
+  - Removed subprocess management, threading, and external process monitoring
+  - Added QMediaPlayer with QVideoWidget for native embedded playback
+  - Improved control integration with signal/slot architecture
+  - Timeline now syncs automatically with playback position
+  - Scrubbing works natively with setPosition() instead of ffplay seeking
+- **FFplay Path Configuration** (Session 5 - Bug Fix - SUPERSEDED):
+  - Fixed VideoPlayerWidget to use local ffplay.exe from `bin/ffmpeg/bin/ffplay.exe`
+  - No longer expects ffplay in system PATH
+  - Added existence check with helpful error message showing expected path
+  - Path construction: `project_root/bin/ffmpeg/bin/ffplay.exe`
 - **Sub-list Data Unpacking** (Session 5 - Bug Fix):
   - Fixed ValueError in `add_list()` when unpacking tree item data (expected 2 values, got 3)
   - Added length check before unpacking to handle variable-length data tuples

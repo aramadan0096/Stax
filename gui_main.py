@@ -20,6 +20,7 @@ from src.extensibility_hooks import ProcessorManager
 from src.ffmpeg_wrapper import FFmpegWrapper
 from src.preview_cache import get_preview_cache
 from src.icon_loader import get_icon, get_pixmap
+from src.video_player_widget import VideoPlayerWidget
 
 
 class AdvancedSearchDialog(QtWidgets.QDialog):
@@ -4206,7 +4207,7 @@ class MainWindow(QtWidgets.QMainWindow):
         layout = QtWidgets.QHBoxLayout(central)
         layout.setContentsMargins(5, 5, 5, 5)
         
-        # Splitter for main content
+        # Main splitter for left panel, center content, and right preview pane
         main_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
         
         # Left: Stacks/Lists panel
@@ -4221,10 +4222,20 @@ class MainWindow(QtWidgets.QMainWindow):
         self.media_display.element_double_clicked.connect(self.on_element_double_clicked)
         main_splitter.addWidget(self.media_display)
         
-        # Set splitter sizes
-        main_splitter.setSizes([250, 1150])
+        # Right: Video player preview pane (hidden by default)
+        self.video_player_pane = VideoPlayerWidget(self.db, self.config, self)
+        self.video_player_pane.closed.connect(self.on_preview_pane_closed)
+        self.video_player_pane.hide()
+        main_splitter.addWidget(self.video_player_pane)
+        
+        # Set splitter sizes (left: 250, center: 900, right: 400)
+        main_splitter.setSizes([250, 900, 400])
         
         layout.addWidget(main_splitter)
+        
+        # Connect selection changes to update preview pane
+        self.media_display.gallery_view.itemSelectionChanged.connect(self.on_selection_changed)
+        self.media_display.table_view.itemSelectionChanged.connect(self.on_selection_changed)
         
         # Create dockable panels
         
@@ -4427,13 +4438,31 @@ class MainWindow(QtWidgets.QMainWindow):
             element = self.db.get_element_by_id(element_id)
             if element:
                 self.statusBar().showMessage("Inserted: {}".format(element['name']))
-                QtWidgets.QMessageBox.information(
-                    self,
-                    "Element Inserted",
-                    "Element '{}' has been inserted into Nuke.".format(element['name'])
-                )
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", "Failed to insert element: {}".format(str(e)))
+    
+    def on_selection_changed(self):
+        """Handle element selection change - update preview pane."""
+        selected_ids = self.media_display.get_selected_element_ids()
+        
+        if len(selected_ids) == 1:
+            # Single element selected - show preview pane
+            element_id = selected_ids[0]
+            self.video_player_pane.load_element(element_id)
+            self.video_player_pane.show()
+        elif len(selected_ids) > 1:
+            # Multiple elements selected - hide preview pane
+            self.video_player_pane.hide()
+            self.video_player_pane.clear()
+        else:
+            # No selection - keep pane visible but cleared if it was already visible
+            if self.video_player_pane.isVisible():
+                self.video_player_pane.clear()
+    
+    def on_preview_pane_closed(self):
+        """Handle preview pane close button."""
+        self.video_player_pane.hide()
+        self.video_player_pane.clear()
     
     def ingest_files(self):
         """Open file dialog to ingest files."""
