@@ -453,19 +453,27 @@ class LoginDialog(QtWidgets.QDialog):
         
         # Form layout
         form = QtWidgets.QFormLayout()
-        form.setSpacing(10)
+        # increased spacing for more airy layout
+        form.setSpacing(18)
+        try:
+            # setVerticalSpacing may not exist in older Qt versions; guard it
+            form.setVerticalSpacing(18)
+        except Exception:
+            pass
         
         # Username
         self.username_edit = QtWidgets.QLineEdit()
         self.username_edit.setPlaceholderText("Enter username")
-        self.username_edit.setMinimumHeight(30)
+        # larger control for accessibility / spacing
+        self.username_edit.setMinimumHeight(48)
         form.addRow("Username:", self.username_edit)
         
         # Password
         self.password_edit = QtWidgets.QLineEdit()
         self.password_edit.setPlaceholderText("Enter password")
         self.password_edit.setEchoMode(QtWidgets.QLineEdit.Password)
-        self.password_edit.setMinimumHeight(30)
+        # larger control for accessibility / spacing
+        self.password_edit.setMinimumHeight(48)
         self.password_edit.returnPressed.connect(self.attempt_login)
         form.addRow("Password:", self.password_edit)
         

@@ -36,6 +36,20 @@ class StacksListsPanel(QtWidgets.QWidget):
         """Setup the UI components."""
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        # Optional lock/banner area (hidden by default) - will be shown if access restricted
+        self.lock_banner = QtWidgets.QWidget()
+        self.lock_banner.setVisible(False)
+        lb_layout = QtWidgets.QHBoxLayout(self.lock_banner)
+        lb_layout.setContentsMargins(8, 6, 8, 6)
+        lb_icon = QtWidgets.QLabel()
+        lb_icon.setFixedSize(20, 20)
+        lb_icon.setText('\u1F512')
+        lb_icon.setStyleSheet('color: #ff9a3c; font-size: 16px;')
+        lb_layout.addWidget(lb_icon)
+        lb_text = QtWidgets.QLabel('Restricted: limited access')
+        lb_text.setStyleSheet('color: #ff9a3c; font-weight: bold;')
+        lb_layout.addWidget(lb_text, 1)
+        layout.addWidget(self.lock_banner)
         
         # Title
         title = QtWidgets.QLabel("Navigation")
@@ -111,7 +125,7 @@ class StacksListsPanel(QtWidgets.QWidget):
         button_layout.addWidget(self.add_stack_btn)
         
         self.add_list_btn = QtWidgets.QPushButton("List")
-        self.add_list_btn.setIcon(get_icon('add', size=20))
+        self.add_list_btn.setIcon(get_icon('list', size=20))
         self.add_list_btn.setToolTip("Add new List")
         self.add_list_btn.setObjectName('small')
         self.add_list_btn.setProperty('class', 'small')

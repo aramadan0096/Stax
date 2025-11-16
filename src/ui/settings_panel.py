@@ -396,20 +396,53 @@ class SettingsPanel(QtWidgets.QWidget):
             is_admin = True
         
         if not is_admin:
-            # Show locked message for non-admin users
-            lock_label = QtWidgets.QLabel(
-                "Administrator Privileges Required\n\n"
-                "This section contains sensitive settings that can only\n"
-                "be modified by users with administrator privileges.\n\n"
-                "Current user: {}\n"
-                "Role: {}".format(
-                    self.main_window.current_user['username'] if self.main_window and self.main_window.current_user else 'guest',
-                    self.main_window.current_user.get('role', 'guest') if self.main_window and self.main_window.current_user else 'guest'
-                )
+            # Show a contrasted lock-card for non-admin users
+            lock_card = QtWidgets.QWidget()
+            lock_card.setObjectName('lockCard')
+            lock_card_layout = QtWidgets.QHBoxLayout(lock_card)
+            lock_card_layout.setContentsMargins(16, 16, 16, 16)
+            lock_card_layout.setSpacing(12)
+
+            # Lock icon (use an existing pause/play icon color via SVG 'currentColor')
+            lock_icon_lbl = QtWidgets.QLabel()
+            lock_icon_lbl.setFixedSize(48, 48)
+            lock_pix = get_pixmap('lock', size=48) if hasattr(__import__('src.icon_loader'), 'get_pixmap') else None
+            if lock_pix:
+                lock_icon_lbl.setPixmap(lock_pix)
+            else:
+                # Fallback: draw a simple lock-like glyph using styled text
+                lock_icon_lbl.setText('\u1F512')
+                lock_icon_lbl.setAlignment(QtCore.Qt.AlignCenter)
+
+            # Text content
+            username = self.main_window.current_user['username'] if self.main_window and self.main_window.current_user else 'guest'
+            role = self.main_window.current_user.get('role', 'guest') if self.main_window and self.main_window.current_user else 'guest'
+
+            text_container = QtWidgets.QWidget()
+            text_layout = QtWidgets.QVBoxLayout(text_container)
+            text_layout.setContentsMargins(0, 0, 0, 0)
+            title = QtWidgets.QLabel("Administrator Privileges Required")
+            title.setStyleSheet("font-weight: bold; color: #ff9a3c; font-size: 13px;")
+            details = QtWidgets.QLabel(
+                "This section contains sensitive settings that require administrator privileges.\n"
+                "Current user: {}  •  Role: {}".format(username, role)
             )
-            lock_label.setAlignment(QtCore.Qt.AlignCenter)
-            lock_label.setStyleSheet("color: #ff9a3c; font-size: 13px; padding: 50px;")
-            layout.addWidget(lock_label)
+            details.setStyleSheet("color: #e6eef0; font-size: 11px;")
+            details.setWordWrap(True)
+
+            text_layout.addWidget(title)
+            text_layout.addWidget(details)
+
+            lock_card_layout.addWidget(lock_icon_lbl)
+            lock_card_layout.addWidget(text_container, 1)
+
+            # Inline style to ensure the card is visible on dark backgrounds
+            lock_card.setStyleSheet(
+                "background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #2a2320, stop:1 #201816);"
+                "border: 1px solid #3a2b28; border-radius: 8px;"
+            )
+
+            layout.addWidget(lock_card)
         else:
             # Admin password change
             pwd_group = QtWidgets.QGroupBox("Change Admin Password")
