@@ -1,223 +1,339 @@
 # StaX
 
-Advanced solution for mass production stock footage management clone designed for Foundry Nuke integration.
+**Professional stock footage and asset management system for VFX pipelines**
 
-## Project Status
+StaX is an advanced media browser and asset management tool designed specifically for integration with Foundry Nuke. It provides powerful features for organizing, searching, and deploying visual effects assets with intelligent sequence detection, automated preview generation, and extensible pipeline hooks.
 
-**Phase:** Alpha (MVP) - Core modules implemented  
-**Python Version:** 2.7 (VFX pipeline compatibility)  
-**GUI Framework:** PySide2
+---
 
-## Features Implemented
+## What is StaX?
 
-### ✅ Core Modules (Alpha MVP - COMPLETE)
-- **Database Layer** (`db_manager.py`): SQLite with network-aware file locking
-  - Stacks → Lists → Elements hierarchy
-  - Favorites and Playlists support
-  - Ingestion history tracking
-  - Full CRUD operations
+StaX helps VFX artists and studios manage large collections of stock footage, 3D assets, and Nuke toolsets through:
 
-- **Ingestion Engine** (`ingestion_core.py`):
-  - Automatic image sequence detection
-  - Hard copy / soft copy policies
-  - Metadata extraction
-  - Preview thumbnail generation
-  - Multi-file and folder ingestion
+- **Hierarchical Organization**: Organize assets into Stacks → Lists → Elements with support for nested sub-lists
+- **Smart Ingestion**: Automatic image sequence detection, frame range discovery, and metadata extraction
+- **Dual-Path Storage**: Choose between hard copies (physical repository) or soft copies (reference links)
+- **Rich Previews**: Automatic thumbnail, GIF, and video preview generation for quick asset review
+- **Nuke Integration**: Drag and drop assets directly into Nuke's Node Graph with automatic Read/ReadGeo node creation
+- **Network-Ready**: SQLite database with file locking for multi-user workstation access
+- **Extensible**: Custom Python processors for pre-ingest validation, post-ingest hooks, and post-import node configuration
 
-- **Nuke Integration** (`nuke_bridge.py`):
-  - Mock mode for development without Nuke
-  - Read/ReadGeo/Paste node operations
-  - Toolset registration
-  - Post-import processor hooks
+---
 
-- **Extensibility** (`extensibility_hooks.py`):
-  - Pre-ingest processors
-  - Post-ingest processors
-  - Post-import processors
-  - Safe user script execution
+## Installation
 
-- **Configuration** (`config.py`):
-  - JSON-based settings
-  - User preferences management
-  - Auto-detection of user/machine identity
+### Standalone Desktop Application
 
-- **GUI Applications**: **✅ COMPLETE (Dual-Mode)**
-  
-  **Standalone App** (`main.py`):
-  - Full-featured desktop application with menubar
-  - StacksListsPanel, MediaDisplayWidget, HistoryPanel, SettingsPanel
-  - Live search and instant filtering
-  - Keyboard shortcuts (Ctrl+2, Ctrl+3, Ctrl+I)
-  - Mock Nuke mode for development
-  - Independent of Nuke license
-  
-  **Nuke Plugin** (`nuke_launcher.py`): **✅ NEW**
-  - Embeddable QWidget panel for Nuke integration
-  - Toolbar-based interface (replaces menubar)
-  - Dockable within Nuke's pane system
-  - Real Nuke API integration (no mock mode)
-  - Drag & drop directly into Node Graph
-  - Opens with Ctrl+Alt+S in Nuke
-  - All standalone features available
-  - See [NUKE_INSTALLATION.md](NUKE_INSTALLATION.md)
+**Requirements:**
+- Python 2.7 or Python 3.x
+- PySide2
+- ffpyplayer (for video playback)
 
-### 🚧 In Progress (Beta)
-- Drag-and-drop file ingestion from OS
-- Advanced search with property/match type selection
-- Favorites management UI
-- Unit tests
+**Setup:**
 
-## Quick Start
-
-### Installation
-
-```powershell
+```bash
 # Clone repository
-cd d:\Scripts\modern-stock-browser
+git clone https://github.com/aramadan0096/Stax.git
+cd Stax
 
-# Create virtual environment (Python 3 recommended for development)
+# Create virtual environment (Python 3 recommended)
 python -m venv .venv
 
 # Activate virtual environment
-.\.venv\Scripts\activate
+# Windows:
+.venv\Scripts\activate
+# Linux/macOS:
+source .venv/bin/activate
 
 # Install dependencies
 pip install PySide2 ffpyplayer
 ```
 
-### Running the Application
+**Run Standalone:**
 
-**Option 1: Standalone Desktop Application**
-
-```python
-# Run standalone GUI application
+```bash
 python main.py
 ```
 
-**Option 2: Nuke Plugin Integration**
+On first launch, StaX will:
+1. Create the database in `./data/vah.db`
+2. Create directories for previews (`./previews`) and repository (`./repository`)
+3. Show the login dialog (default admin credentials: admin/admin)
 
+### Nuke Plugin Installation
+
+#### Method 1: User Directory (Single User)
+
+1. **Locate your Nuke user directory:**
+   - **Windows:** `C:\Users\<username>\.nuke`
+   - **macOS:** `/Users/<username>/.nuke`
+   - **Linux:** `/home/<username>/.nuke`
+
+2. **Copy StaX to the plugins folder:**
+   ```bash
+   # Copy entire Stax folder to .nuke directory
+   cp -r Stax ~/.nuke/StaX
+   ```
+
+3. **Update your `.nuke/init.py`:**
+   ```python
+   import nuke
+   import os
+   
+   # Add StaX plugin path
+   stax_path = os.path.join(os.path.dirname(__file__), 'StaX')
+   if os.path.isdir(stax_path):
+       nuke.pluginAddPath(stax_path)
+       print("[StaX] Plugin loaded from: {}".format(stax_path))
+   ```
+
+4. **Restart Nuke**
+
+#### Method 2: Network Repository (Studio/Multi-User)
+
+For VFX studios with shared network storage:
+
+1. **Copy StaX to network location:**
+   ```bash
+   # Copy to shared storage
+   cp -r Stax //server/share/nuke_plugins/StaX
+   ```
+
+2. **Set environment variable before launching Nuke:**
+   
+   **Windows (PowerShell):**
+   ```powershell
+   $env:NUKE_PATH="\\server\share\nuke_plugins\StaX"
+   & "C:\Program Files\Nuke15.0\Nuke15.0.exe"
+   ```
+   
+   **Linux/macOS (bash):**
+   ```bash
+   export NUKE_PATH=/server/share/nuke_plugins/StaX
+   /usr/local/Nuke15.0/Nuke15.0
+   ```
+
+3. **Configure shared database** (recommended for studios):
+   
+   Set the `STOCK_DB` environment variable to point to a shared database:
+   ```bash
+   # Windows
+   set STOCK_DB=\\server\share\vfx\stax_production.db
+   
+   # Linux/macOS
+   export STOCK_DB=/server/share/vfx/stax_production.db
+   ```
+
+---
+
+## How StaX Works
+
+### Organization Hierarchy
+
+StaX uses a three-level hierarchy to organize assets:
+
+```
+Stacks (Primary Categories)
+  └─ Lists (Sub-Categories)
+      └─ Sub-Lists (Optional nested categories)
+          └─ Elements (Individual Assets)
+```
+
+**Example structure:**
+```
+📦 Plates
+  └─ 🗂 Explosions
+      └─ 🗂 Aerial Explosions
+          └─ 🎬 explosion_aerial_001.mov
+          └─ 🎬 explosion_aerial_002.mov
+  └─ 🗂 Cityscapes
+      └─ 🖼 NYC_skyline_####.exr (frames 1001-1150)
+
+📦 3D Assets
+  └─ 🗂 Characters
+      └─ 🎨 hero_model.abc
+  └─ 🗂 Props
+      └─ 🎨 vehicle_rig.fbx
+```
+
+### Asset Ingestion
+
+**Single File Ingestion:**
+1. Go to **File → Ingest Files** (or press `Ctrl+I`)
+2. Select files to ingest
+3. Choose target Stack and List
+4. Select copy policy (hard copy or soft copy)
+5. StaX automatically:
+   - Detects image sequences and frame ranges
+   - Copies files to repository (if hard copy selected)
+   - Generates thumbnail, GIF, and video previews
+   - Extracts metadata (resolution, format, duration, etc.)
+   - Creates database entry
+
+**Library Ingestion (Bulk):**
+1. Go to **File → Ingest Library** (or press `Ctrl+Shift+I`)
+2. Select a root folder
+3. StaX scans the folder structure and maps folders to Stacks/Lists
+4. Preview the structure and configure options
+5. Ingest entire library in one operation
+
+### Copy Policies
+
+- **Hard Copy**: Physical files are copied to the repository directory. Assets remain accessible even if original files move.
+- **Soft Copy**: Only file path references are stored. Useful for large assets on network storage.
+
+### Searching and Filtering
+
+**Live Filter:**
+- Type in the search box to instantly filter elements by name
+- Use `#tagname` to search by tags (e.g., `#fire` or `#fire,explosion`)
+
+**Advanced Search** (`Ctrl+F`):
+- Search by property: name, format, type, comment, tags
+- Choose match type: loose (partial match) or strict (exact match)
+- Results displayed in sortable table
+
+### Favorites and Playlists
+
+- **Favorites**: Click the ⭐ button or right-click → "Add to Favorites" for quick access to frequently used assets
+- **Playlists**: Create collaborative collections with **+ Playlist** button. Add multiple elements to playlists for organized workflows.
+
+---
+
+## Nuke Plugin Usage
+
+### Opening StaX in Nuke
+
+**Keyboard Shortcut:**
+- Press `Ctrl+Alt+S` (Windows/Linux) or `Cmd+Alt+S` (macOS)
+
+**Menu:**
+- Navigate to **StaX → Open StaX Panel**
+
+**Script Editor:**
 ```python
-# Copy StaX to Nuke plugins directory
-# Windows: C:\Users\<username>\.nuke\StaX
-# Linux/Mac: ~/.nuke/StaX
-
-# In Nuke, press Ctrl+Alt+S to open StaX panel
-# Or use menu: StaX → Open StaX Panel
+import nuke_launcher
+nuke_launcher.show_stax_panel()
 ```
 
-See [NUKE_INSTALLATION.md](NUKE_INSTALLATION.md) for detailed Nuke setup instructions.
+### Inserting Assets into Nuke
 
-On first run:
-1. Database and config files are auto-created
-2. Click **"+ Stack"** to create your first stack
-3. Click **"+ List"** to add lists to the stack
-4. Use **File → Ingest Files** (Ctrl+I) to add assets
+**Method 1: Drag and Drop**
+1. Select element(s) in the StaX panel
+2. Drag them into the Node Graph
+3. StaX automatically creates:
+   - **Read nodes** for 2D images/sequences with correct frame ranges
+   - **ReadGeo nodes** for 3D assets (.abc, .obj, .fbx)
+   - **Node graphs** for toolsets (.nk files)
 
-See [QUICKSTART.md](QUICKSTART.md) for detailed usage instructions.
+**Method 2: Double-Click**
+- Double-click any element to insert it into the DAG at the current position
 
-### Testing Core Modules (No GUI)
+**Method 3: Insert Button**
+- Hover over an element while holding `Alt` to show the Media Info Popup
+- Click the **"Insert into Nuke"** button
 
-```python
-# Run example to test core modules
-python example_usage.py
-```
+### Registering Toolsets
 
-This will:
-1. Initialize database with schema
-2. Create example Stacks and Lists
-3. Test Nuke bridge in mock mode
-4. Demonstrate sequence detection
-5. Show processor hook status
+Save your Nuke node setups as reusable assets:
 
-### Directory Structure
+1. Select nodes in the Node Graph
+2. Press `Ctrl+Shift+T` or go to **StaX → Register Toolset**
+3. Enter toolset name, select target list, add comment
+4. Optional: Generate preview image of node graph
+5. StaX saves the .nk file and catalogs it as an element
 
-```
-modern-stock-browser/
-├── src/                    # Core Python modules
-│   ├── db_manager.py       # Database operations
-│   ├── ingestion_core.py   # Ingestion pipeline
-│   ├── nuke_bridge.py      # Nuke API abstraction
-│   ├── extensibility_hooks.py  # Custom processors
-│   └── config.py           # Configuration manager
-├── config/                 # Configuration files
-│   └── config.json         # Application settings
-├── tests/                  # Unit tests (coming soon)
-├── data/                   # SQLite database (auto-created)
-├── previews/               # Generated thumbnails (auto-created)
-├── repository/             # Asset repository (auto-created)
-├── instructions.md         # Complete technical specification
-├── Roadmap.md              # Development roadmap
-└── changelog.md            # Version history
-```
+Toolsets can then be dragged back into any Nuke session.
+
+### Quick Actions
+
+Available in the **StaX** menu:
+
+- **Quick Ingest** (`Ctrl+Shift+I`): Ingest files immediately without opening full dialog
+- **Register Toolset** (`Ctrl+Shift+T`): Save selected nodes as toolset
+- **Advanced Search** (`Ctrl+F`): Open advanced search dialog
+
+---
+
+## Keyboard Shortcuts
+
+### Global Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+I` | Open Ingest Files dialog |
+| `Ctrl+Shift+I` | Open Ingest Library dialog / Quick Ingest |
+| `Ctrl+F` | Open Advanced Search |
+| `Ctrl+2` | Toggle History Panel |
+| `Ctrl+3` | Toggle Settings Panel |
+| `Ctrl+L` | Logout |
+
+### Nuke Plugin Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl+Alt+S` | Open StaX Panel |
+| `Ctrl+Shift+T` | Register Selection as Toolset |
+| `Ctrl+F` | Advanced Search in StaX Panel |
+
+### Navigation Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `Alt + Hover` | Show Media Info Popup with preview and metadata |
+| `Double-Click` | Insert element into Nuke DAG |
+| `Right-Click` | Context menu (Edit, Delete, Add to Favorites/Playlist) |
+
+---
 
 ## Configuration
 
-Edit `config/config.json` to customize:
+### Database Location
 
+**Environment Variable (Recommended for Studios):**
+```bash
+# Set before launching Nuke or standalone app
+export STOCK_DB=/path/to/shared/database.db
+```
+
+**Config File:**
+
+Edit `config/config.json`:
 ```json
 {
     "database_path": "./data/vah.db",
     "default_repository_path": "./repository",
     "preview_dir": "./previews",
     "default_copy_policy": "soft",
-    "nuke_mock_mode": true,
-    "pre_ingest_processor": null,
-    "post_ingest_processor": null,
-    "post_import_processor": null
+    "nuke_mock_mode": false
 }
 ```
 
-## Development
+### Settings Panel
 
-### Running Tests
-```powershell
-# Coming soon
-python -m pytest tests/
-```
+Open with `Ctrl+3` to configure:
 
-### Architecture
+- **General**: Database location, user preferences
+- **Ingestion**: Copy policy, sequence detection settings
+- **Preview & Media**: Thumbnail size, GIF settings, video preview options
+- **Network & Performance**: Database retries/timeout, cache settings, pagination
+- **Custom Processors**: Pre-ingest, post-ingest, and post-import hook scripts
+- **Security & Admin**: User management, password changes (admin only)
 
-The application follows a three-tier architecture:
+### Custom Processors (Pipeline Integration)
 
-```
-┌─────────────────────────┐
-│   GUI Layer (PySide2)   │  ← Coming in Beta
-├─────────────────────────┤
-│   Core Logic Layer      │  ← ✅ Implemented
-│  - Ingestion            │
-│  - Extensibility        │
-│  - Nuke Bridge          │
-├─────────────────────────┤
-│   Data Layer (SQLite)   │  ← ✅ Implemented
-└─────────────────────────┘
-```
+StaX supports custom Python scripts at three points in the workflow:
 
-### Key Design Patterns
+1. **Pre-Ingest Processor**: Runs before files are copied (validation, naming enforcement)
+2. **Post-Ingest Processor**: Runs after cataloging (metadata injection, external system notifications)
+3. **Post-Import Processor**: Runs after Nuke node creation (OCIO setup, expression application)
 
-**Dual-Path Asset Storage:**
-- `filepath_soft`: Reference to original location
-- `filepath_hard`: Physical copy in repository
-- `is_hard_copy`: Boolean determines which path to use
-
-**Automatic Sequence Detection:**
-- Detects patterns: `filename.####.ext` or `filename_####.ext`
-- Automatically discovers frame ranges
-- No manual frame range input required
-
-**Nuke Bridge Abstraction:**
-- All Nuke operations go through `nuke_bridge.py`
-- Mock mode for development/testing
-- Real Nuke API in production
-
-## Extensibility
-
-Create custom processor scripts for pipeline integration:
-
-### Pre-Ingest Hook Example
+**Example Pre-Ingest Hook:**
 ```python
-# validate_naming.py
+# processors/validate_naming.py
 import re
 
+# Context contains: {'name': str, 'filepath': str, 'element_data': dict}
 if not re.match(r'^[A-Z]{3}_\d{4}', context['name']):
     result = {
         'continue': False,
@@ -227,31 +343,123 @@ else:
     result = {'continue': True}
 ```
 
-Configure in `config.json`:
-```json
-{
-    "pre_ingest_processor": "./processors/validate_naming.py"
-}
+Configure processor paths in Settings → Custom Processors tab.
+
+---
+
+## Advanced Features
+
+### Pagination
+
+For large libraries (1000+ assets), enable pagination in Settings → Network & Performance:
+- Set items per page (50, 100, 200, 500)
+- Navigate with First/Previous/Next/Last buttons
+- Improves performance and reduces memory usage
+
+### Preview System
+
+StaX generates three types of previews:
+- **Static Thumbnail**: PNG image for quick display
+- **Animated GIF**: 3-second loop for hover preview
+- **Video Preview**: Low-res MP4 for playback in preview pane (standalone mode)
+
+Hover over elements in gallery view to play GIF previews automatically.
+
+### Network-Aware Database
+
+For multi-user studios:
+- SQLite database with file locking prevents conflicts
+- Supports concurrent access from multiple workstations
+- WAL (Write-Ahead Logging) journal mode for better concurrency
+- Configurable retry logic and timeouts
+
+### Tags and Metadata
+
+- Add tags to elements for better searchability (comma-separated)
+- Edit metadata: frame range, comment, tags, deprecated status
+- Right-click → "Edit Metadata" to update element properties
+
+---
+
+## Troubleshooting
+
+### Nuke Plugin Not Loading
+
+**Check Script Editor output:**
+```python
+import nuke
+print(nuke.pluginPath())
+# Should include StaX directory
 ```
 
-## Roadmap
+**Verify init.py executed:**
+- Look for `[StaX] Plugin loaded from:` message
 
-- [x] Alpha: Core modules and data layer
-- [x] Beta: Complete GUI with PySide2
-- [x] RC: Tests, packaging, performance tuning
-- [ ] Stable: Production deployment
+**Common issues:**
+- Missing `PySide2`: Install in Nuke's Python environment
+- Wrong `NUKE_PATH`: Verify environment variable points to StaX folder
+- Permission errors: Check read/write access to StaX directory
 
-See [Roadmap.md](Roadmap.md) for detailed milestones.
+### Database Lock Errors
+
+**Symptoms:**
+- "database is locked" error messages
+
+**Solutions:**
+1. Close other StaX instances on the same machine
+2. Check for stale `.lock` files in database directory
+3. Increase retry timeout in Settings → Network & Performance
+
+### Drag & Drop Not Working in Nuke
+
+**Causes:**
+1. Running in mock mode (check `nuke_mock_mode` setting)
+2. Real Nuke API not detected
+3. No elements selected
+
+**Debug:**
+```python
+# In Nuke Script Editor
+import nuke_launcher
+print("Nuke mode:", nuke_launcher.NUKE_MODE)
+```
+
+---
 
 ## Documentation
 
-- **[instructions.md](instructions.md)**: Complete technical specification
-- **[Roadmap.md](Roadmap.md)**: Development phases and milestones
-- **[.github/copilot-instructions.md](.github/copilot-instructions.md)**: AI agent guidance
+- **[instructions.md](instructions.md)**: Complete technical specification and architecture
+- **[Roadmap.md](Roadmap.md)**: Development phases, milestones, and feature roadmap
+- **[changelog.md](changelog.md)**: Version history and release notes
+
+---
+
+## Project Status
+
+**Current Phase:** Beta  
+**Python Version:** 2.7 / 3.x (dual compatibility)  
+**GUI Framework:** PySide2
+
+**Completed Features:**
+- ✅ Database layer with network-aware file locking
+- ✅ Ingestion engine with sequence detection
+- ✅ Nuke integration (standalone and plugin modes)
+- ✅ Extensibility hooks (custom processors)
+- ✅ Complete GUI with gallery/list views
+- ✅ Preview generation (thumbnails, GIFs, videos)
+- ✅ User/permission management
+- ✅ Favorites and playlists
+- ✅ Advanced search and filtering
+- ✅ Drag & drop to Nuke DAG
+- ✅ Toolset registration
+
+See [Roadmap.md](Roadmap.md) for planned features and [changelog.md](changelog.md) for recent updates.
+
+---
 
 ## Contributing
 
-This is a greenfield project in active development. Core modules are implemented and ready for GUI integration.
+StaX is under active development. Contributions, bug reports, and feature requests are welcome through GitHub Issues and Pull Requests.
 
 ## License
 
