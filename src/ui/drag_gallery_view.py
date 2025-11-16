@@ -55,7 +55,7 @@ class DragGalleryView(QtWidgets.QListWidget):
         mime_data.setUrls(urls)
         
         # Store custom data for internal processing
-        mime_data.setData('application/x-vah-elements', ','.join(str(eid) for eid in element_ids).encode('utf-8'))
+        mime_data.setData('application/x-stax-elements', ','.join(str(eid) for eid in element_ids).encode('utf-8'))
         
         # Create drag object
         drag = QtGui.QDrag(self)

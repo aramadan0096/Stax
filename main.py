@@ -56,6 +56,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config.ensure_directories()
         
         self.db = DatabaseManager(self.config.get('database_path'))
+        
+        # Load database-stored settings (previews_path, etc.)
+        self.config.load_from_database(self.db)
+        
         self.nuke_bridge = NukeBridge(mock_mode=self.config.get('nuke_mock_mode'))
         self.nuke_integration = NukeIntegration(self.nuke_bridge, self.db)
         self.ingestion = IngestionCore(self.db, self.config.get_all())
@@ -99,7 +103,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.main_splitter.setHandleWidth(6)
 
         # Left: Stacks/Lists panel
-        self.stacks_panel = StacksListsPanel(self.db, self.config)
+        self.stacks_panel = StacksListsPanel(self.db, self.config, main_window=self)
         self.stacks_panel.setMinimumWidth(260)
         self.stacks_panel.list_selected.connect(self.on_list_selected)
         self.stacks_panel.stack_selected.connect(self.on_stack_selected)

@@ -49,6 +49,9 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         
         # Enable mouse tracking for hover events
         self.setMouseTracking(True)
+        
+        # Enable drag & drop
+        self.setAcceptDrops(True)
     
     def setup_ui(self):
         """Setup UI components."""
@@ -262,6 +265,147 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         """Handle resize to reposition focus button."""
         super(MediaDisplayWidget, self).resizeEvent(event)
         self.position_focus_button()
+    
+    def dragEnterEvent(self, event):
+        """Handle drag enter for file drops."""
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+    
+    def dragMoveEvent(self, event):
+        """Handle drag move for file drops."""
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+    
+    def dropEvent(self, event):
+        """Handle file drop for ingestion."""
+        if not event.mimeData().hasUrls():
+            event.ignore()
+            return
+        
+        # Check if a list is selected
+        if not self.current_list_id:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "No List Selected",
+                "Please select a list before dropping files for ingestion."
+            )
+            event.ignore()
+            return
+        
+        # Get dropped file paths
+        urls = event.mimeData().urls()
+        file_paths = []
+        for url in urls:
+            if url.isLocalFile():
+                file_paths.append(url.toLocalFile())
+        
+        if not file_paths:
+            event.ignore()
+            return
+        
+        event.acceptProposedAction()
+        
+        # Trigger ingestion with the dropped files
+        self.ingest_dropped_files(file_paths)
+    
+    def ingest_dropped_files(self, file_paths):
+        """Ingest dropped files into the current list."""
+        from src.ui.dialogs import IngestProgressDialog
+        from src.ingestion_core import IngestionCore
+        from PySide2.QtCore import QThread, Signal
+        
+        # Create ingestion thread with proper signals
+        class IngestThread(QThread):
+            progress_updated = Signal(int, int, str)
+            ingestion_complete = Signal()
+            ingestion_failed = Signal(str)
+            
+            def __init__(self, db, config, file_paths, list_id, copy_policy):
+                super(IngestThread, self).__init__()
+                self.db = db
+                self.config = config
+                self.file_paths = file_paths
+                self.list_id = list_id
+                self.copy_policy = copy_policy
+                self._cancelled = False
+            
+            def run(self):
+                try:
+                    ingest_manager = IngestionCore(self.db, self.config)
+                    
+                    for i, file_path in enumerate(self.file_paths):
+                        if self._cancelled:
+                            break
+                        
+                        # Update progress
+                        self.progress_updated.emit(i, len(self.file_paths), os.path.basename(file_path))
+                        
+                        # Ingest file
+                        ingest_manager.ingest_file(
+                            source_path=file_path,
+                            target_list_id=self.list_id,
+                            copy_policy=self.copy_policy
+                        )
+                    
+                    # Complete
+                    if not self._cancelled:
+                        self.progress_updated.emit(len(self.file_paths), len(self.file_paths), "Complete")
+                        self.ingestion_complete.emit()
+                        
+                except Exception as e:
+                    self.ingestion_failed.emit(str(e))
+            
+            def cancel(self):
+                self._cancelled = True
+        
+        # Show ingest progress dialog
+        dialog = IngestProgressDialog(self)
+        dialog.setWindowTitle("Ingesting Files...")
+        
+        # Get ingestion settings from config
+        copy_policy = self.config.get('copy_policy', 'soft')
+        
+        # Create and configure thread
+        thread = IngestThread(self.db, self.config, file_paths, self.current_list_id, copy_policy)
+        
+        # Connect signals
+        thread.progress_updated.connect(dialog.update_progress)
+        thread.ingestion_complete.connect(lambda: self._on_ingest_complete(dialog, thread))
+        thread.ingestion_failed.connect(lambda err: self._on_ingest_failed(dialog, thread, err))
+        
+        # Connect dialog cancel to thread cancel
+        dialog.rejected.connect(thread.cancel)
+        
+        # Start thread and show dialog
+        thread.start()
+        dialog.exec_()
+        
+        # Wait for thread to finish (non-blocking in practice due to exec_)
+        thread.wait(3000)  # 3 second timeout
+    
+    def _on_ingest_complete(self, dialog, thread):
+        """Handle successful ingestion completion."""
+        dialog.accept()
+        thread.deleteLater()
+        
+        # Reload elements in main thread
+        if self.current_list_id:
+            self.load_elements(self.current_list_id)
+    
+    def _on_ingest_failed(self, dialog, thread, error_message):
+        """Handle ingestion failure."""
+        dialog.reject()
+        thread.deleteLater()
+        
+        QtWidgets.QMessageBox.critical(
+            self,
+            "Ingestion Error",
+            "Failed to ingest files: {}".format(error_message)
+        )
 
     
     def set_view_mode(self, mode):
@@ -662,7 +806,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                     pos = event.pos()
                     item = self.gallery_view.itemAt(pos)
                     
-                    if item and item != self.current_gif_item:
+                    if item and item is not self.current_gif_item:
                         # Stop previous GIF
                         self.stop_current_gif()
                         

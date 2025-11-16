@@ -56,7 +56,7 @@ python main.py
 ```
 
 On first launch, StaX will:
-1. Create the database in `./data/vah.db`
+1. Create the database in `./data/stax.db`
 2. Create directories for previews (`./previews`) and repository (`./repository`)
 3. Show the login dialog (default admin credentials: admin/admin)
 
@@ -301,7 +301,7 @@ export STOCK_DB=/path/to/shared/database.db
 Edit `config/config.json`:
 ```json
 {
-    "database_path": "./data/vah.db",
+    "database_path": "./data/stax.db",
     "default_repository_path": "./repository",
     "preview_dir": "./previews",
     "default_copy_policy": "soft",

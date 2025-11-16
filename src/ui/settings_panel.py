@@ -20,6 +20,7 @@ class SettingsPanel(QtWidgets.QWidget):
         self.config = config
         self.db = db_manager
         self.main_window = main_window  # For permission checks
+        self._last_admin_status = None  # Track admin status for refresh logic
         self.setup_ui()
     
     def setup_ui(self):
@@ -85,16 +86,22 @@ class SettingsPanel(QtWidgets.QWidget):
         layout.addLayout(button_layout)
     
     def showEvent(self, event):
-        """Refresh security tab when panel is shown to reflect current admin status."""
+        """Refresh security tab when panel is shown if admin status changed."""
         super(SettingsPanel, self).showEvent(event)
-        # Refresh security tab to reflect current login status
-        self.refresh_security_tab()
+        
+        # Get current admin status
+        current_admin_status = self.main_window and self.main_window.is_admin
+        
+        # Only refresh if admin status has changed since last time
+        if self._last_admin_status != current_admin_status:
+            self._last_admin_status = current_admin_status
+            self.refresh_security_tab()
     
     def refresh_security_tab(self):
         """Rebuild security tab to reflect current admin privileges."""
         # Find and remove existing security tab
         for i in range(self.tab_widget.count()):
-            if self.tab_widget.tabText(i) == "Security & Admin":
+            if self.tab_widget.tabText(i) == "Security Admin":
                 self.tab_widget.removeTab(i)
                 break
         
@@ -107,6 +114,10 @@ class SettingsPanel(QtWidgets.QWidget):
         layout = QtWidgets.QVBoxLayout(tab)
         layout.setSpacing(15)
         
+        # Check if STOCK_DB environment variable is set
+        stock_db_env = os.environ.get('STOCK_DB')
+        is_env_controlled = stock_db_env is not None
+        
         # Database location
         db_group = QtWidgets.QGroupBox("Database Configuration")
         db_layout = QtWidgets.QFormLayout()
@@ -116,21 +127,58 @@ class SettingsPanel(QtWidgets.QWidget):
         db_path_layout = QtWidgets.QHBoxLayout()
         db_path_layout.addWidget(self.db_path_edit)
         
-        browse_db_btn = QtWidgets.QPushButton("Browse...")
-        browse_db_btn.setObjectName('small')
-        browse_db_btn.setProperty('class', 'small')
-        browse_db_btn.clicked.connect(self.browse_database_path)
-        db_path_layout.addWidget(browse_db_btn)
+        self.browse_db_btn = QtWidgets.QPushButton("Browse...")
+        self.browse_db_btn.setObjectName('small')
+        self.browse_db_btn.setProperty('class', 'small')
+        self.browse_db_btn.clicked.connect(self.browse_database_path)
+        db_path_layout.addWidget(self.browse_db_btn)
         
         db_layout.addRow("Database Path:", db_path_layout)
         
-        # Environment variable hint
-        env_hint = QtWidgets.QLabel("Tip: Set STOCK_DB environment variable to override")
-        env_hint.setStyleSheet("color: #16c6b0; font-size: 10px; font-style: italic;")
-        db_layout.addRow("", env_hint)
+        # Environment variable hint/status
+        if is_env_controlled:
+            env_status = QtWidgets.QLabel("🔒 Controlled by STOCK_DB environment variable")
+            env_status.setStyleSheet("color: #ff9a3c; font-size: 10px; font-weight: bold;")
+            self.db_path_edit.setEnabled(False)
+            self.browse_db_btn.setEnabled(False)
+        else:
+            env_status = QtWidgets.QLabel("Tip: Set STOCK_DB environment variable to override")
+            env_status.setStyleSheet("color: #16c6b0; font-size: 10px; font-style: italic;")
+        db_layout.addRow("", env_status)
         
         db_group.setLayout(db_layout)
         layout.addWidget(db_group)
+        
+        # Previews location
+        previews_group = QtWidgets.QGroupBox("Previews Configuration")
+        previews_layout = QtWidgets.QFormLayout()
+        
+        self.previews_path_edit = QtWidgets.QLineEdit(self.config.get('previews_path', './previews'))
+        self.previews_path_edit.setReadOnly(True)
+        previews_path_layout = QtWidgets.QHBoxLayout()
+        previews_path_layout.addWidget(self.previews_path_edit)
+        
+        self.browse_previews_btn = QtWidgets.QPushButton("Browse...")
+        self.browse_previews_btn.setObjectName('small')
+        self.browse_previews_btn.setProperty('class', 'small')
+        self.browse_previews_btn.clicked.connect(self.browse_previews_path)
+        previews_path_layout.addWidget(self.browse_previews_btn)
+        
+        previews_layout.addRow("Previews Path:", previews_path_layout)
+        
+        # Environment variable status for previews
+        if is_env_controlled:
+            previews_env_status = QtWidgets.QLabel("🔒 Controlled by STOCK_DB environment variable")
+            previews_env_status.setStyleSheet("color: #ff9a3c; font-size: 10px; font-weight: bold;")
+            self.previews_path_edit.setEnabled(False)
+            self.browse_previews_btn.setEnabled(False)
+        else:
+            previews_env_status = QtWidgets.QLabel("Shared location for preview thumbnails and videos")
+            previews_env_status.setStyleSheet("color: #888888; font-size: 10px; font-style: italic;")
+        previews_layout.addRow("", previews_env_status)
+        
+        previews_group.setLayout(previews_layout)
+        layout.addWidget(previews_group)
         
         # User preferences
         pref_group = QtWidgets.QGroupBox("User Preferences")
@@ -232,11 +280,29 @@ class SettingsPanel(QtWidgets.QWidget):
         self.gif_fps.setSuffix(" fps")
         gif_layout.addRow("GIF Frame Rate:", self.gif_fps)
         
+        # GIF Duration with Full Duration toggle
+        duration_container = QtWidgets.QWidget()
+        duration_layout = QtWidgets.QHBoxLayout(duration_container)
+        duration_layout.setContentsMargins(0, 0, 0, 0)
+        
         self.gif_duration = QtWidgets.QDoubleSpinBox()
         self.gif_duration.setRange(1.0, 10.0)
         self.gif_duration.setValue(self.config.get('gif_duration', 3.0))
         self.gif_duration.setSuffix(" sec")
-        gif_layout.addRow("GIF Duration:", self.gif_duration)
+        duration_layout.addWidget(self.gif_duration)
+        
+        self.gif_full_duration = QtWidgets.QCheckBox("Full Duration")
+        self.gif_full_duration.setChecked(self.config.get('gif_full_duration', False))
+        self.gif_full_duration.setToolTip("Generate GIF using the full video duration (ignores duration limit)")
+        self.gif_full_duration.toggled.connect(self.on_gif_full_duration_toggled)
+        duration_layout.addWidget(self.gif_full_duration)
+        duration_layout.addStretch()
+        
+        gif_layout.addRow("GIF Duration:", duration_container)
+        
+        # Disable duration spinbox if full duration is enabled
+        if self.gif_full_duration.isChecked():
+            self.gif_duration.setEnabled(False)
         
         gif_group.setLayout(gif_layout)
         layout.addWidget(gif_group)
@@ -554,6 +620,14 @@ class SettingsPanel(QtWidgets.QWidget):
         if filename:
             self.db_path_edit.setText(filename)
     
+    def browse_previews_path(self):
+        """Browse for previews directory."""
+        directory = QtWidgets.QFileDialog.getExistingDirectory(
+            self, "Select Previews Directory", self.previews_path_edit.text()
+        )
+        if directory:
+            self.previews_path_edit.setText(directory)
+    
     def browse_file(self, line_edit):
         """Browse for processor script file."""
         filename, _ = QtWidgets.QFileDialog.getOpenFileName(
@@ -675,11 +749,19 @@ class SettingsPanel(QtWidgets.QWidget):
             
             QtWidgets.QMessageBox.information(self, "Success", "Admin password changed successfully!")
     
+    def on_gif_full_duration_toggled(self, checked):
+        """Handle Full Duration checkbox toggle."""
+        self.gif_duration.setEnabled(not checked)
+    
     def save_all_settings(self):
-        """Save all settings to config."""
+        """Save all settings to config and database."""
         # General settings
         self.config.set('database_path', self.db_path_edit.text())
+        self.config.set('previews_path', self.previews_path_edit.text())
         self.config.set('user_name', self.user_name_edit.text())
+        
+        # Save previews_path to database as well
+        self.config.save_to_database(self.db)
         
         # Ingestion settings
         self.config.set('default_copy_policy', self.copy_policy.currentText())
@@ -692,6 +774,7 @@ class SettingsPanel(QtWidgets.QWidget):
         self.config.set('gif_size', self.gif_size.value())
         self.config.set('gif_fps', self.gif_fps.value())
         self.config.set('gif_duration', self.gif_duration.value())
+        self.config.set('gif_full_duration', self.gif_full_duration.isChecked())
         self.config.set('ffmpeg_threads', self.ffmpeg_threads.value())
         self.config.set('show_entire_stack_elements', self.show_entire_stack.isChecked())
         

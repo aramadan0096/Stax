@@ -1177,7 +1177,6 @@ class EditUserDialog(QtWidgets.QDialog):
             if password != confirm:
                 QtWidgets.QMessageBox.warning(self, "Password Mismatch", "Passwords do not match.")
                 return
-            
             if len(password) < 4:
                 QtWidgets.QMessageBox.warning(self, "Weak Password", "Password must be at least 4 characters.")
                 return
@@ -1196,6 +1195,65 @@ class EditUserDialog(QtWidgets.QDialog):
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", "Error updating user: {}".format(str(e)))
 
+
+class IngestProgressDialog(QtWidgets.QDialog):
+    """Progress dialog for file ingestion."""
+    def __init__(self, parent=None):
+        super(IngestProgressDialog, self).__init__(parent)
+        self.setWindowTitle("Ingesting Files")
+        self.setModal(True)
+        self.setMinimumWidth(400)
+        self._cancelled = False
+        self.setup_ui()
+    
+    def setup_ui(self):
+        """Setup UI components."""
+        layout = QtWidgets.QVBoxLayout(self)
+        
+        # Status label
+        self.status_label = QtWidgets.QLabel("Preparing ingestion...")
+        layout.addWidget(self.status_label)
+        
+        # Progress bar
+        self.progress_bar = QtWidgets.QProgressBar()
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(0)
+        layout.addWidget(self.progress_bar)
+        
+        # File label
+        self.file_label = QtWidgets.QLabel("")
+        self.file_label.setStyleSheet("color: #888888; font-size: 10px;")
+        layout.addWidget(self.file_label)
+        
+        # Cancel button
+        button_layout = QtWidgets.QHBoxLayout()
+        button_layout.addStretch()
+        self.cancel_btn = QtWidgets.QPushButton("Cancel")
+        self.cancel_btn.clicked.connect(self.cancel)
+        button_layout.addWidget(self.cancel_btn)
+        layout.addLayout(button_layout)
+    
+    def update_progress(self, current, total, filename=""):
+        """Update progress bar and labels."""
+        if total > 0:
+            percent = int((float(current) / float(total)) * 100)
+            self.progress_bar.setValue(percent)
+        
+        self.status_label.setText("Ingesting {} of {}...".format(current, total))
+        self.file_label.setText(filename)
+        
+        # Process events to keep UI responsive
+        QtWidgets.QApplication.processEvents()
+    
+    def cancel(self):
+        """Cancel ingestion."""
+        self._cancelled = True
+        self.reject()
+    
+    def is_cancelled(self):
+        """Check if ingestion was cancelled."""
+        return self._cancelled
 
 
 if __name__ == '__main__':

@@ -49,9 +49,9 @@ def test_database_migration():
     print("=" * 60)
     
     try:
-        db_path = "./data/vah_database.db"
+        db_path = "./data/stax_database.db"
         if not os.path.exists(db_path):
-            print("⚠ Database not found at: {}".format(db_path))
+            print("! Database not found at: {}".format(db_path))
             print("  Creating new database with migrations...")
         
         db = DatabaseManager(db_path, enable_logging=True)
@@ -137,12 +137,12 @@ def test_preview_directory():
             if len(gif_files) > 5:
                 print("  ... and {} more".format(len(gif_files) - 5))
         else:
-            print("\n⚠ No GIF files found in preview directory")
+            print("\n! No GIF files found in preview directory")
             print("  This is expected if no videos/sequences have been ingested yet")
         
         return True
     else:
-        print("⚠ Preview directory doesn't exist yet: {}".format(preview_dir))
+        print("! Preview directory doesn't exist yet: {}".format(preview_dir))
         print("  This will be created on first ingestion")
         return False
 

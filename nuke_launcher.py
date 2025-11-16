@@ -264,6 +264,12 @@ class StaXPanel(QtWidgets.QWidget):
             print("[StaXPanel.__init__]   [OK] DatabaseManager initialized")
             if logger:
                 logger.info("DatabaseManager initialized with path: {}".format(db_path))
+            
+            # Load database-stored settings (previews_path, etc.)
+            print("[StaXPanel.__init__] Loading database-stored settings...")
+            self.config.load_from_database(self.db)
+            print("[StaXPanel.__init__]   [OK] Database settings loaded")
+            
         except Exception as e:
             print("[StaXPanel.__init__]   [ERROR] Failed to initialize DatabaseManager: {}".format(e))
             if logger:
@@ -413,7 +419,7 @@ class StaXPanel(QtWidgets.QWidget):
         self._stored_left_width = None
         
         # Left: Stacks/Lists panel
-        self.stacks_panel = StacksListsPanel(self.db, self.config)
+        self.stacks_panel = StacksListsPanel(self.db, self.config, main_window=self)
         self.stacks_panel.list_selected.connect(self.on_list_selected)
         self.stacks_panel.stack_selected.connect(self.on_stack_selected)
         self.stacks_panel.favorites_selected.connect(self.on_favorites_selected)
@@ -453,7 +459,7 @@ class StaXPanel(QtWidgets.QWidget):
         toolbar.setStyleSheet("QToolBar { spacing: 5px; padding: 5px; }")
         
         # Ingest Files action
-        ingest_action = QtWidgets.QAction(get_icon('upload', size=20), "Ingest Files", self)
+        ingest_action = QtWidgets.QAction(get_icon('import', size=20), "Ingest Files", self)
         ingest_action.setToolTip("Ingest files into StaX (Ctrl+I)")
         ingest_action.triggered.connect(self.ingest_files)
         toolbar.addAction(ingest_action)

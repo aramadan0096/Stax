@@ -346,7 +346,7 @@ class FFmpegWrapper(object):
         Args:
             input_path (str): Input video or sequence pattern
             output_path (str): Output GIF path
-            max_duration (float): Maximum GIF duration in seconds
+            max_duration (float or None): Maximum GIF duration in seconds. None = full duration
             size (int): Target size (width and height) in pixels - maintains aspect ratio with padding
             fps (int): GIF frame rate
             threads (int): Number of threads for FFmpeg to use
@@ -368,11 +368,17 @@ class FFmpegWrapper(object):
                 self.ffmpeg_path,
                 '-threads', str(threads),  # Set thread count
                 '-y',
-                '-i', input_path,
-                '-t', str(max_duration),
+                '-i', input_path
+            ]
+            
+            # Add duration limit only if specified
+            if max_duration is not None:
+                palette_cmd.extend(['-t', str(max_duration)])
+            
+            palette_cmd.extend([
                 '-vf', 'fps={},{},palettegen'.format(fps, scale_filter),
                 palette_path
-            ]
+            ])
             subprocess.check_output(palette_cmd, stderr=subprocess.STDOUT)
             
             # Step 2: Generate GIF using palette with same scaling
@@ -381,11 +387,17 @@ class FFmpegWrapper(object):
                 '-threads', str(threads),  # Set thread count
                 '-y',
                 '-i', input_path,
-                '-i', palette_path,
-                '-t', str(max_duration),
+                '-i', palette_path
+            ]
+            
+            # Add duration limit only if specified
+            if max_duration is not None:
+                gif_cmd.extend(['-t', str(max_duration)])
+            
+            gif_cmd.extend([
                 '-filter_complex', 'fps={},{}[x];[x][1:v]paletteuse'.format(fps, scale_filter),
                 output_path
-            ]
+            ])
             subprocess.check_output(gif_cmd, stderr=subprocess.STDOUT)
             
             # Cleanup palette

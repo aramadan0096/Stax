@@ -321,7 +321,8 @@ class IngestionCore(object):
         """
         self.db = db_manager
         self.config = config
-        self.preview_dir = config.get('preview_dir', './previews')
+        # Use previews_path if available, fallback to preview_dir for backward compatibility
+        self.preview_dir = config.get('previews_path', config.get('preview_dir', './previews'))
         
         # Ensure preview directory exists
         if not os.path.exists(self.preview_dir):

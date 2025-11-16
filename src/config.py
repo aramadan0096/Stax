@@ -14,13 +14,14 @@ class Config(object):
     
     DEFAULT_CONFIG = {
         # Database settings
-        'database_path': './data/vah.db',
+        'database_path': './data/stax.db',
         
         # Repository settings
         'default_repository_path': './repository',
         
         # Preview settings
         'preview_dir': './previews',
+        'previews_path': './previews',  # Configurable previews location
         'preview_size': 512,
         'preview_quality': 85,
         
@@ -83,11 +84,16 @@ class Config(object):
         self.config_path = config_path
         self.config = self.DEFAULT_CONFIG.copy()
         
-        # Check for STOCK_DB environment variable (overrides database_path)
+        # Check for STOCK_DB environment variable (overrides database_path and previews_path)
         stock_db_env = os.environ.get('STOCK_DB')
         if stock_db_env:
             self.config['database_path'] = stock_db_env
+            # Derive previews path from database path (same directory, 'previews' subfolder)
+            db_dir = os.path.dirname(stock_db_env)
+            self.config['previews_path'] = os.path.join(db_dir, 'previews')
+            self.config['preview_dir'] = os.path.join(db_dir, 'previews')  # Keep backward compatibility
             print("Using database from STOCK_DB environment variable: {}".format(stock_db_env))
+            print("Using previews from derived path: {}".format(self.config['previews_path']))
         
         # Auto-detect user identity
         if self.config['machine_name'] is None:
@@ -104,6 +110,9 @@ class Config(object):
             # Re-apply STOCK_DB override after loading config
             if stock_db_env:
                 self.config['database_path'] = stock_db_env
+                db_dir = os.path.dirname(stock_db_env)
+                self.config['previews_path'] = os.path.join(db_dir, 'previews')
+                self.config['preview_dir'] = os.path.join(db_dir, 'previews')
         else:
             # Create default config file
             self.save()
@@ -158,6 +167,43 @@ class Config(object):
     def get_all(self):
         """Get all configuration as dictionary."""
         return self.config.copy()
+    
+    def load_from_database(self, db_manager):
+        """
+        Load configuration from database settings table.
+        Database settings override config.json settings (except when STOCK_DB is set).
+        
+        Args:
+            db_manager: DatabaseManager instance
+        """
+        try:
+            # Get previews_path from database if available
+            previews_path = db_manager.get_setting('previews_path')
+            if previews_path:
+                # Only apply if STOCK_DB is not set (environment variable takes precedence)
+                if not os.environ.get('STOCK_DB'):
+                    self.config['previews_path'] = previews_path
+                    self.config['preview_dir'] = previews_path  # Backward compatibility
+                    print("[Config] Loaded previews_path from database: {}".format(previews_path))
+        except Exception as e:
+            print("[Config] Warning: Could not load settings from database: {}".format(e))
+    
+    def save_to_database(self, db_manager):
+        """
+        Save previews_path configuration to database.
+        
+        Args:
+            db_manager: DatabaseManager instance
+        """
+        try:
+            # Only save if not controlled by STOCK_DB environment variable
+            if not os.environ.get('STOCK_DB'):
+                previews_path = self.config.get('previews_path')
+                if previews_path:
+                    db_manager.set_setting('previews_path', previews_path)
+                    print("[Config] Saved previews_path to database: {}".format(previews_path))
+        except Exception as e:
+            print("[Config] Warning: Could not save settings to database: {}".format(e))
     
     def ensure_directories(self):
         """Ensure all configured directories exist."""

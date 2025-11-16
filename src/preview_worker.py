@@ -167,7 +167,8 @@ class PreviewWorker(QtCore.QThread):
                 # Animated GIF preview
                 gif_size = self.config.get('gif_size', 256)
                 gif_fps = self.config.get('gif_fps', 10)
-                gif_duration = self.config.get('gif_duration', 3.0)
+                gif_full_duration = self.config.get('gif_full_duration', False)
+                gif_duration = None if gif_full_duration else self.config.get('gif_duration', 3.0)
                 
                 self.ffmpeg.generate_gif_preview(
                     source_path,

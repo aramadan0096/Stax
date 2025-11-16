@@ -6,6 +6,7 @@ Dialog for bulk-ingesting folder structures
 
 import os
 from PySide2 import QtWidgets, QtCore, QtGui
+from src.icon_loader import get_icon
 
 class IngestLibraryDialog(QtWidgets.QDialog):
     """Dialog for bulk-ingesting an existing library folder structure."""
@@ -256,7 +257,10 @@ class IngestLibraryDialog(QtWidgets.QDialog):
             stack_item = QtWidgets.QTreeWidgetItem([
                 stack_name, "Stack", str(len(stack_data['files']))
             ])
-            stack_item.setIcon(0, self.style().standardIcon(QtWidgets.QStyle.SP_DirIcon))
+            # Use custom stack icon
+            stack_icon = get_icon('stack', size=16)
+            if stack_icon:
+                stack_item.setIcon(0, stack_icon)
             stack_item.setForeground(0, QtGui.QBrush(QtGui.QColor("#ff9a3c")))
             self.preview_tree.addTopLevelItem(stack_item)
             
@@ -271,7 +275,10 @@ class IngestLibraryDialog(QtWidgets.QDialog):
             list_item = QtWidgets.QTreeWidgetItem([
                 list_name, "List", str(len(list_data['files']))
             ])
-            list_item.setIcon(0, self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon))
+            # Use custom list icon
+            list_icon = get_icon('list', size=16)
+            if list_icon:
+                list_item.setIcon(0, list_icon)
             list_item.setForeground(0, QtGui.QBrush(QtGui.QColor("#16c6b0")))
             parent_item.addChild(list_item)
             

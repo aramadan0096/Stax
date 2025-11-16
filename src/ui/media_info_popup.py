@@ -457,7 +457,7 @@ class MediaInfoPopup(QtWidgets.QDialog):
         try:
             # Generate temp file for frame
             temp_dir = tempfile.gettempdir()
-            temp_preview = os.path.join(temp_dir, "vah_frame_preview.png")
+            temp_preview = os.path.join(temp_dir, "stax_frame_preview.png")
             
             # Extract frame
             success = self.ffmpeg.extract_frame(self.media_filepath, frame_number, temp_preview)

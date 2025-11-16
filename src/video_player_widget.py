@@ -777,7 +777,7 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         # Deprecated status
         if self.current_element.get('is_deprecated'):
             metadata_lines.append("")
-            metadata_lines.append("<span style='color: #ff5555;'><b>⚠ DEPRECATED</b></span>")
+            metadata_lines.append("<span style='color: #ff5555;'><b>! DEPRECATED</b></span>")
         
         self.metadata_text.setHtml("<br>".join(metadata_lines))
     

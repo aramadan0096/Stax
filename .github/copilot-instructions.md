@@ -56,7 +56,7 @@ This dual-path system is fundamental to the "hard copy vs soft copy" ingestion p
 **Important**: Sequence detection must scan filesystem for `filename.####.ext` patterns and detect frame ranges automatically when a single frame is dropped.
 
 ### Nuke Integration Pattern
-When dragging Elements from VAH into Nuke:
+When dragging Elements from StaX into Nuke:
 - **2D assets** → Create `Read` node with correct frame range
 - **3D assets** (.abc, .obj, .fbx) → Create `ReadGeo` node
 - **Toolsets** (.nk) → Paste node graph into DAG

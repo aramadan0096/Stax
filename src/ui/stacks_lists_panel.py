@@ -26,10 +26,11 @@ class StacksListsPanel(QtWidgets.QWidget):
     playlist_selected = QtCore.Signal(int)  # playlist_id
     tags_filter_changed = QtCore.Signal(list)  # selected tags
     
-    def __init__(self, db_manager, config, parent=None):
+    def __init__(self, db_manager, config, main_window=None, parent=None):
         super(StacksListsPanel, self).__init__(parent)
         self.db = db_manager
         self.config = config
+        self.main_window = main_window  # Reference to MainWindow for permission checks
         self.setup_ui()
         self.load_data()
     
@@ -406,7 +407,11 @@ class StacksListsPanel(QtWidgets.QWidget):
             self.load_data()
     
     def delete_stack(self, stack_id):
-        """Delete a stack after confirmation."""
+        """Delete a stack after confirmation (admin only)."""
+        # Check admin permission
+        if self.main_window and not self.main_window.check_admin_permission("delete stacks"):
+            return
+        
         stack = self.db.get_stack_by_id(stack_id)
         if not stack:
             return
@@ -428,7 +433,11 @@ class StacksListsPanel(QtWidgets.QWidget):
                 QtWidgets.QMessageBox.critical(self, "Error", "Failed to delete stack: {}".format(str(e)))
     
     def delete_list(self, list_id):
-        """Delete a list after confirmation."""
+        """Delete a list after confirmation (admin only)."""
+        # Check admin permission
+        if self.main_window and not self.main_window.check_admin_permission("delete lists"):
+            return
+        
         lst = self.db.get_list_by_id(list_id)
         if not lst:
             return

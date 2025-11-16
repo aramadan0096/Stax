@@ -318,6 +318,15 @@ class DatabaseManager(object):
                 )
             """)
             
+            # Settings table for storing configuration in database
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
             # Create indexes for performance
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_lists_stack ON lists(stack_fk)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_elements_list ON elements(list_fk)")
@@ -1644,5 +1653,60 @@ class DatabaseManager(object):
             )
             conn.commit()
             return cursor.rowcount > 0
+    
+    # ============================================================================
+    # Settings Management (Database-stored configuration)
+    # ============================================================================
+    
+    def get_setting(self, key, default=None):
+        """
+        Get setting value from database.
+        
+        Args:
+            key (str): Setting key
+            default: Default value if key not found
+            
+        Returns:
+            str or default: Setting value or default
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
+            row = cursor.fetchone()
+            return row['value'] if row else default
+    
+    def set_setting(self, key, value):
+        """
+        Set setting value in database.
+        
+        Args:
+            key (str): Setting key
+            value (str): Setting value
+            
+        Returns:
+            bool: True if successful
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """INSERT OR REPLACE INTO settings (key, value, updated_at) 
+                   VALUES (?, ?, CURRENT_TIMESTAMP)""",
+                (key, value)
+            )
+            conn.commit()
+            return True
+    
+    def get_all_settings(self):
+        """
+        Get all settings from database.
+        
+        Returns:
+            dict: Dictionary of all settings
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT key, value FROM settings")
+            rows = cursor.fetchall()
+            return {row['key']: row['value'] for row in rows}
 
 

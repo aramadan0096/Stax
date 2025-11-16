@@ -579,7 +579,7 @@ class MediaInfoPopup(QtWidgets.QDialog):
         try:
             # Generate temp file for frame
             temp_dir = tempfile.gettempdir()
-            temp_preview = os.path.join(temp_dir, "vah_frame_preview.png")
+            temp_preview = os.path.join(temp_dir, "stax_frame_preview.png")
             
             # Extract frame
             success = self.ffmpeg.extract_frame(self.media_filepath, frame_number, temp_preview)
@@ -1067,7 +1067,7 @@ class DragGalleryView(QtWidgets.QListWidget):
         mime_data.setUrls(urls)
         
         # Store custom data for internal processing
-        mime_data.setData('application/x-vah-elements', ','.join(str(eid) for eid in element_ids).encode('utf-8'))
+        mime_data.setData('application/x-stax-elements', ','.join(str(eid) for eid in element_ids).encode('utf-8'))
         
         # Create drag object
         drag = QtGui.QDrag(self)
@@ -4257,7 +4257,7 @@ class MainWindow(QtWidgets.QMainWindow):
         file_menu = menubar.addMenu("File")
         
         ingest_action = QtWidgets.QAction("Ingest Files...", self)
-        ingest_action.setIcon(get_icon('upload', size=16))
+        ingest_action.setIcon(get_icon('import', size=16))
         ingest_action.setShortcut("Ctrl+I")
         ingest_action.triggered.connect(self.ingest_files)
         file_menu.addAction(ingest_action)

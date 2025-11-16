@@ -7,6 +7,44 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
 ## [Unreleased]
 
 ### Added
+- **Configurable Previews Path**:
+  - Added "Previews Path" setting in Settings → General tab
+  - Allows configuration of shared network location for preview thumbnails and videos
+  - Previews path stored in database `settings` table for workspace-wide consistency
+  - Config system loads previews_path from database at startup
+  - Supports both file-based (config.json) and database-stored configuration
+
+- **STOCK_DB Environment Variable Support**:
+  - Added `STOCK_DB` environment variable hook for production deployments
+  - When set, automatically configures database path and derives previews path
+  - Disables "Database Path" and "Previews Path" editing in Settings to prevent user modifications
+  - Shows lock icon (🔒) and "Controlled by STOCK_DB environment variable" status message
+  - Previews path automatically set to `{database_dir}/previews` when STOCK_DB is active
+  - Environment variable takes precedence over config.json and database settings
+
+- **Database Settings Table**:
+  - Added `settings` table for storing configuration in database
+  - Supports key-value storage with timestamp tracking
+  - Methods: `get_setting()`, `set_setting()`, `get_all_settings()`
+  - Enables shared configuration across workstations in production environments
+
+- **Drag & Drop File Ingestion**:
+  - Enabled drag & drop from OS file explorer into StaX media display
+  - Implemented `dragEnterEvent`, `dragMoveEvent`, `dropEvent` handlers
+  - Added `IngestProgressDialog` for real-time ingestion feedback with cancellation support
+  - Automatically detects current list and ingests dropped files with threading to prevent GUI blocking
+
+- **Full Duration GIF Option**:
+  - Added "Full Duration" checkbox beside GIF Duration spinbox in Settings → Preview & Media
+  - When enabled, generates GIF from entire video/sequence (ignores duration limit)
+  - FFmpeg wrapper now accepts `None` for `max_duration` parameter
+  - Duration spinbox automatically disables when Full Duration is checked
+
+- **Custom Icons in Ingest Library**:
+  - Replaced standard folder/file icons with custom `stack.svg` and `list.svg` icons
+  - Preview Structure tree now uses consistent StaX iconography
+  - Improved visual hierarchy in bulk ingestion dialog
+
 - **FFmpeg Multithreading Support**:
   - Added `-threads` parameter to all FFmpeg conversion methods (generate_thumbnail, generate_sequence_thumbnail, generate_video_preview, generate_gif_preview)
   - FFmpeg operations now use configurable thread count from Settings → Preview & Media → Thread Count
@@ -31,6 +69,12 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
 - **Custom Focus Mode Icon**: Created `focus.svg` with corner brackets design representing focus/distraction-free mode, replacing generic expand arrow icon
 
 ### Enhanced
+- **Deletion Security**:
+  - Added admin permission checks to `delete_stack()` and `delete_list()` methods
+  - Non-admin users now see permission denied dialogs when attempting to delete
+  - StacksListsPanel now accepts `main_window` parameter for permission validation
+  - Element deletion already had admin checks (now consistent across all delete operations)
+
 - **Focus Mode Improvements**:
   - Now closes video player, settings, and history panels when entering focus mode
   - Hides pagination bar (page navigator + items per page counter) for cleaner view
@@ -38,7 +82,35 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
   - Provides true distraction-free browsing experience
 
 ### Fixed
-- **Security Admin Tab in Standalone**:
+- **Duplicate Security Admin Tabs**:
+  - Corrected tab name search string in `refresh_security_tab()` from "Security & Admin" to "Security Admin"
+  - Old tab is now properly removed before creating refreshed version
+  - Fixes issue where multiple Security Admin tabs appeared in settings panel
+
+- **GIF Preview in Nuke**:
+  - Changed QListWidgetItem comparison from `!=` to `is not` in `eventFilter()` at line 665
+  - Fixes `NotImplementedError: operator not implemented` crash during hover preview
+  - GIF hover previews now work correctly in Nuke plugin
+
+- **Drag & Drop Crash in Nuke**:
+  - Fixed Nuke crash occurring after successful file ingestion via drag & drop
+  - **Problem:** Lambda callbacks and QTimer usage within worker threads caused instability in Nuke's event loop
+  - **Solution:** Rewrote `ingest_dropped_files()` to use proper Qt signals/slots pattern:
+    * Created `IngestThread` class with `progress_updated`, `ingestion_complete`, `ingestion_failed` signals
+    * Moved all UI updates to main thread via signal connections
+    * Added proper thread cleanup with `deleteLater()` and `wait()` timeout
+  - Drag & drop now works reliably in both Nuke and standalone without crashes
+
+- **Security Admin Tab Access in Standalone**:
+  - Fixed Security Admin tab incorrectly showing "Administrator Privileges Required" for logged-in admins
+  - **Problem:** `showEvent()` was refreshing tab on every panel show, including before login
+  - **Solution:** Added intelligent refresh logic:
+    * Tracks `_last_admin_status` to detect actual permission changes
+    * Only rebuilds tab when admin status differs from cached state
+    * Prevents unnecessary tab recreation while preserving Nuke refresh functionality
+  - Security Admin tab now correctly reflects admin status after login in standalone mode
+
+- **Security Admin Tab in Standalone** (Original Fix):
   - Fixed "Administrator Privileges Required" message appearing for logged-in admin users
   - Added `showEvent()` and `refresh_security_tab()` to SettingsPanel to rebuild tab content when panel opens
   - Security tab now correctly reflects current admin status after login

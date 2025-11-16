@@ -206,7 +206,7 @@ if __name__ == '__main__':
     import tempfile
     
     # Create temporary database for testing
-    test_db = os.path.join(tempfile.gettempdir(), 'vah_stress_test.db')
+    test_db = os.path.join(tempfile.gettempdir(), 'stax_stress_test.db')
     
     # Remove if exists
     if os.path.exists(test_db):
