@@ -337,7 +337,7 @@ class MainWindow(QtWidgets.QMainWindow):
         file_menu = menubar.addMenu("File")
         
         ingest_action = QtWidgets.QAction("Ingest Files...", self)
-        ingest_action.setIcon(get_icon('upload', size=16))
+        ingest_action.setIcon(get_icon('import', size=16))
         ingest_action.setShortcut("Ctrl+I")
         ingest_action.triggered.connect(self.ingest_files)
         file_menu.addAction(ingest_action)
