@@ -119,7 +119,7 @@ class FFmpegWrapper(object):
             print("Error parsing media info: {}".format(str(e)))
             return None
     
-    def generate_thumbnail(self, input_path, output_path, max_size=512, frame_time=None):
+    def generate_thumbnail(self, input_path, output_path, max_size=512, frame_time=None, threads=4):
         """
         Generate a thumbnail image from video or image file.
         
@@ -129,6 +129,7 @@ class FFmpegWrapper(object):
             max_size (int): Maximum dimension in pixels
             frame_time (float): Time in seconds to extract frame (for videos)
                                 If None, extracts middle frame
+            threads (int): Number of threads for FFmpeg to use
             
         Returns:
             bool: True if successful, False otherwise
@@ -143,6 +144,7 @@ class FFmpegWrapper(object):
         
         cmd = [
             self.ffmpeg_path,
+            '-threads', str(threads),  # Set thread count
             '-y',  # Overwrite output
             '-ss', str(frame_time),  # Seek to frame
             '-i', input_path,
@@ -162,7 +164,7 @@ class FFmpegWrapper(object):
             print("Error generating thumbnail: {}".format(str(e)))
             return False
     
-    def generate_sequence_thumbnail(self, sequence_pattern, output_path, max_size=512, frame_number=None):
+    def generate_sequence_thumbnail(self, sequence_pattern, output_path, max_size=512, frame_number=None, threads=4):
         """
         Generate thumbnail from image sequence.
         
@@ -171,6 +173,7 @@ class FFmpegWrapper(object):
             output_path (str): Output thumbnail path (PNG)
             max_size (int): Maximum dimension in pixels
             frame_number (int): Frame number to extract (middle if None)
+            threads (int): Number of threads for FFmpeg to use
             
         Returns:
             bool: True if successful, False otherwise
@@ -184,6 +187,7 @@ class FFmpegWrapper(object):
         # Convert pattern to FFmpeg format (e.g., plate.%04d.exr)
         cmd = [
             self.ffmpeg_path,
+            '-threads', str(threads),  # Set thread count
             '-y',
             '-start_number', str(frame_number),
             '-i', sequence_pattern,
@@ -203,7 +207,7 @@ class FFmpegWrapper(object):
             print("Error generating sequence thumbnail: {}".format(str(e)))
             return False
     
-    def generate_video_preview(self, input_path, output_path, max_size=512, duration=10):
+    def generate_video_preview(self, input_path, output_path, max_size=512, duration=10, threads=4):
         """
         Generate a short video preview (low-res, limited duration).
         
@@ -212,12 +216,14 @@ class FFmpegWrapper(object):
             output_path (str): Output preview video (MP4)
             max_size (int): Maximum dimension in pixels
             duration (int): Maximum duration in seconds
+            threads (int): Number of threads for FFmpeg to use
             
         Returns:
             bool: True if successful, False otherwise
         """
         cmd = [
             self.ffmpeg_path,
+            '-threads', str(threads),  # Set thread count
             '-y',
             '-i', input_path,
             '-t', str(duration),  # Limit duration
@@ -333,7 +339,7 @@ class FFmpegWrapper(object):
         except:
             return None
     
-    def generate_gif_preview(self, input_path, output_path, max_duration=3.0, size=256, fps=10):
+    def generate_gif_preview(self, input_path, output_path, max_duration=3.0, size=256, fps=10, threads=4):
         """
         Generate animated GIF preview from video or sequence.
         
@@ -343,6 +349,7 @@ class FFmpegWrapper(object):
             max_duration (float): Maximum GIF duration in seconds
             size (int): Target size (width and height) in pixels - maintains aspect ratio with padding
             fps (int): GIF frame rate
+            threads (int): Number of threads for FFmpeg to use
             
         Returns:
             bool: True if successful, False otherwise
@@ -359,6 +366,7 @@ class FFmpegWrapper(object):
             
             palette_cmd = [
                 self.ffmpeg_path,
+                '-threads', str(threads),  # Set thread count
                 '-y',
                 '-i', input_path,
                 '-t', str(max_duration),
@@ -370,6 +378,7 @@ class FFmpegWrapper(object):
             # Step 2: Generate GIF using palette with same scaling
             gif_cmd = [
                 self.ffmpeg_path,
+                '-threads', str(threads),  # Set thread count
                 '-y',
                 '-i', input_path,
                 '-i', palette_path,

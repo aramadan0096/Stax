@@ -2493,7 +2493,7 @@ class SettingsPanel(QtWidgets.QWidget):
         layout.addWidget(ffmpeg_group)
         
         layout.addStretch()
-        self.tab_widget.addTab(tab, "Preview & Media")
+        self.tab_widget.addTab(tab, "Preview Media")
     
     def setup_network_tab(self):
         """Setup network and performance settings tab."""
@@ -2566,7 +2566,7 @@ class SettingsPanel(QtWidgets.QWidget):
         layout.addWidget(perf_group)
         
         layout.addStretch()
-        self.tab_widget.addTab(tab, "Network & Performance")
+        self.tab_widget.addTab(tab, "Network Performance")
     
     def setup_processors_tab(self):
         """Setup custom processors tab."""
@@ -2715,7 +2715,7 @@ class SettingsPanel(QtWidgets.QWidget):
             layout.addWidget(user_group)
         
         layout.addStretch()
-        self.tab_widget.addTab(tab, "Security & Admin")
+        self.tab_widget.addTab(tab, "Security Admin")
     
     def browse_database_path(self):
         """Browse for database file."""

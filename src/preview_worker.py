@@ -137,7 +137,8 @@ class PreviewWorker(QtCore.QThread):
                 self.ffmpeg.generate_thumbnail(
                     source_path,
                     preview_path,
-                    max_size=max_size
+                    max_size=max_size,
+                    threads=threads
                 )
             
             elif media_type == 'sequence':
@@ -147,7 +148,8 @@ class PreviewWorker(QtCore.QThread):
                 self.ffmpeg.generate_sequence_thumbnail(
                     source_path,  # Should be pattern like "file.%04d.exr"
                     preview_path,
-                    max_size=max_size
+                    max_size=max_size,
+                    threads=threads
                 )
             
             elif media_type == 'video':
@@ -157,7 +159,8 @@ class PreviewWorker(QtCore.QThread):
                     source_path,
                     preview_path,
                     max_size=max_size,
-                    frame_time=1.0  # Get frame at 1 second
+                    frame_time=1.0,  # Get frame at 1 second
+                    threads=threads
                 )
             
             elif media_type == 'gif':
@@ -171,7 +174,8 @@ class PreviewWorker(QtCore.QThread):
                     preview_path,
                     max_duration=gif_duration,
                     size=gif_size,
-                    fps=gif_fps
+                    fps=gif_fps,
+                    threads=threads
                 )
             
             return os.path.exists(preview_path)

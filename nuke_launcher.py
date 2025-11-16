@@ -415,8 +415,10 @@ class StaXPanel(QtWidgets.QWidget):
         # Left: Stacks/Lists panel
         self.stacks_panel = StacksListsPanel(self.db, self.config)
         self.stacks_panel.list_selected.connect(self.on_list_selected)
+        self.stacks_panel.stack_selected.connect(self.on_stack_selected)
         self.stacks_panel.favorites_selected.connect(self.on_favorites_selected)
         self.stacks_panel.playlist_selected.connect(self.on_playlist_selected)
+        self.stacks_panel.tags_filter_changed.connect(self.on_tags_filter_changed)
         self.main_splitter.addWidget(self.stacks_panel)
         
         # Center: Media display
@@ -609,6 +611,50 @@ class StaXPanel(QtWidgets.QWidget):
             stack = self.db.get_stack_by_id(lst['stack_fk'])
             if stack:
                 self.show_status("Viewing: {} > {}".format(stack['name'], lst['name']))
+    
+    def on_stack_selected(self, stack_id):
+        """Handle stack selection - optionally show all elements from all lists in the stack."""
+        if not self.config.get('show_entire_stack_elements', False):
+            return  # Feature disabled
+        
+        lists = self.db.get_lists_by_stack(stack_id)
+        all_elements = []
+        for lst in lists:
+            all_elements.extend(self.db.get_elements_by_list(lst['list_id']))
+        
+        self.media_display.current_list_id = None
+        self.media_display.current_elements = all_elements
+        self.media_display.current_tag_filter = []
+        
+        if self.config.get('pagination_enabled', True):
+            self.media_display.pagination.set_total_items(len(all_elements))
+            self.media_display.pagination.set_items_per_page(self.config.get('items_per_page', 100))
+            self.media_display.pagination.setVisible(len(all_elements) > 0)
+        else:
+            self.media_display.pagination.setVisible(False)
+        
+        if all_elements:
+            self.media_display.content_stack.setCurrentIndex(1)
+        else:
+            stack = self.db.get_stack_by_id(stack_id)
+            if stack:
+                self.media_display.info_label.setText("No elements in stack '{}'".format(stack['name']))
+                self.media_display.hint_label.setText("Add lists and elements to this stack")
+            self.media_display.content_stack.setCurrentIndex(0)
+        
+        self.media_display._display_current_page()
+        
+        stack = self.db.get_stack_by_id(stack_id)
+        if stack:
+            self.show_status("Viewing: {} (all lists)".format(stack['name']))
+    
+    def on_tags_filter_changed(self, tags):
+        """Handle tags filter change."""
+        if tags:
+            self.media_display.load_elements_by_tags(tags)
+            self.show_status("Filtering by tags: {}".format(", ".join(tags)))
+        else:
+            self.media_display.show_empty_state("Select tags to filter the library", "Choose tags from the Tags Filter panel")
     
     def on_favorites_selected(self):
         """Handle favorites button click."""
@@ -844,6 +890,12 @@ def show_stax_panel():
             try:
                 with open(stylesheet_path, 'r') as f:
                     stylesheet = f.read()
+                    # Replace icon paths with absolute paths
+                    resources_dir = os.path.join(os.path.dirname(__file__), 'resources', 'icons')
+                    unchecked_path = os.path.join(resources_dir, 'unchecked.svg').replace('\\', '/')
+                    checked_path = os.path.join(resources_dir, 'checked.svg').replace('\\', '/')
+                    stylesheet = stylesheet.replace('url(:/icons/unchecked.svg)', 'url({})'.format(unchecked_path))
+                    stylesheet = stylesheet.replace('url(:/icons/checked.svg)', 'url({})'.format(checked_path))
                     app.setStyleSheet(stylesheet)
                     print("[show_stax_panel]   [OK] Stylesheet applied ({} chars)".format(len(stylesheet)))
                     if logger:

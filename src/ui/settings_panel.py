@@ -84,6 +84,23 @@ class SettingsPanel(QtWidgets.QWidget):
         
         layout.addLayout(button_layout)
     
+    def showEvent(self, event):
+        """Refresh security tab when panel is shown to reflect current admin status."""
+        super(SettingsPanel, self).showEvent(event)
+        # Refresh security tab to reflect current login status
+        self.refresh_security_tab()
+    
+    def refresh_security_tab(self):
+        """Rebuild security tab to reflect current admin privileges."""
+        # Find and remove existing security tab
+        for i in range(self.tab_widget.count()):
+            if self.tab_widget.tabText(i) == "Security & Admin":
+                self.tab_widget.removeTab(i)
+                break
+        
+        # Recreate security tab with current permissions
+        self.setup_security_tab()
+    
     def setup_general_tab(self):
         """Setup general settings tab."""
         tab = QtWidgets.QWidget()
@@ -241,8 +258,24 @@ class SettingsPanel(QtWidgets.QWidget):
         ffmpeg_group.setLayout(ffmpeg_layout)
         layout.addWidget(ffmpeg_group)
         
+        # Stack behavior settings
+        stack_group = QtWidgets.QGroupBox("Stack Behavior")
+        stack_layout = QtWidgets.QFormLayout()
+        
+        self.show_entire_stack = QtWidgets.QCheckBox("Show entire stack elements on stack selection")
+        self.show_entire_stack.setChecked(self.config.get('show_entire_stack_elements', False))
+        stack_layout.addRow("", self.show_entire_stack)
+        
+        stack_help = QtWidgets.QLabel("When enabled, selecting a stack shows all elements from all lists in that stack")
+        stack_help.setStyleSheet("color: #888; font-size: 10px; font-style: italic;")
+        stack_help.setWordWrap(True)
+        stack_layout.addRow("", stack_help)
+        
+        stack_group.setLayout(stack_layout)
+        layout.addWidget(stack_group)
+        
         layout.addStretch()
-        self.tab_widget.addTab(tab, "Preview & Media")
+        self.tab_widget.addTab(tab, "Preview Media")
     
     def setup_network_tab(self):
         """Setup network and performance settings tab."""
@@ -315,7 +348,7 @@ class SettingsPanel(QtWidgets.QWidget):
         layout.addWidget(perf_group)
         
         layout.addStretch()
-        self.tab_widget.addTab(tab, "Network & Performance")
+        self.tab_widget.addTab(tab, "Network Performance")
     
     def setup_processors_tab(self):
         """Setup custom processors tab."""
@@ -511,7 +544,7 @@ class SettingsPanel(QtWidgets.QWidget):
             layout.addWidget(user_group)
         
         layout.addStretch()
-        self.tab_widget.addTab(tab, "Security & Admin")
+        self.tab_widget.addTab(tab, "Security Admin")
     
     def browse_database_path(self):
         """Browse for database file."""
@@ -548,13 +581,24 @@ class SettingsPanel(QtWidgets.QWidget):
     
     def add_user(self):
         """Add new user dialog."""
-        # TODO: Implement AddUserDialog
-        QtWidgets.QMessageBox.information(self, "Coming Soon", "User management dialog will be implemented.")
+        from src.ui.dialogs import AddUserDialog
+        dialog = AddUserDialog(self.db, self)
+        if dialog.exec_():
+            self.load_users_list()
+            QtWidgets.QMessageBox.information(self, "Success", "User added successfully.")
     
     def edit_user(self):
         """Edit selected user."""
-        # TODO: Implement EditUserDialog
-        QtWidgets.QMessageBox.information(self, "Coming Soon", "User editing dialog will be implemented.")
+        from src.ui.dialogs import EditUserDialog
+        current_row = self.users_list.currentRow()
+        if current_row < 0:
+            QtWidgets.QMessageBox.warning(self, "No Selection", "Please select a user to edit.")
+            return
+        
+        user_id = self.users_list.item(current_row, 0).data(QtCore.Qt.UserRole)
+        dialog = EditUserDialog(self.db, user_id, self)
+        if dialog.exec_():
+            self.load_users_list()
     
     def deactivate_user(self):
         """Deactivate selected user."""
@@ -566,6 +610,16 @@ class SettingsPanel(QtWidgets.QWidget):
         user_id = self.users_list.item(current_row, 0).data(QtCore.Qt.UserRole)
         username = self.users_list.item(current_row, 0).text()
         
+        # Prevent deactivating the logged-in user
+        if self.main_window and self.main_window.current_user:
+            if self.main_window.current_user.get('user_id') == user_id:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Cannot Deactivate",
+                    "You cannot deactivate your own account."
+                )
+                return
+        
         reply = QtWidgets.QMessageBox.question(
             self,
             "Confirm Deactivation",
@@ -574,9 +628,13 @@ class SettingsPanel(QtWidgets.QWidget):
         )
         
         if reply == QtWidgets.QMessageBox.Yes:
-            self.db.delete_user(user_id)
-            self.load_users_list()
-            QtWidgets.QMessageBox.information(self, "Success", "User deactivated successfully.")
+            try:
+                # Use update_user to set is_active=False instead of delete
+                self.db.update_user(user_id, is_active=False)
+                self.load_users_list()
+                QtWidgets.QMessageBox.information(self, "Success", "User deactivated successfully.")
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Error", "Failed to deactivate user: {}".format(str(e)))
     
     def change_admin_password(self):
         """Change admin password."""
@@ -635,6 +693,7 @@ class SettingsPanel(QtWidgets.QWidget):
         self.config.set('gif_fps', self.gif_fps.value())
         self.config.set('gif_duration', self.gif_duration.value())
         self.config.set('ffmpeg_threads', self.ffmpeg_threads.value())
+        self.config.set('show_entire_stack_elements', self.show_entire_stack.isChecked())
         
         # Network and performance settings
         self.config.set('db_max_retries', self.db_retries.value())

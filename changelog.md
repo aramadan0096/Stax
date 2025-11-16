@@ -7,9 +7,47 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
 ## [Unreleased]
 
 ### Added
+- **FFmpeg Multithreading Support**:
+  - Added `-threads` parameter to all FFmpeg conversion methods (generate_thumbnail, generate_sequence_thumbnail, generate_video_preview, generate_gif_preview)
+  - FFmpeg operations now use configurable thread count from Settings → Preview & Media → Thread Count
+  - Prevents GUI freezing during video/GIF conversion by properly utilizing CPU cores
+  - Default: 4 threads, configurable range: 1-16
+
+- **Custom Checkbox Icons**: 
+  - Replaced default checkbox styling with custom SVG icons (checked.svg, unchecked.svg)
+  - Dynamically loaded with absolute paths in stylesheet for consistent rendering
+
+- **User Management Dialogs**:
+  - Implemented `AddUserDialog` for creating new users with validation
+  - Implemented `EditUserDialog` for modifying user details, password, role, and status
+  - Add User, Edit User, and Deactivate User buttons now fully functional in Security Admin tab
+
+- **Show Entire Stack Elements Feature**:
+  - Added optional setting in Preview & Media tab: "Show entire stack elements on stack selection"
+  - When enabled, clicking a stack shows all elements from all lists within that stack
+  - Useful for browsing entire categories without navigating individual lists
+  - Status bar shows "(all lists)" to indicate stack-wide view
+
 - **Custom Focus Mode Icon**: Created `focus.svg` with corner brackets design representing focus/distraction-free mode, replacing generic expand arrow icon
 
+### Enhanced
+- **Focus Mode Improvements**:
+  - Now closes video player, settings, and history panels when entering focus mode
+  - Hides pagination bar (page navigator + items per page counter) for cleaner view
+  - Restores pagination visibility when exiting focus mode (if pagination is enabled and elements exist)
+  - Provides true distraction-free browsing experience
+
 ### Fixed
+- **Security Admin Tab in Standalone**:
+  - Fixed "Administrator Privileges Required" message appearing for logged-in admin users
+  - Added `showEvent()` and `refresh_security_tab()` to SettingsPanel to rebuild tab content when panel opens
+  - Security tab now correctly reflects current admin status after login
+
+- **Tags Filter in Nuke Plugin**:
+  - Connected missing `tags_filter_changed` signal in nuke_launcher.py
+  - Added `on_tags_filter_changed()` handler to process tag filtering
+  - Tag filtering now works correctly in Nuke plugin (was only working in standalone)
+
 - **Focus Mode Geometry Bug** (Nuke & Standalone):
   - Fixed ~50% shrinkage of elements browser when toggling focus mode
   - **Problem:** Restoration logic used `sum(sizes)` which summed collapsed state `[0, X]` instead of actual widget width

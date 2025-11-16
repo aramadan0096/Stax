@@ -432,7 +432,7 @@ class LoginDialog(QtWidgets.QDialog):
         
         self.setWindowTitle("Stax - Login")
         self.setModal(True)
-        self.setFixedSize(400, 250)
+        self.setFixedSize(500, 350)
         self.setup_ui()
     
     def setup_ui(self):
@@ -956,6 +956,246 @@ def main():
     window.show()
     
     sys.exit(app.exec_())
+
+
+class AddUserDialog(QtWidgets.QDialog):
+    """Dialog for adding a new user."""
+    
+    def __init__(self, db_manager, parent=None):
+        super(AddUserDialog, self).__init__(parent)
+        self.db = db_manager
+        self.setWindowTitle("Add New User")
+        self.setModal(True)
+        self.setFixedSize(400, 350)
+        self.setup_ui()
+    
+    def setup_ui(self):
+        """Setup UI components."""
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setSpacing(15)
+        
+        # Title
+        title = QtWidgets.QLabel("Create New User Account")
+        title.setStyleSheet("font-size: 14px; font-weight: bold; color: #16c6b0;")
+        layout.addWidget(title)
+        
+        # Form layout
+        form = QtWidgets.QFormLayout()
+        form.setSpacing(12)
+        
+        # Username
+        self.username_edit = QtWidgets.QLineEdit()
+        self.username_edit.setPlaceholderText("Enter username")
+        form.addRow("Username:", self.username_edit)
+        
+        # Password
+        self.password_edit = QtWidgets.QLineEdit()
+        self.password_edit.setPlaceholderText("Enter password")
+        self.password_edit.setEchoMode(QtWidgets.QLineEdit.Password)
+        form.addRow("Password:", self.password_edit)
+        
+        # Confirm Password
+        self.confirm_password_edit = QtWidgets.QLineEdit()
+        self.confirm_password_edit.setPlaceholderText("Confirm password")
+        self.confirm_password_edit.setEchoMode(QtWidgets.QLineEdit.Password)
+        form.addRow("Confirm Password:", self.confirm_password_edit)
+        
+        # Email
+        self.email_edit = QtWidgets.QLineEdit()
+        self.email_edit.setPlaceholderText("user@example.com (optional)")
+        form.addRow("Email:", self.email_edit)
+        
+        # Role
+        self.role_combo = QtWidgets.QComboBox()
+        self.role_combo.addItems(['user', 'admin'])
+        form.addRow("Role:", self.role_combo)
+        
+        layout.addLayout(form)
+        
+        # Buttons
+        button_layout = QtWidgets.QHBoxLayout()
+        
+        create_btn = QtWidgets.QPushButton("Create User")
+        create_btn.setObjectName('primary')
+        create_btn.setProperty('class', 'primary')
+        create_btn.clicked.connect(self.accept)
+        button_layout.addWidget(create_btn)
+        
+        cancel_btn = QtWidgets.QPushButton("Cancel")
+        cancel_btn.setObjectName('small')
+        cancel_btn.setProperty('class', 'small')
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_btn)
+        
+        layout.addLayout(button_layout)
+    
+    def accept(self):
+        """Validate and create user."""
+        username = self.username_edit.text().strip()
+        password = self.password_edit.text()
+        confirm = self.confirm_password_edit.text()
+        email = self.email_edit.text().strip() or None
+        role = self.role_combo.currentText()
+        
+        # Validation
+        if not username:
+            QtWidgets.QMessageBox.warning(self, "Invalid Input", "Username is required.")
+            return
+        
+        if not password:
+            QtWidgets.QMessageBox.warning(self, "Invalid Input", "Password is required.")
+            return
+        
+        if password != confirm:
+            QtWidgets.QMessageBox.warning(self, "Password Mismatch", "Passwords do not match.")
+            return
+        
+        if len(password) < 4:
+            QtWidgets.QMessageBox.warning(self, "Weak Password", "Password must be at least 4 characters.")
+            return
+        
+        # Check if username exists
+        if self.db.authenticate_user(username, "dummy"):  # Simple existence check
+            QtWidgets.QMessageBox.warning(self, "User Exists", "Username '{}' already exists.".format(username))
+            return
+        
+        # Create user
+        try:
+            user_id = self.db.create_user(username, password, role, email)
+            if user_id:
+                QtWidgets.QMessageBox.information(self, "Success", "User '{}' created successfully.".format(username))
+                super(AddUserDialog, self).accept()
+            else:
+                QtWidgets.QMessageBox.warning(self, "Error", "Failed to create user.")
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", "Error creating user: {}".format(str(e)))
+
+
+class EditUserDialog(QtWidgets.QDialog):
+    """Dialog for editing an existing user."""
+    
+    def __init__(self, db_manager, user_id, parent=None):
+        super(EditUserDialog, self).__init__(parent)
+        self.db = db_manager
+        self.user_id = user_id
+        self.setWindowTitle("Edit User")
+        self.setModal(True)
+        self.setFixedSize(400, 350)
+        self.load_user_data()
+        self.setup_ui()
+    
+    def load_user_data(self):
+        """Load existing user data."""
+        users = self.db.get_all_users()
+        self.user = None
+        for u in users:
+            if u['user_id'] == self.user_id:
+                self.user = u
+                break
+        
+        if not self.user:
+            QtWidgets.QMessageBox.warning(self, "Error", "User not found.")
+            self.reject()
+    
+    def setup_ui(self):
+        """Setup UI components."""
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setSpacing(15)
+        
+        # Title
+        title = QtWidgets.QLabel("Edit User: {}".format(self.user['username']))
+        title.setStyleSheet("font-size: 14px; font-weight: bold; color: #16c6b0;")
+        layout.addWidget(title)
+        
+        # Form layout
+        form = QtWidgets.QFormLayout()
+        form.setSpacing(12)
+        
+        # Username (read-only)
+        self.username_edit = QtWidgets.QLineEdit(self.user['username'])
+        self.username_edit.setReadOnly(True)
+        self.username_edit.setStyleSheet("background: #2a2a2a;")
+        form.addRow("Username:", self.username_edit)
+        
+        # New Password (optional)
+        self.password_edit = QtWidgets.QLineEdit()
+        self.password_edit.setPlaceholderText("Leave blank to keep current")
+        self.password_edit.setEchoMode(QtWidgets.QLineEdit.Password)
+        form.addRow("New Password:", self.password_edit)
+        
+        # Confirm Password
+        self.confirm_password_edit = QtWidgets.QLineEdit()
+        self.confirm_password_edit.setPlaceholderText("Confirm new password")
+        self.confirm_password_edit.setEchoMode(QtWidgets.QLineEdit.Password)
+        form.addRow("Confirm Password:", self.confirm_password_edit)
+        
+        # Email
+        self.email_edit = QtWidgets.QLineEdit(self.user.get('email', '') or '')
+        self.email_edit.setPlaceholderText("user@example.com (optional)")
+        form.addRow("Email:", self.email_edit)
+        
+        # Role
+        self.role_combo = QtWidgets.QComboBox()
+        self.role_combo.addItems(['user', 'admin'])
+        self.role_combo.setCurrentText(self.user['role'])
+        form.addRow("Role:", self.role_combo)
+        
+        # Active status
+        self.active_checkbox = QtWidgets.QCheckBox("Account Active")
+        self.active_checkbox.setChecked(self.user['is_active'])
+        form.addRow("Status:", self.active_checkbox)
+        
+        layout.addLayout(form)
+        
+        # Buttons
+        button_layout = QtWidgets.QHBoxLayout()
+        
+        save_btn = QtWidgets.QPushButton("Save Changes")
+        save_btn.setObjectName('primary')
+        save_btn.setProperty('class', 'primary')
+        save_btn.clicked.connect(self.accept)
+        button_layout.addWidget(save_btn)
+        
+        cancel_btn = QtWidgets.QPushButton("Cancel")
+        cancel_btn.setObjectName('small')
+        cancel_btn.setProperty('class', 'small')
+        cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(cancel_btn)
+        
+        layout.addLayout(button_layout)
+    
+    def accept(self):
+        """Validate and update user."""
+        password = self.password_edit.text()
+        confirm = self.confirm_password_edit.text()
+        email = self.email_edit.text().strip() or None
+        role = self.role_combo.currentText()
+        is_active = self.active_checkbox.isChecked()
+        
+        # Validation
+        if password:  # Only validate if changing password
+            if password != confirm:
+                QtWidgets.QMessageBox.warning(self, "Password Mismatch", "Passwords do not match.")
+                return
+            
+            if len(password) < 4:
+                QtWidgets.QMessageBox.warning(self, "Weak Password", "Password must be at least 4 characters.")
+                return
+        
+        # Update user
+        try:
+            if password:
+                # Update with new password
+                self.db.update_user(self.user_id, password=password, email=email, role=role, is_active=is_active)
+            else:
+                # Update without changing password
+                self.db.update_user(self.user_id, email=email, role=role, is_active=is_active)
+            
+            QtWidgets.QMessageBox.information(self, "Success", "User updated successfully.")
+            super(EditUserDialog, self).accept()
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", "Error updating user: {}".format(str(e)))
+
 
 
 if __name__ == '__main__':

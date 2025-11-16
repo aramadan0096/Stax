@@ -14,10 +14,10 @@
 
 /* Base */
 QWidget {
-  background: #1d252c;
+  background: #1c2125;
   color: #e6eef0;
   font-family: "Segoe UI", "Helvetica Neue", Arial;
-  font-size: 16px; /* increased by ~1.5x */
+  font-size: 12px; /* increased by ~1.5x */
 }
 
 /* Main window content area (panels) */
@@ -356,7 +356,7 @@ QStatusBar {
 }
 QStatusBar QLabel { color: #98a2a6; }
 
-/* Checkboxes and radio buttons - modern flat look */
+/* Checkboxes and radio buttons - modern flat look with custom SVG icons */
 QCheckBox, QRadioButton {
   spacing: 12px;
 }
@@ -364,13 +364,14 @@ QCheckBox::indicator, QRadioButton::indicator {
   width: 24px; height: 24px;
 }
 QCheckBox::indicator:unchecked {
-  border: 1px solid #2b2f33;
-  background: #111213;
-  border-radius: 5px;
+  border: none;
+  background: transparent;
+  image: url(:/icons/unchecked.svg);
 }
 QCheckBox::indicator:checked {
-  border: 1px solid #16c6b0;
-  background: #16c6b0;
+  border: none;
+  background: transparent;
+  image: url(:/icons/checked.svg);
 }
 QRadioButton::indicator:unchecked {
   border: 1px solid #2b2f33;

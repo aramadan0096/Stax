@@ -102,6 +102,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.stacks_panel = StacksListsPanel(self.db, self.config)
         self.stacks_panel.setMinimumWidth(260)
         self.stacks_panel.list_selected.connect(self.on_list_selected)
+        self.stacks_panel.stack_selected.connect(self.on_stack_selected)
         self.stacks_panel.favorites_selected.connect(self.on_favorites_selected)
         self.stacks_panel.playlist_selected.connect(self.on_playlist_selected)
         self.stacks_panel.tags_filter_changed.connect(self.on_tags_filter_changed)
@@ -203,7 +204,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.toolbar.addAction(settings_action)
 
     def toggle_focus_mode(self, checked):
-        """Hide or show navigation panel and toolbar for distraction-free browsing."""
+        """Hide or show navigation panel, toolbar, and panels for distraction-free browsing."""
         sizes = self.main_splitter.sizes()
         if len(sizes) < 3:
             return
@@ -218,6 +219,18 @@ class MainWindow(QtWidgets.QMainWindow):
             sizes = [0, center_width, preview_width]
             self.stacks_panel.hide()
             self.toolbar.hide()  # Hide toolbar in focus mode
+            
+            # Close panels
+            if hasattr(self, 'video_player_dock') and self.video_player_dock.isVisible():
+                self.video_player_dock.hide()
+            if hasattr(self, 'history_dock') and self.history_dock.isVisible():
+                self.history_dock.hide()
+            if hasattr(self, 'settings_dock') and self.settings_dock.isVisible():
+                self.settings_dock.hide()
+            
+            # Hide pagination
+            if hasattr(self.media_display, 'pagination'):
+                self.media_display.pagination.hide()
         else:
             # Restore the left panel
             restore_width = self._stored_left_width or self.stacks_panel.minimumWidth()
@@ -227,6 +240,11 @@ class MainWindow(QtWidgets.QMainWindow):
             sizes = [restore_width, center_width, preview_width]
             self.stacks_panel.show()
             self.toolbar.show()  # Show toolbar when exiting focus mode
+            
+            # Restore pagination visibility if there are elements
+            if hasattr(self.media_display, 'pagination') and self.config.get('pagination_enabled', True):
+                if len(self.media_display.current_elements) > 0:
+                    self.media_display.pagination.show()
 
         self.main_splitter.setSizes(sizes)
 
@@ -475,6 +493,43 @@ class MainWindow(QtWidgets.QMainWindow):
         self.active_view = ('list', list_id)
         self._view_before_tags = None
     
+    def on_stack_selected(self, stack_id):
+        """Handle stack selection - optionally show all elements from all lists in the stack."""
+        if not self.config.get('show_entire_stack_elements', False):
+            return  # Feature disabled
+        
+        lists = self.db.get_lists_by_stack(stack_id)
+        all_elements = []
+        for lst in lists:
+            all_elements.extend(self.db.get_elements_by_list(lst['list_id']))
+        
+        self.media_display.current_list_id = None
+        self.media_display.current_elements = all_elements
+        self.media_display.current_tag_filter = []
+        
+        if self.config.get('pagination_enabled', True):
+            self.media_display.pagination.set_total_items(len(all_elements))
+            self.media_display.pagination.set_items_per_page(self.config.get('items_per_page', 100))
+            self.media_display.pagination.setVisible(len(all_elements) > 0)
+        else:
+            self.media_display.pagination.setVisible(False)
+        
+        if all_elements:
+            self.media_display.content_stack.setCurrentIndex(1)
+        else:
+            stack = self.db.get_stack_by_id(stack_id)
+            if stack:
+                self.media_display.info_label.setText("No elements in stack '{}'".format(stack['name']))
+                self.media_display.hint_label.setText("Add lists and elements to this stack")
+            self.media_display.content_stack.setCurrentIndex(0)
+        
+        self.media_display._display_current_page()
+        
+        stack = self.db.get_stack_by_id(stack_id)
+        if stack:
+            self.statusBar().showMessage("Viewing: {} (all lists)".format(stack['name']))
+        self.active_view = ('stack', stack_id)
+    
     def on_favorites_selected(self):
         """Handle favorites button click."""
         if getattr(self.stacks_panel, 'get_selected_tags', None):
@@ -703,6 +758,12 @@ def main():
         try:
             with open(stylesheet_path, 'r') as f:
                 stylesheet = f.read()
+                # Replace icon paths with absolute paths
+                resources_dir = os.path.join(os.path.dirname(__file__), 'resources', 'icons')
+                unchecked_path = os.path.join(resources_dir, 'unchecked.svg').replace('\\', '/')
+                checked_path = os.path.join(resources_dir, 'checked.svg').replace('\\', '/')
+                stylesheet = stylesheet.replace('url(:/icons/unchecked.svg)', 'url({})'.format(unchecked_path))
+                stylesheet = stylesheet.replace('url(:/icons/checked.svg)', 'url({})'.format(checked_path))
                 app.setStyleSheet(stylesheet)
                 print("Applied stylesheet from: {}".format(stylesheet_path))
         except Exception as e:
