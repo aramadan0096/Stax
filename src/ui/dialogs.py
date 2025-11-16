@@ -438,7 +438,8 @@ class LoginDialog(QtWidgets.QDialog):
     def setup_ui(self):
         """Setup UI components."""
         layout = QtWidgets.QVBoxLayout(self)
-        layout.setSpacing(15)
+        layout.setSpacing(20)
+        layout.setContentsMargins(30, 20, 30, 20)
         
         # Logo/Title
         title_label = QtWidgets.QLabel("Stax")
@@ -451,13 +452,16 @@ class LoginDialog(QtWidgets.QDialog):
         subtitle_label.setAlignment(QtCore.Qt.AlignCenter)
         layout.addWidget(subtitle_label)
         
+        layout.addSpacing(10)
+        
         # Form layout
         form = QtWidgets.QFormLayout()
-        # increased spacing for more airy layout
-        form.setSpacing(18)
+        # Increased spacing between fields
+        form.setSpacing(25)
+        form.setContentsMargins(0, 0, 0, 0)
         try:
             # setVerticalSpacing may not exist in older Qt versions; guard it
-            form.setVerticalSpacing(18)
+            form.setVerticalSpacing(25)
         except Exception:
             pass
         
@@ -465,7 +469,7 @@ class LoginDialog(QtWidgets.QDialog):
         self.username_edit = QtWidgets.QLineEdit()
         self.username_edit.setPlaceholderText("Enter username")
         # larger control for accessibility / spacing
-        self.username_edit.setMinimumHeight(48)
+        self.username_edit.setMinimumHeight(36)
         form.addRow("Username:", self.username_edit)
         
         # Password
@@ -473,7 +477,7 @@ class LoginDialog(QtWidgets.QDialog):
         self.password_edit.setPlaceholderText("Enter password")
         self.password_edit.setEchoMode(QtWidgets.QLineEdit.Password)
         # larger control for accessibility / spacing
-        self.password_edit.setMinimumHeight(48)
+        self.password_edit.setMinimumHeight(36)
         self.password_edit.returnPressed.connect(self.attempt_login)
         form.addRow("Password:", self.password_edit)
         
@@ -490,16 +494,19 @@ class LoginDialog(QtWidgets.QDialog):
         
         # Button box
         button_layout = QtWidgets.QHBoxLayout()
+        button_layout.setSpacing(10)
         
         login_btn = QtWidgets.QPushButton("Login")
-        login_btn.setMinimumHeight(35)
+        login_btn.setFixedHeight(32)
+        login_btn.setMinimumWidth(100)
         login_btn.setObjectName('primary')
         login_btn.setProperty('class', 'primary')
         login_btn.clicked.connect(self.attempt_login)
         button_layout.addWidget(login_btn)
         
         guest_btn = QtWidgets.QPushButton("Continue as Guest")
-        guest_btn.setMinimumHeight(35)
+        guest_btn.setFixedHeight(32)
+        guest_btn.setMinimumWidth(140)
         guest_btn.setObjectName('small')
         guest_btn.setProperty('class', 'small')
         guest_btn.clicked.connect(self.continue_as_guest)

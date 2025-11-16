@@ -112,6 +112,43 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         
         layout.addLayout(toolbar)
         
+        # Main content container - stacks empty state and views
+        self.content_stack = QtWidgets.QStackedWidget()
+        
+        # Empty state container with icon and text (index 0)
+        self.empty_state_widget = QtWidgets.QWidget()
+        empty_state_layout = QtWidgets.QVBoxLayout(self.empty_state_widget)
+        empty_state_layout.setAlignment(QtCore.Qt.AlignCenter)
+        
+        # Icon label (using a large icon)
+        self.empty_icon_label = QtWidgets.QLabel()
+        self.empty_icon_label.setAlignment(QtCore.Qt.AlignCenter)
+        empty_icon = get_icon('folder', size=96)
+        if empty_icon:
+            self.empty_icon_label.setPixmap(empty_icon.pixmap(96, 96))
+        self.empty_icon_label.setStyleSheet("padding: 20px;")
+        empty_state_layout.addWidget(self.empty_icon_label)
+        
+        # Info label
+        self.info_label = QtWidgets.QLabel("Select a list to view elements")
+        self.info_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.info_label.setStyleSheet("color: #888888; font-size: 14px; padding: 10px; font-weight: bold;")
+        empty_state_layout.addWidget(self.info_label)
+        
+        # Hint label
+        self.hint_label = QtWidgets.QLabel("Browse stacks and lists in the navigation panel")
+        self.hint_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.hint_label.setStyleSheet("color: #666666; font-size: 11px; padding: 5px;")
+        empty_state_layout.addWidget(self.hint_label)
+        
+        empty_state_layout.addStretch()
+        self.content_stack.addWidget(self.empty_state_widget)  # Index 0
+        
+        # Views container (index 1)
+        views_widget = QtWidgets.QWidget()
+        views_layout = QtWidgets.QVBoxLayout(views_widget)
+        views_layout.setContentsMargins(0, 0, 0, 0)
+        
         # Stacked widget for different views
         self.view_stack = QtWidgets.QStackedWidget()
         
@@ -141,19 +178,91 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.table_view.viewport().installEventFilter(self)  # Install event filter
         self.view_stack.addWidget(self.table_view)
         
-        layout.addWidget(self.view_stack)
+        views_layout.addWidget(self.view_stack)
         
         # Pagination widget
         self.pagination = PaginationWidget()
         self.pagination.page_changed.connect(self.on_page_changed)
         self.pagination.setVisible(self.config.get('pagination_enabled', True))
-        layout.addWidget(self.pagination)
+        views_layout.addWidget(self.pagination)
         
-        # Info label
-        self.info_label = QtWidgets.QLabel("Select a list to view elements")
-        self.info_label.setAlignment(QtCore.Qt.AlignCenter)
-        self.info_label.setStyleSheet("color: gray; font-size: 12px; padding: 20px;")
-        layout.addWidget(self.info_label)
+        self.content_stack.addWidget(views_widget)  # Index 1
+        
+        # Show empty state by default
+        self.content_stack.setCurrentIndex(0)
+        
+        layout.addWidget(self.content_stack)
+        
+        # Focus mode button (floating in bottom-right corner)
+        self.focus_mode_button = None
+        self.focus_mode_enabled = False
+        self.setup_focus_button()
+
+    
+    def setup_focus_button(self):
+        """Create floating action button for focus mode."""
+        self.focus_mode_button = QtWidgets.QToolButton(self)
+        self.focus_mode_button.setIcon(get_icon('focus', size=20))
+        self.focus_mode_button.setIconSize(QtCore.QSize(20, 20))
+        self.focus_mode_button.setToolTip("Enter focus mode (hide navigation panel)")
+        self.focus_mode_button.setCheckable(True)
+        self.focus_mode_button.clicked.connect(self.toggle_focus_mode)
+        self.focus_mode_button.setCursor(QtCore.Qt.PointingHandCursor)
+        self.focus_mode_button.setStyleSheet(
+            """
+            QToolButton {
+                background-color: rgba(22, 198, 176, 0.9);
+                border: 0px;
+                border-radius: 22px;
+                padding: 10px;
+                color: #0b0e0c;
+            }
+            QToolButton:hover {
+                background-color: rgba(22, 198, 176, 1.0);
+            }
+            QToolButton:checked {
+                background-color: rgba(255, 154, 60, 0.95);
+                color: #1b1b1b;
+            }
+            """
+        )
+        self.focus_mode_button.resize(44, 44)
+        self.focus_mode_button.show()
+        self.installEventFilter(self)  # Install event filter on self for resize events
+        self.position_focus_button()
+    
+    def position_focus_button(self):
+        """Position focus button in bottom-right corner above pagination."""
+        if not self.focus_mode_button:
+            return
+        margin = 16
+        # Position above pagination widget
+        pagination_height = self.pagination.height() if self.pagination.isVisible() else 0
+        parent_rect = self.rect()
+        x = max(margin, parent_rect.width() - self.focus_mode_button.width() - margin)
+        y = max(margin, parent_rect.height() - self.focus_mode_button.height() - pagination_height - margin - 10)
+        self.focus_mode_button.move(x, y)
+        self.focus_mode_button.raise_()
+    
+    def toggle_focus_mode(self, checked):
+        """Toggle focus mode - signal to parent to hide/show navigation."""
+        self.focus_mode_enabled = checked
+        if self.main_window:
+            # Signal to main window to hide navigation
+            if hasattr(self.main_window, 'toggle_focus_mode'):
+                self.main_window.toggle_focus_mode(checked)
+        
+        # Update tooltip
+        if checked:
+            self.focus_mode_button.setToolTip("Exit focus mode (show navigation panel)")
+        else:
+            self.focus_mode_button.setToolTip("Enter focus mode (hide navigation panel)")
+    
+    def resizeEvent(self, event):
+        """Handle resize to reposition focus button."""
+        super(MediaDisplayWidget, self).resizeEvent(event)
+        self.position_focus_button()
+
     
     def set_view_mode(self, mode):
         """Switch between gallery and list view."""
@@ -191,14 +300,15 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         # Store all elements for pagination
         self.current_elements = elements
         
-        self.info_label.setVisible(len(elements) == 0)
-        
-        if len(elements) > 0:
-            self.info_label.setText("")
-        else:
+        # Show/hide empty state
+        if len(elements) == 0:
             lst = self.db.get_list_by_id(list_id)
             if lst:
                 self.info_label.setText("No elements in '{}'".format(lst['name']))
+                self.hint_label.setText("Drag files here or use 'Ingest Files' to add content")
+            self.content_stack.setCurrentIndex(0)  # Show empty state
+        else:
+            self.content_stack.setCurrentIndex(1)  # Show views
         
         # Setup pagination
         if self.config.get('pagination_enabled', True):
@@ -230,7 +340,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         # Use shared method to update both views
         self._update_views_with_elements(page_elements)
     
-    def show_empty_state(self, message=None):
+    def show_empty_state(self, message=None, hint=None):
         """Clear views and display placeholder message."""
         self.current_list_id = None
         self.current_elements = []
@@ -239,13 +349,16 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.table_view.setRowCount(0)
         self.pagination.setVisible(False)
         self.info_label.setText(message or "Select a list to view elements")
-        self.info_label.setVisible(True)
+        self.hint_label.setText(hint or "Browse stacks and lists in the navigation panel")
+        self.content_stack.setCurrentIndex(0)  # Show empty state
+
+
 
     def load_elements_by_tags(self, tags):
         """Load all elements that match any of the provided tags."""
         cleaned_tags = [t.strip() for t in tags if t and t.strip()]
         if not cleaned_tags:
-            self.show_empty_state("Select tags to filter the library")
+            self.show_empty_state("Select tags to filter the library", "Choose one or more tags from the Tags Filter panel")
             return
 
         elements = self.db.search_elements_by_tags(cleaned_tags, match_all=False)
@@ -255,11 +368,11 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.pagination.setVisible(False)
 
         if elements:
-            self.info_label.setText("")
-            self.info_label.setVisible(False)
+            self.content_stack.setCurrentIndex(1)  # Show views
         else:
             self.info_label.setText("No elements found for tags: {}".format(', '.join(cleaned_tags)))
-            self.info_label.setVisible(True)
+            self.hint_label.setText("Try selecting different tags or add elements with these tags")
+            self.content_stack.setCurrentIndex(0)  # Show empty state
 
         self._update_views_with_elements(elements)
 
