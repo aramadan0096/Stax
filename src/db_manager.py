@@ -38,10 +38,36 @@ class DatabaseManager(object):
         # Ensure database directory exists
         db_dir = os.path.dirname(db_path)
         if db_dir and not os.path.exists(db_dir):
-            os.makedirs(db_dir)
+            try:
+                # Convert relative path to absolute to avoid permission issues in Nuke
+                if not os.path.isabs(db_dir):
+                    # Get the root directory (where the main script is located)
+                    script_dir = os.path.dirname(os.path.abspath(__file__))
+                    root_dir = os.path.dirname(script_dir)  # Go up from src/
+                    abs_db_dir = os.path.join(root_dir, db_dir)
+                else:
+                    abs_db_dir = db_dir
+                
+                print("[DatabaseManager] Creating database directory: {}".format(abs_db_dir))
+                os.makedirs(abs_db_dir)
+                print("[DatabaseManager]   [OK] Database directory created")
+                
+                # Update db_path to use absolute path
+                if not os.path.isabs(self.db_path):
+                    self.db_path = os.path.join(root_dir, self.db_path)
+                    self.lock_file_path = self.db_path + '.lock'
+                    print("[DatabaseManager] Using absolute database path: {}".format(self.db_path))
+            except OSError as e:
+                print("[DatabaseManager]   [WARN] Failed to create directory: {}".format(e))
+                # Try to use absolute path anyway
+                if not os.path.isabs(self.db_path):
+                    script_dir = os.path.dirname(os.path.abspath(__file__))
+                    root_dir = os.path.dirname(script_dir)
+                    self.db_path = os.path.join(root_dir, self.db_path)
+                    self.lock_file_path = self.db_path + '.lock'
         
         # Initialize schema if database doesn't exist
-        if not os.path.exists(db_path):
+        if not os.path.exists(self.db_path):
             self._create_schema()
         else:
             # Apply migrations for existing databases

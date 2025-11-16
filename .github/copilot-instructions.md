@@ -16,7 +16,7 @@ StaX is a Advanced solution for mass production stock footage management clone t
 
 ### Three-Tier Architecture
 ```
-GUI Layer (gui_main.py)
+GUI Layer (main.py)
     ↓
 Core Logic (ingestion_core.py, extensibility_hooks.py)
     ↓
@@ -98,7 +98,7 @@ All panels are toggleable and stored in user preferences:
 Focus on these modules in order:
 1. `db_manager.py` - Schema creation and CRUD operations
 2. `ingestion_core.py` - File operations and metadata extraction
-3. `gui_main.py` - Basic PySide2 layout with Stacks/Lists navigation
+3. `main.py` - Basic PySide2 layout with Stacks/Lists navigation
 4. `nuke_bridge.py` - Mock implementations for Read/ReadGeo/Paste
 
 **Testing strategy**: All modules must work without Nuke installed. Use mock implementations and simulate Nuke API responses.

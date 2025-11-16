@@ -1,0 +1,134 @@
+GUI REFACTORING STRUCTURE
+=========================
+
+BEFORE:
+-------
+┌─────────────────────────────────────┐
+│      main.py (187 KB)           │
+│  ┌────────────────────────────────┐ │
+│  │ AdvancedSearchDialog           │ │
+│  │ MediaInfoPopup                 │ │
+│  │ StacksListsPanel               │ │
+│  │ DragGalleryView                │ │
+│  │ MediaDisplayWidget             │ │
+│  │ HistoryPanel                   │ │
+│  │ SettingsPanel                  │ │
+│  │ AddStackDialog                 │ │
+│  │ AddListDialog                  │ │
+│  │ AddSubListDialog               │ │
+│  │ IngestLibraryDialog            │ │
+│  │ CreatePlaylistDialog           │ │
+│  │ AddToPlaylistDialog            │ │
+│  │ LoginDialog                    │ │
+│  │ EditElementDialog              │ │
+│  │ PaginationWidget               │ │
+│  │ RegisterToolsetDialog          │ │
+│  │ MainWindow                     │ │
+│  │ SelectListDialog               │ │
+│  └────────────────────────────────┘ │
+│                                     │
+│  4,663 lines - Monolithic           │
+└─────────────────────────────────────┘
+
+
+AFTER:
+------
+┌────────────────────────────────────────────────────────────┐
+│                     src/ui/ Module                         │
+│ ┌────────────────────────────────────────────────────────┐ │
+│ │ __init__.py - Central Exports                          │ │
+│ └────────────────────────────────────────────────────────┘ │
+│                                                            │
+│ Core Widgets:                                              │
+│ ┌──────────────────┐  ┌──────────────────┐               │
+│ │ pagination_      │  │ drag_gallery_    │               │
+│ │ widget.py        │  │ view.py          │               │
+│ │ (160 lines)      │  │ (133 lines)      │               │
+│ └──────────────────┘  └──────────────────┘               │
+│                                                            │
+│ ┌──────────────────┐  ┌──────────────────┐               │
+│ │ media_info_      │  │ stacks_lists_    │               │
+│ │ popup.py         │  │ panel.py         │               │
+│ │ (493 lines)      │  │ (339 lines)      │               │
+│ └──────────────────┘  └──────────────────┘               │
+│                                                            │
+│ ┌──────────────────┐  ┌──────────────────┐               │
+│ │ media_display_   │  │ history_panel.py │               │
+│ │ widget.py        │  │ (73 lines)       │               │
+│ │ (1,063 lines)    │  └──────────────────┘               │
+│ └──────────────────┘                                      │
+│                                                            │
+│ ┌──────────────────┐                                      │
+│ │ settings_panel.py│                                      │
+│ │ (639 lines)      │                                      │
+│ └──────────────────┘                                      │
+│                                                            │
+│ Dialogs:                                                   │
+│ ┌────────────────────────────────────────────────────┐   │
+│ │ dialogs.py (10 dialog classes)                     │   │
+│ │ - AdvancedSearchDialog                             │   │
+│ │ - AddStackDialog, AddListDialog, AddSubListDialog │   │
+│ │ - CreatePlaylistDialog, AddToPlaylistDialog        │   │
+│ │ - LoginDialog, EditElementDialog                   │   │
+│ │ - RegisterToolsetDialog, SelectListDialog          │   │
+│ │ (1,033 lines total)                                │   │
+│ └────────────────────────────────────────────────────┘   │
+│                                                            │
+│ ┌────────────────────────────────────────────────────┐   │
+│ │ ingest_library_dialog.py                           │   │
+│ │ (IngestLibraryDialog - 407 lines)                  │   │
+│ └────────────────────────────────────────────────────┘   │
+│                                                            │
+│ Total: 4,340 lines across 10 files                        │
+└────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────┐
+│   main.py (18 KB)              │
+│ ┌────────────────────────────────┐ │
+│ │ MainWindow                     │ │
+│ │ main()                         │ │
+│ │                                │ │
+│ │ Imports from src.ui:           │ │
+│ │ - All widget classes           │ │
+│ │ - All dialog classes           │ │
+│ └────────────────────────────────┘ │
+│                                    │
+│ 479 lines - Clean & Focused        │
+└────────────────────────────────────┘
+
+
+IMPORT STRUCTURE:
+-----------------
+
+main.py
+    ├─> src.ui.__init__
+    │       ├─> pagination_widget
+    │       ├─> drag_gallery_view
+    │       ├─> media_info_popup
+    │       ├─> stacks_lists_panel ──> dialogs (4 classes)
+    │       ├─> media_display_widget ──┬─> drag_gallery_view
+    │       │                          ├─> pagination_widget
+    │       │                          └─> media_info_popup
+    │       ├─> history_panel
+    │       ├─> settings_panel
+    │       ├─> dialogs (10 classes)
+    │       └─> ingest_library_dialog
+    │
+    ├─> src.config
+    ├─> src.db_manager
+    ├─> src.ingestion_core
+    ├─> src.nuke_bridge
+    └─> src.extensibility_hooks
+
+
+BENEFITS:
+---------
+✓ 90% reduction in main file size
+✓ Clear separation of concerns
+✓ Easy to locate specific widgets
+✓ Reduced coupling between components
+✓ Better testability
+✓ Improved maintainability
+✓ No circular dependencies
+✓ 100% functional compatibility
+

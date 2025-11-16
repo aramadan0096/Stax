@@ -20,7 +20,7 @@ Goals:
 - Implement core data model and `db_manager.py` with schema creation for Stacks, Lists, Elements, and Favorites.
 - Implement `ingestion_core.py` supporting drag-and-drop ingestion, sequence detection, metadata extraction, soft/hard copy policy, and preview thumbnail creation (mocked/resampled images acceptable for MVP).
 - Add `nuke_bridge.py` with simulated Read/ReadGeo/Paste functions for local testing (no Nuke dependency required for Alpha).
-- Basic `gui_main.py` using PySide2 with Stacks/Lists navigation, media display area, simple list/gallery toggle, and history panel.
+- Basic `main.py` using PySide2 with Stacks/Lists navigation, media display area, simple list/gallery toggle, and history panel.
 - Create minimal unit tests for DB and ingestion core.
 
 Suggested owners: Backend lead (db, ingestion), UI dev (PySide2 layout), QA (tests).

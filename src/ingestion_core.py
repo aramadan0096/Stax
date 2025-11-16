@@ -325,7 +325,30 @@ class IngestionCore(object):
         
         # Ensure preview directory exists
         if not os.path.exists(self.preview_dir):
-            os.makedirs(self.preview_dir)
+            try:
+                # Convert relative path to absolute to avoid permission issues in Nuke
+                if not os.path.isabs(self.preview_dir):
+                    # Get the root directory (where the main script is located)
+                    script_dir = os.path.dirname(os.path.abspath(__file__))
+                    root_dir = os.path.dirname(script_dir)  # Go up from src/
+                    abs_preview_dir = os.path.join(root_dir, self.preview_dir)
+                else:
+                    abs_preview_dir = self.preview_dir
+                
+                print("[IngestionCore] Creating preview directory: {}".format(abs_preview_dir))
+                os.makedirs(abs_preview_dir)
+                print("[IngestionCore]   [OK] Preview directory created")
+                
+                # Update preview_dir to use absolute path
+                self.preview_dir = abs_preview_dir
+                print("[IngestionCore] Using absolute preview path: {}".format(self.preview_dir))
+            except OSError as e:
+                print("[IngestionCore]   [WARN] Failed to create preview directory: {}".format(e))
+                # Try to use absolute path anyway
+                if not os.path.isabs(self.preview_dir):
+                    script_dir = os.path.dirname(os.path.abspath(__file__))
+                    root_dir = os.path.dirname(script_dir)
+                    self.preview_dir = os.path.join(root_dir, self.preview_dir)
     
     def ingest_file(self, source_path, target_list_id, copy_policy='soft', 
                     comment=None, tags=None, pre_hook=None, post_hook=None):

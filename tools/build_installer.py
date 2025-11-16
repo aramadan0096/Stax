@@ -22,7 +22,7 @@ APP_NAME = "StaX"
 APP_VERSION = "1.0.0-beta"
 APP_DESCRIPTION = "Advanced VFX Asset Management for Nuke"
 APP_AUTHOR = "VFX Pipeline Team"
-MAIN_SCRIPT = os.path.join(PROJECT_ROOT, 'gui_main.py')
+MAIN_SCRIPT = os.path.join(PROJECT_ROOT, 'main.py')
 ICON_PATH = os.path.join(PROJECT_ROOT, 'resources', 'icons', 'app_icon.ico')
 
 

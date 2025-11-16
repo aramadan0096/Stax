@@ -7,6 +7,15 @@ Python 2.7 compatible
 
 import os
 
+# Ensure bundled FFmpeg binaries are available when bridge runs outside standalone launcher
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+_FFMPEG_BIN_DIR = os.path.join(_PROJECT_ROOT, 'bin', 'ffmpeg', 'bin')
+if os.path.isdir(_FFMPEG_BIN_DIR):
+    _existing_path = os.environ.get('PATH', '')
+    _path_entries = _existing_path.split(os.pathsep) if _existing_path else []
+    if _FFMPEG_BIN_DIR not in _path_entries:
+        os.environ['PATH'] = _FFMPEG_BIN_DIR + (os.pathsep + _existing_path if _existing_path else '')
+
 
 class NukeBridge(object):
     """
