@@ -7,10 +7,14 @@ Python 2.7 compatible
 
 import os
 import sys
+
+import dependency_bootstrap
+
+dependency_bootstrap.bootstrap()
+
 from PySide2 import QtWidgets, QtCore, QtGui
 
-# Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 from src.config import Config
 from src.db_manager import DatabaseManager
@@ -56,6 +60,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.nuke_integration = NukeIntegration(self.nuke_bridge, self.db)
         self.ingestion = IngestionCore(self.db, self.config.get_all())
         self.processor_manager = ProcessorManager(self.config.get_all())
+        self.focus_mode_button = None
+        self.focus_mode_enabled = False
+        self._stored_left_width = None
+        self.active_view = ('none', None)
+        self._view_before_tags = None
+        self._suspend_tag_restore = False
         
         # User authentication
         self.current_user = None
@@ -82,32 +92,42 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setCentralWidget(central)
         layout = QtWidgets.QHBoxLayout(central)
         layout.setContentsMargins(5, 5, 5, 5)
+
+        # Global toolbar
+        self.setup_toolbar()
         
         # Main splitter for left panel, center content, and right preview pane
-        main_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
-        
+        self.main_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        self.main_splitter.setChildrenCollapsible(False)
+        self.main_splitter.setHandleWidth(6)
+
         # Left: Stacks/Lists panel
         self.stacks_panel = StacksListsPanel(self.db, self.config)
+        self.stacks_panel.setMinimumWidth(260)
         self.stacks_panel.list_selected.connect(self.on_list_selected)
         self.stacks_panel.favorites_selected.connect(self.on_favorites_selected)
         self.stacks_panel.playlist_selected.connect(self.on_playlist_selected)
-        main_splitter.addWidget(self.stacks_panel)
-        
+        self.stacks_panel.tags_filter_changed.connect(self.on_tags_filter_changed)
+        self.main_splitter.addWidget(self.stacks_panel)
+
         # Center: Media display
         self.media_display = MediaDisplayWidget(self.db, self.config, self.nuke_bridge, main_window=self)
         self.media_display.element_double_clicked.connect(self.on_element_double_clicked)
-        main_splitter.addWidget(self.media_display)
-        
+        self.main_splitter.addWidget(self.media_display)
+        self.main_splitter.setStretchFactor(1, 1)
+
         # Right: Video player preview pane (hidden by default)
         self.video_player_pane = VideoPlayerWidget(self.db, self.config, self)
         self.video_player_pane.closed.connect(self.on_preview_pane_closed)
         self.video_player_pane.hide()
-        main_splitter.addWidget(self.video_player_pane)
-        
+        self.main_splitter.addWidget(self.video_player_pane)
+        self.preview_pane_expanded_width = 360
+
         # Set splitter sizes (left: 250, center: 900, right: 400)
-        main_splitter.setSizes([250, 900, 400])
-        
-        layout.addWidget(main_splitter)
+        self.main_splitter.setSizes([280, 920, 360])
+
+        layout.addWidget(self.main_splitter)
+        self.setup_focus_button()
         
         # Connect selection changes to update preview pane
         self.media_display.gallery_view.itemSelectionChanged.connect(self.on_selection_changed)
@@ -135,6 +155,179 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Status bar
         self.statusBar().showMessage("Ready")
+
+    def setup_toolbar(self):
+        """Create and configure the top toolbar."""
+        self.toolbar = QtWidgets.QToolBar("Main Toolbar", self)
+        self.toolbar.setIconSize(QtCore.QSize(20, 20))
+        self.toolbar.setMovable(False)
+        self.toolbar.setStyleSheet("QToolBar { spacing: 6px; padding: 4px; }")
+        self.addToolBar(QtCore.Qt.TopToolBarArea, self.toolbar)
+
+        ingest_action = QtWidgets.QAction(get_icon('upload', size=20), "Ingest Files", self)
+        ingest_action.setToolTip("Ingest files into StaX (Ctrl+I)")
+        ingest_action.triggered.connect(self.ingest_files)
+        self.toolbar.addAction(ingest_action)
+
+        ingest_library_action = QtWidgets.QAction(get_icon('folder', size=20), "Ingest Library", self)
+        ingest_library_action.setToolTip("Bulk ingest folder structures (Ctrl+Shift+I)")
+        ingest_library_action.triggered.connect(self.ingest_library)
+        self.toolbar.addAction(ingest_library_action)
+
+        self.toolbar.addSeparator()
+
+        search_action = QtWidgets.QAction(get_icon('search', size=20), "Search", self)
+        search_action.setToolTip("Advanced search (Ctrl+F)")
+        search_action.triggered.connect(self.show_advanced_search)
+        self.toolbar.addAction(search_action)
+
+        favorites_action = QtWidgets.QAction(get_icon('favorite', size=20), "Favorites", self)
+        favorites_action.setToolTip("Show favorites across stacks")
+        favorites_action.triggered.connect(self.on_favorites_selected)
+        self.toolbar.addAction(favorites_action)
+        self.favorites_action = favorites_action
+
+        self.toolbar.addSeparator()
+
+        toolset_action = QtWidgets.QAction(get_icon('add', size=20), "Register Toolset", self)
+        toolset_action.setToolTip("Save selected Nuke nodes as toolset (Ctrl+Shift+T)")
+        toolset_action.triggered.connect(self.register_toolset)
+        self.toolbar.addAction(toolset_action)
+
+        history_action = QtWidgets.QAction(get_icon('history', size=20), "History", self)
+        history_action.setToolTip("Show ingestion history (Ctrl+2)")
+        history_action.triggered.connect(self.toggle_history)
+        self.toolbar.addAction(history_action)
+
+        settings_action = QtWidgets.QAction(get_icon('settings', size=20), "Settings", self)
+        settings_action.setToolTip("Open settings panel (Ctrl+3)")
+        settings_action.triggered.connect(self.toggle_settings)
+        self.toolbar.addAction(settings_action)
+
+    def setup_focus_button(self):
+        """Create floating action button for focus mode."""
+        if not getattr(self, 'media_display', None):
+            return
+        self.media_display.installEventFilter(self)
+        self.focus_mode_button = QtWidgets.QToolButton(self.media_display)
+        self.focus_mode_button.setIcon(get_icon('expand', size=20))
+        self.focus_mode_button.setIconSize(QtCore.QSize(20, 20))
+        self.focus_mode_button.setToolTip("Enter focus mode (hide navigation panel)")
+        self.focus_mode_button.setCheckable(True)
+        self.focus_mode_button.clicked.connect(self.toggle_focus_mode)
+        self.focus_mode_button.setCursor(QtCore.Qt.PointingHandCursor)
+        self.focus_mode_button.setStyleSheet(
+            """
+            QToolButton {
+                background-color: rgba(22, 198, 176, 0.9);
+                border: 0px;
+                border-radius: 22px;
+                padding: 10px;
+                color: #0b0e0c;
+            }
+            QToolButton:hover {
+                background-color: rgba(22, 198, 176, 1.0);
+            }
+            QToolButton:checked {
+                background-color: rgba(255, 154, 60, 0.95);
+                color: #1b1b1b;
+            }
+            """
+        )
+        self.focus_mode_button.resize(44, 44)
+        self.focus_mode_button.show()
+        self.position_focus_button()
+
+    def position_focus_button(self):
+        """Keep the focus toggle anchored to media display corner."""
+        if not self.focus_mode_button or not getattr(self, 'media_display', None):
+            return
+        margin = 16
+        parent_rect = self.media_display.rect()
+        x = max(margin, parent_rect.width() - self.focus_mode_button.width() - margin)
+        y = max(margin, parent_rect.height() - self.focus_mode_button.height() - margin)
+        self.focus_mode_button.move(x, y)
+        self.focus_mode_button.raise_()
+
+    def toggle_focus_mode(self, checked):
+        """Hide or show navigation panel for distraction-free browsing."""
+        sizes = self.main_splitter.sizes()
+        if len(sizes) < 3:
+            return
+
+        self.focus_mode_enabled = checked
+
+        if checked:
+            self._stored_left_width = sizes[0] if sizes[0] > 0 else self.stacks_panel.minimumWidth()
+            sizes[1] += sizes[0]
+            sizes[0] = 0
+            self.stacks_panel.hide()
+            self.focus_mode_button.setToolTip("Exit focus mode (show navigation panel)")
+        else:
+            restore_width = self._stored_left_width or self.stacks_panel.minimumWidth()
+            total = sum(sizes)
+            preview = sizes[2]
+            center = max(400, total - restore_width - preview)
+            sizes = [max(self.stacks_panel.minimumWidth(), restore_width), center, preview]
+            self.stacks_panel.show()
+            self.focus_mode_button.setToolTip("Enter focus mode (hide navigation panel)")
+
+        self.main_splitter.setSizes(sizes)
+        self.position_focus_button()
+
+    def resizeEvent(self, event):
+        super(MainWindow, self).resizeEvent(event)
+        self.position_focus_button()
+
+    def eventFilter(self, obj, event):
+        if obj == getattr(self, 'media_display', None) and event.type() == QtCore.QEvent.Resize:
+            self.position_focus_button()
+        return super(MainWindow, self).eventFilter(obj, event)
+
+    def expand_preview_pane(self):
+        """Expand or show the preview pane without crushing other panes."""
+        sizes = self.main_splitter.sizes()
+        if len(sizes) < 3:
+            return
+
+        total = sum(sizes)
+        left_width = max(self.stacks_panel.minimumWidth(), sizes[0])
+        available = max(0, total - left_width)
+
+        # Target preview width while respecting available space
+        preview_width = min(self.preview_pane_expanded_width, max(320, available // 3))
+        preview_width = max(280, preview_width)
+        if preview_width > available - 420:
+            preview_width = max(240, available - 420)
+
+        if preview_width < 200:
+            preview_width = max(0, available - 400)
+
+        center_width = max(400, available - preview_width)
+
+        if preview_width <= 0:
+            preview_width = 0
+            center_width = available
+
+        self.preview_pane_expanded_width = max(self.preview_pane_expanded_width, preview_width)
+        self.main_splitter.setSizes([left_width, center_width, preview_width])
+
+        if preview_width > 0 and not self.video_player_pane.isVisible():
+            self.video_player_pane.show()
+
+    def collapse_preview_pane(self):
+        """Collapse preview pane but remember last width for smooth restores."""
+        sizes = self.main_splitter.sizes()
+        if len(sizes) < 3:
+            return
+
+        if sizes[2] > 0:
+            self.preview_pane_expanded_width = sizes[2]
+
+        sizes[1] += sizes[2]
+        sizes[2] = 0
+        self.main_splitter.setSizes(sizes)
+        self.video_player_pane.hide()
     
     def create_menus(self):
         """Create menu bar."""
@@ -287,6 +480,11 @@ class MainWindow(QtWidgets.QMainWindow):
     
     def on_list_selected(self, list_id):
         """Handle list selection."""
+        if getattr(self.stacks_panel, 'get_selected_tags', None):
+            selected_tags = self.stacks_panel.get_selected_tags()
+            if selected_tags:
+                self._suspend_tag_restore = True
+                self.stacks_panel.clear_tag_selection(emit_signal=True)
         self.media_display.load_elements(list_id)
         
         lst = self.db.get_list_by_id(list_id)
@@ -294,18 +492,34 @@ class MainWindow(QtWidgets.QMainWindow):
             stack = self.db.get_stack_by_id(lst['stack_fk'])
             if stack:
                 self.statusBar().showMessage("Viewing: {} > {}".format(stack['name'], lst['name']))
+        self.active_view = ('list', list_id)
+        self._view_before_tags = None
     
     def on_favorites_selected(self):
         """Handle favorites button click."""
+        if getattr(self.stacks_panel, 'get_selected_tags', None):
+            selected_tags = self.stacks_panel.get_selected_tags()
+            if selected_tags:
+                self._suspend_tag_restore = True
+                self.stacks_panel.clear_tag_selection(emit_signal=True)
         self.media_display.load_favorites()
         self.statusBar().showMessage("Viewing: Favorites")
+        self.active_view = ('favorites', None)
+        self._view_before_tags = None
     
     def on_playlist_selected(self, playlist_id):
         """Handle playlist selection."""
+        if getattr(self.stacks_panel, 'get_selected_tags', None):
+            selected_tags = self.stacks_panel.get_selected_tags()
+            if selected_tags:
+                self._suspend_tag_restore = True
+                self.stacks_panel.clear_tag_selection(emit_signal=True)
         self.media_display.load_playlist(playlist_id)
         playlist = self.db.get_playlist_by_id(playlist_id)
         if playlist:
             self.statusBar().showMessage("Viewing Playlist: {}".format(playlist['name']))
+        self.active_view = ('playlist', playlist_id)
+        self._view_before_tags = None
     
     def on_element_double_clicked(self, element_id):
         """Handle element double-click (insert into Nuke)."""
@@ -324,12 +538,12 @@ class MainWindow(QtWidgets.QMainWindow):
         if len(selected_ids) == 1:
             # Single element selected - show preview pane
             element_id = selected_ids[0]
+            self.expand_preview_pane()
             self.video_player_pane.load_element(element_id)
-            self.video_player_pane.show()
         elif len(selected_ids) > 1:
             # Multiple elements selected - hide preview pane
-            self.video_player_pane.hide()
             self.video_player_pane.clear()
+            self.collapse_preview_pane()
         else:
             # No selection - keep pane visible but cleared if it was already visible
             if self.video_player_pane.isVisible():
@@ -337,8 +551,44 @@ class MainWindow(QtWidgets.QMainWindow):
     
     def on_preview_pane_closed(self):
         """Handle preview pane close button."""
-        self.video_player_pane.hide()
         self.video_player_pane.clear()
+        self.collapse_preview_pane()
+
+    def on_tags_filter_changed(self, tags):
+        tags = [t for t in tags if t]
+        if not tags:
+            if self._suspend_tag_restore:
+                self._suspend_tag_restore = False
+                self._view_before_tags = None
+                return
+            if self.active_view[0] == 'tags' and self._view_before_tags:
+                self.active_view = self._view_before_tags
+            self._view_before_tags = None
+            self.restore_active_view()
+            return
+
+        if not self._view_before_tags and self.active_view[0] != 'tags':
+            self._view_before_tags = self.active_view
+
+        self.active_view = ('tags', tuple(tags))
+        self.media_display.load_elements_by_tags(tags)
+        self.statusBar().showMessage("Filtering by tags: {}".format(', '.join(tags)))
+
+    def restore_active_view(self):
+        mode, value = self.active_view
+        if mode == 'list' and value:
+            self.media_display.load_elements(value)
+            return
+        if mode == 'favorites':
+            self.media_display.load_favorites()
+            return
+        if mode == 'playlist' and value:
+            self.media_display.load_playlist(value)
+            return
+        if mode == 'tags' and value:
+            self.media_display.load_elements_by_tags(list(value))
+            return
+        self.media_display.show_empty_state()
     
     def ingest_files(self):
         """Open file dialog to ingest files."""

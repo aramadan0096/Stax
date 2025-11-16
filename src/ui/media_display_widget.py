@@ -11,6 +11,7 @@ from src.preview_cache import get_preview_cache
 from src.ui.media_info_popup import MediaInfoPopup
 from src.ui.drag_gallery_view import DragGalleryView
 from src.ui.pagination_widget import PaginationWidget
+from src.ui.dialogs import AddToPlaylistDialog, EditElementDialog
 
 
 class MediaDisplayWidget(QtWidgets.QWidget):
@@ -28,6 +29,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.main_window = main_window  # Reference to MainWindow for permission checks
         self.current_list_id = None
         self.current_elements = []  # Store all elements for pagination
+        self.current_tag_filter = []
         self.view_mode = 'gallery'  # 'gallery' or 'list'
         self.alt_pressed = False  # Track Alt key state
         self.hover_timer = QtCore.QTimer()
@@ -42,6 +44,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.current_gif_item = None  # Currently hovering item with GIF
         self.element_items = {}  # Map element_id -> QListWidgetItem
         self.element_flags = {}  # Map element_id -> status flags (favorite/deprecated)
+        self._project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
         self.setup_ui()
         
         # Enable mouse tracking for hover events
@@ -182,6 +185,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
     def load_elements(self, list_id):
         """Load elements for a list with preview caching and pagination."""
         self.current_list_id = list_id
+        self.current_tag_filter = []
         elements = self.db.get_elements_by_list(list_id)
         
         # Store all elements for pagination
@@ -226,6 +230,39 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         # Use shared method to update both views
         self._update_views_with_elements(page_elements)
     
+    def show_empty_state(self, message=None):
+        """Clear views and display placeholder message."""
+        self.current_list_id = None
+        self.current_elements = []
+        self.current_tag_filter = []
+        self.gallery_view.clear()
+        self.table_view.setRowCount(0)
+        self.pagination.setVisible(False)
+        self.info_label.setText(message or "Select a list to view elements")
+        self.info_label.setVisible(True)
+
+    def load_elements_by_tags(self, tags):
+        """Load all elements that match any of the provided tags."""
+        cleaned_tags = [t.strip() for t in tags if t and t.strip()]
+        if not cleaned_tags:
+            self.show_empty_state("Select tags to filter the library")
+            return
+
+        elements = self.db.search_elements_by_tags(cleaned_tags, match_all=False)
+        self.current_list_id = None
+        self.current_elements = elements
+        self.current_tag_filter = cleaned_tags
+        self.pagination.setVisible(False)
+
+        if elements:
+            self.info_label.setText("")
+            self.info_label.setVisible(False)
+        else:
+            self.info_label.setText("No elements found for tags: {}".format(', '.join(cleaned_tags)))
+            self.info_label.setVisible(True)
+
+        self._update_views_with_elements(elements)
+
     def on_search(self, text):
         """Handle search text change (live filter) with tag support and pagination."""
         if not self.current_list_id:
@@ -318,7 +355,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             if element_id:
                 self.element_items[element_id] = item
 
-            gif_path = element.get('gif_preview_path')
+            gif_path = self._resolve_path(element.get('gif_preview_path'))
             has_gif = bool(gif_path and element_id and os.path.exists(gif_path))
 
             if has_gif:
@@ -389,7 +426,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
 
     def _load_preview_pixmap(self, element, icon_size):
         """Load and scale a static preview pixmap for an element."""
-        preview_path = element.get('preview_path')
+        preview_path = self._resolve_path(element.get('preview_path'))
         if not preview_path or not os.path.exists(preview_path):
             return None
 
@@ -631,6 +668,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         if element_id:
             element_data = self.db.get_element_by_id(element_id)
             if element_data:
+                element_data = self._prepare_element_for_popup(element_data)
                 # Get global cursor position
                 cursor_pos = QtGui.QCursor.pos()
                 self.media_popup.show_element(element_data, cursor_pos)
@@ -642,6 +680,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
     
     def on_popup_reveal(self, filepath):
         """Handle reveal request from popup."""
+        filepath = self._resolve_path(filepath)
         if filepath and os.path.exists(filepath):
             # Reveal in file explorer
             import subprocess
@@ -660,6 +699,27 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 subprocess.Popen(['open', '-R', filepath])
             else:  # Linux
                 subprocess.Popen(['xdg-open', directory])
+
+    def _resolve_path(self, path):
+        """Convert stored relative paths to absolute paths rooted at the project."""
+        if not path:
+            return None
+        path = path.strip()
+        if not path:
+            return None
+        if os.path.isabs(path):
+            return os.path.normpath(path)
+        return os.path.normpath(os.path.join(self._project_root, path))
+
+    def _prepare_element_for_popup(self, element_data):
+        """Return a copy of element data with absolute filesystem paths."""
+        element_copy = dict(element_data)
+        for key in ('preview_path', 'gif_preview_path', 'filepath_soft', 'filepath_hard'):
+            original = element_copy.get(key)
+            resolved = self._resolve_path(original)
+            if resolved:
+                element_copy[key] = resolved
+        return element_copy
     
     def show_context_menu(self, position, element_id):
         """
@@ -1036,6 +1096,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         favorites = self.db.get_favorites(user, machine)
         
         self.current_list_id = None  # Clear current list
+        self.current_tag_filter = []
         self.current_elements = favorites
         self.pagination.setVisible(False)
         self.info_label.setText("Favorites ({} items)".format(len(favorites)))
@@ -1050,6 +1111,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         elements = self.db.get_playlist_elements(playlist_id)
         
         self.current_list_id = None  # Clear current list
+        self.current_tag_filter = []
         self.current_elements = elements
         self.pagination.setVisible(False)
         self.info_label.setText("Playlist: {} ({} items)".format(playlist['name'], len(elements)))

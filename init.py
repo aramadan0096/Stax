@@ -35,7 +35,7 @@ try:
     print("[StaX init.py]   [OK] Added: {}".format(stax_root))
     
     # Add subdirectories to plugin path
-    subdirs = ['./tools', './src/ui', './src', './resources']
+    subdirs = ['./tools', './src/ui', './src', './resources', './dependencies/ffpyplayer']
     for subdir in subdirs:
         try:
             nuke.pluginAddPath(subdir)
@@ -83,3 +83,4 @@ except Exception as e:
     traceback.print_exc()
     print("="*80 + "\n")
     raise
+sys.path.append(r'D:\Scripts\modern-stock-browser\dependencies\ffpyplayer')

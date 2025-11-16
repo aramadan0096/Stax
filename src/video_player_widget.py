@@ -7,16 +7,52 @@ Python 2.7/3+ compatible
 
 import os
 import sys
+
+try:
+    import dependency_bootstrap
+except ImportError:
+    project_root_guess = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    if project_root_guess not in sys.path:
+        sys.path.insert(0, project_root_guess)
+    import dependency_bootstrap
+
+dependency_bootstrap.bootstrap()
+
 from PySide2 import QtWidgets, QtCore, QtGui
 import subprocess
 import json
 import ctypes
 
-try:
-    from ffpyplayer.player import MediaPlayer as FFMediaPlayer
-except ImportError:
-    FFMediaPlayer = None
-    print("Warning: ffpyplayer not available. Install with: pip install ffpyplayer")
+_FFPY_IMPORT_ERROR = None
+
+
+def _import_ffpyplayer():
+    """Attempt to import ffpyplayer MediaPlayer."""
+    global _FFPY_IMPORT_ERROR
+    try:
+        from ffpyplayer.player import MediaPlayer as _MediaPlayer  # pylint: disable=import-error
+        _FFPY_IMPORT_ERROR = None
+        return _MediaPlayer
+    except ImportError as err:
+        _FFPY_IMPORT_ERROR = err
+        return None
+
+
+FFMediaPlayer = _import_ffpyplayer()
+
+if FFMediaPlayer is None:
+    # Try to load bundled wheels from ../dependencies
+    _project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    _dependencies_root = os.path.join(_project_root, 'dependencies')
+    if os.path.isdir(_dependencies_root) and _dependencies_root not in sys.path:
+        sys.path.insert(0, _dependencies_root)
+    _ffpy_pkg = os.path.join(_dependencies_root, 'ffpyplayer')
+    if os.path.isdir(_ffpy_pkg) and _ffpy_pkg not in sys.path:
+        sys.path.insert(0, _ffpy_pkg)
+    FFMediaPlayer = _import_ffpyplayer()
+
+if FFMediaPlayer is None:
+    print("Warning: ffpyplayer not available ({}). Install with: pip install ffpyplayer".format(_FFPY_IMPORT_ERROR or 'unknown error'))
 
 
 class FFpyVideoWidget(QtWidgets.QLabel):
@@ -89,7 +125,11 @@ class PlayerController(QtCore.QObject):
     def open(self, filename):
         """Open a media file."""
         if FFMediaPlayer is None:
-            raise RuntimeError("ffpyplayer not available. Install with: pip install ffpyplayer")
+            raise RuntimeError(
+                "ffpyplayer not available ({}). Install with: pip install ffpyplayer".format(
+                    _FFPY_IMPORT_ERROR or 'unknown import error'
+                )
+            )
         
         self.close()
         self._duration = 0.0

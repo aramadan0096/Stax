@@ -7,6 +7,10 @@ Adds StaX panel to Nuke's menu system
 import sys
 import os
 
+import dependency_bootstrap
+
+dependency_bootstrap.bootstrap()
+
 print("\n" + "="*80)
 print("[StaX menu.py] Starting menu configuration...")
 print("="*80)

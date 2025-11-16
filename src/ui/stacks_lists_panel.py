@@ -24,6 +24,7 @@ class StacksListsPanel(QtWidgets.QWidget):
     list_selected = QtCore.Signal(int)   # list_id
     favorites_selected = QtCore.Signal()  # Show favorites
     playlist_selected = QtCore.Signal(int)  # playlist_id
+    tags_filter_changed = QtCore.Signal(list)  # selected tags
     
     def __init__(self, db_manager, config, parent=None):
         super(StacksListsPanel, self).__init__(parent)
@@ -57,21 +58,23 @@ class StacksListsPanel(QtWidgets.QWidget):
         title.setProperty("class", "title")
         layout.addWidget(title)
         
-        # Favorites button
-        self.favorites_btn = QtWidgets.QPushButton("Favorites")
-        self.favorites_btn.setIcon(get_icon('favorite', size=20))
-        self.favorites_btn.setProperty("class", "primary")
-        self.favorites_btn.setObjectName('primary')
-        self.favorites_btn.clicked.connect(self.on_favorites_clicked)
-        layout.addWidget(self.favorites_btn)
-        
-        # Separator
+        # Separator between navigation title and playlists
         separator = QtWidgets.QFrame()
         separator.setFrameShape(QtWidgets.QFrame.HLine)
         separator.setFrameShadow(QtWidgets.QFrame.Sunken)
         layout.addWidget(separator)
         
-        # Playlists section
+        # Splitter between playlists and stacks tree
+        self.nav_splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
+        self.nav_splitter.setChildrenCollapsible(False)
+        layout.addWidget(self.nav_splitter)
+        
+        # --- Playlists container ---
+        playlists_container = QtWidgets.QWidget()
+        playlists_layout = QtWidgets.QVBoxLayout(playlists_container)
+        playlists_layout.setContentsMargins(0, 0, 0, 0)
+        playlists_layout.setSpacing(6)
+        
         playlists_header = QtWidgets.QHBoxLayout()
         playlists_label = QtWidgets.QLabel("Playlists")
         playlists_label.setStyleSheet("font-weight: bold; padding: 5px;")
@@ -84,36 +87,38 @@ class StacksListsPanel(QtWidgets.QWidget):
         self.add_playlist_btn.setProperty('class', 'small')
         self.add_playlist_btn.clicked.connect(self.add_playlist)
         playlists_header.addWidget(self.add_playlist_btn)
+        playlists_layout.addLayout(playlists_header)
         
-        layout.addLayout(playlists_header)
-        
-        # Playlists list
         self.playlists_list = QtWidgets.QListWidget()
-        self.playlists_list.setMaximumHeight(150)
+        self.playlists_list.setMaximumHeight(200)
         self.playlists_list.itemClicked.connect(self.on_playlist_clicked)
-        layout.addWidget(self.playlists_list)
+        playlists_layout.addWidget(self.playlists_list)
         
-        # Separator
+        self.nav_splitter.addWidget(playlists_container)
+        
+        # --- Stacks container ---
+        stacks_container = QtWidgets.QWidget()
+        stacks_layout = QtWidgets.QVBoxLayout(stacks_container)
+        stacks_layout.setContentsMargins(0, 0, 0, 0)
+        stacks_layout.setSpacing(6)
+        
         separator2 = QtWidgets.QFrame()
         separator2.setFrameShape(QtWidgets.QFrame.HLine)
         separator2.setFrameShadow(QtWidgets.QFrame.Sunken)
-        layout.addWidget(separator2)
+        stacks_layout.addWidget(separator2)
         
-        # Stacks & Lists label
         stacks_label = QtWidgets.QLabel("Stacks & Lists")
         stacks_label.setStyleSheet("font-weight: bold; padding: 5px;")
-        layout.addWidget(stacks_label)
+        stacks_layout.addWidget(stacks_label)
         
-        # Tree widget
         self.tree = QtWidgets.QTreeWidget()
         self.tree.setHeaderHidden(True)
         self.tree.setColumnCount(1)
         self.tree.itemClicked.connect(self.on_item_clicked)
         self.tree.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self.show_tree_context_menu)
-        layout.addWidget(self.tree)
+        stacks_layout.addWidget(self.tree, 1)
         
-        # Buttons
         button_layout = QtWidgets.QHBoxLayout()
         
         self.add_stack_btn = QtWidgets.QPushButton("Stack")
@@ -132,7 +137,21 @@ class StacksListsPanel(QtWidgets.QWidget):
         self.add_list_btn.clicked.connect(self.add_list)
         button_layout.addWidget(self.add_list_btn)
         
-        layout.addLayout(button_layout)
+        stacks_layout.addLayout(button_layout)
+        
+        self.nav_splitter.addWidget(stacks_container)
+        self.nav_splitter.setSizes([180, 320])
+
+        # Tags filter section
+        tags_label = QtWidgets.QLabel("Tags Filter")
+        tags_label.setStyleSheet("font-weight: bold; padding: 5px;")
+        layout.addWidget(tags_label)
+
+        self.tags_list = QtWidgets.QListWidget()
+        self.tags_list.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)
+        self.tags_list.setMaximumHeight(180)
+        self.tags_list.itemSelectionChanged.connect(self.on_tags_selection_changed)
+        layout.addWidget(self.tags_list)
     
     def on_favorites_clicked(self):
         """Handle favorites button click."""
@@ -160,13 +179,51 @@ class StacksListsPanel(QtWidgets.QWidget):
             item.setIcon(get_icon('playlist', size=16))
             item.setData(QtCore.Qt.UserRole, playlist['playlist_id'])
             self.playlists_list.addItem(item)
+
+    def load_tags(self):
+        """Load unique tags and preserve selection."""
+        if not hasattr(self, 'tags_list'):
+            return
+        selected = set(self.get_selected_tags())
+        self.tags_list.blockSignals(True)
+        self.tags_list.clear()
+        tags = self.db.get_all_tags()
+        for tag in tags:
+            item = QtWidgets.QListWidgetItem(tag)
+            self.tags_list.addItem(item)
+            if tag in selected:
+                item.setSelected(True)
+        self.tags_list.blockSignals(False)
+        if selected:
+            self.tags_filter_changed.emit(self.get_selected_tags())
+
+    def get_selected_tags(self):
+        """Return currently selected tags."""
+        if not hasattr(self, 'tags_list'):
+            return []
+        return [item.text() for item in self.tags_list.selectedItems()]
+
+    def on_tags_selection_changed(self):
+        """Emit updated tag selection."""
+        self.tags_filter_changed.emit(self.get_selected_tags())
+
+    def clear_tag_selection(self, emit_signal=False):
+        """Clear tag selection programmatically."""
+        if not hasattr(self, 'tags_list'):
+            return
+        self.tags_list.blockSignals(True)
+        self.tags_list.clearSelection()
+        self.tags_list.blockSignals(False)
+        if emit_signal:
+            self.tags_filter_changed.emit([])
     
     def load_data(self):
         """Load stacks, lists, and playlists from database with hierarchical sub-lists."""
         self.tree.clear()
         
-        # Load playlists
+        # Load playlists and tags
         self.load_playlists()
+        self.load_tags()
         
         # Load stacks and lists
         stacks = self.db.get_all_stacks()

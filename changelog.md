@@ -7,6 +7,13 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
 ## [Unreleased]
 
 ### Fixed
+- **SettingsPanel TypeError in Nuke Mode** (CRITICAL FIX):
+  - Fixed `TypeError: string indices must be integers` when opening Settings panel
+  - **Problem:** In Nuke mode, `current_user` was set as string `"admin"` instead of dictionary
+  - **Solution:** Changed auto-login to use proper dictionary format with user_id, username, role, email fields
+  - **File updated:** `nuke_launcher.py` lines ~355-365
+  - Settings panel now opens successfully in Nuke without errors
+
 - **Directory Creation Permission Error** (CRITICAL FIX):
   - Fixed `PermissionError: [WinError 5] Access is denied` in THREE locations
   - **Problem:** Relative paths like `'./data'` and `'./previews'` don't work in Nuke's execution context
@@ -44,7 +51,21 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
   - **Rationale**: Simplify Nuke integration, reduce crash points during startup
 
 ### Added
-- **Comprehensive Debugging System** (NEW - Current Session):
+- **Settings Access Control** (NEW):
+  - Added login requirement check before opening Settings panel
+  - Non-admin users are prompted to login when accessing Settings (Ctrl+3)
+  - Access denied warning if user cancels login or logs in as non-admin
+  - Seamless experience in Nuke mode (auto-logged as admin)
+  - **File updated:** `nuke_launcher.py` show_settings() method
+
+- **FFpyplayer Dependencies Path** (NEW):
+  - Added `dependencies/ffpyplayer` directory to sys.path on startup
+  - Allows ffpyplayer import without pip installation in Nuke environment
+  - Conditional addition - only if directory exists
+  - Debug output confirms path addition
+  - **File updated:** `nuke_launcher.py` module initialization
+
+- **Comprehensive Debugging System** (Current Session):
   - Created `stax_logger.py` - Centralized logging infrastructure (160 lines)
   - `StaXLogger` class with dual output (console + timestamped log files)
   - Log levels: debug, info, warning, error, critical, exception
@@ -131,6 +152,11 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
   - Mock mode toggle based on environment
 
 ### Changed
+- **Nuke Panel Preview Behavior**:
+  - Disabled the video preview pane inside the embedded Nuke launcher
+  - Frees space for navigation/media grids while avoiding inactive playback controls
+  - Keeps standalone desktop build unchanged (still offers video playback)
+  - Guarded preview handlers so they safely no-op in Nuke mode
 - **Standalone Launcher Preserved:**
   - `main.py` kept intact for standalone usage
   - No breaking changes to existing workflow

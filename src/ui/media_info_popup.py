@@ -31,6 +31,7 @@ class MediaInfoPopup(QtWidgets.QDialog):
         self.frame_count = 0  # Total frames for scrubbing
         self.current_frame = 0  # Current frame position
         self.media_filepath = None  # Full path to media
+        self._project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
         
         self.setWindowFlags(
             QtCore.Qt.Tool | 
@@ -296,6 +297,7 @@ class MediaInfoPopup(QtWidgets.QDialog):
         
         # Get filepath
         self.media_filepath = element_data.get('filepath_hard') if element_data.get('is_hard_copy') else element_data.get('filepath_soft')
+        self.media_filepath = self._resolve_path(self.media_filepath)
         self.path_label.setText(self.media_filepath or 'N/A')
         
         # Show comment
@@ -315,7 +317,7 @@ class MediaInfoPopup(QtWidgets.QDialog):
             self.video_controls_widget.setVisible(False)
         
         # Load preview
-        preview_path = element_data.get('preview_path')
+        preview_path = self._resolve_path(element_data.get('preview_path'))
         if preview_path and os.path.exists(preview_path):
             pixmap = QtGui.QPixmap(preview_path)
             scaled_pixmap = pixmap.scaled(
@@ -488,7 +490,8 @@ class MediaInfoPopup(QtWidgets.QDialog):
         if self.element_data:
             filepath = self.element_data.get('filepath_hard') if self.element_data.get('is_hard_copy') else self.element_data.get('filepath_soft')
             if filepath:
-                self.reveal_requested.emit(filepath)
+                resolved = self._resolve_path(filepath)
+                self.reveal_requested.emit(resolved or filepath)
     
     def mousePressEvent(self, event):
         """Close popup on click anywhere."""
@@ -503,3 +506,14 @@ class MediaInfoPopup(QtWidgets.QDialog):
         """Cleanup when closing popup."""
         self.stop_playback()
         super(MediaInfoPopup, self).closeEvent(event)
+
+    def _resolve_path(self, path):
+        """Resolve project-relative paths to absolute ones for file access."""
+        if not path:
+            return None
+        path = path.strip()
+        if not path:
+            return None
+        if os.path.isabs(path):
+            return os.path.normpath(path)
+        return os.path.normpath(os.path.join(self._project_root, path))

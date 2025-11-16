@@ -8,6 +8,10 @@ Python 2.7 compatible
 import os
 import sys
 
+import dependency_bootstrap
+
+dependency_bootstrap.bootstrap()
+
 print("\n" + "="*80)
 print("[nuke_launcher] Module loading started...")
 print("="*80)
@@ -57,7 +61,6 @@ except ImportError:
         logger.warning("Running outside Nuke environment (mock mode)")
     print("[nuke_launcher] [WARN] Warning: Running outside Nuke environment")
 
-# Add src to path
 print("[nuke_launcher] Setting up module paths...")
 current_dir = os.path.dirname(__file__)
 if current_dir not in sys.path:
@@ -66,7 +69,15 @@ if current_dir not in sys.path:
         logger.info("Added to sys.path: {}".format(current_dir))
     print("[nuke_launcher]   [OK] Added: {}".format(current_dir))
 
-    print("[nuke_launcher]   [OK] Added: {}".format(current_dir))
+ffpyplayer_pkg = os.path.join(current_dir, 'dependencies', 'ffpyplayer')
+if os.path.isdir(ffpyplayer_pkg):
+    print("[nuke_launcher]   [OK] ffpyplayer directory detected: {}".format(ffpyplayer_pkg))
+    if logger:
+        logger.info("ffpyplayer directory detected: {}".format(ffpyplayer_pkg))
+else:
+    print("[nuke_launcher]   [WARN] ffpyplayer directory not found: {}".format(ffpyplayer_pkg))
+    if logger:
+        logger.warning("ffpyplayer directory not found: {}".format(ffpyplayer_pkg))
 
 # Import core modules with error handling
 print("[nuke_launcher] Importing core modules...")
@@ -355,11 +366,19 @@ class StaXPanel(QtWidgets.QWidget):
         
         # Skip login dialog in Nuke mode - auto-login as admin
         if NUKE_MODE:
-            print("[StaXPanel.__init__] NUKE_MODE: Skipping login dialog, auto-login as admin")
-            self.current_user = "admin"
-            self.is_admin = True
+            print("[StaXPanel.__init__] NUKE_MODE: Skipping login dialog, running as guest until elevated")
+            self.current_user = {
+                'user_id': None,
+                'username': 'guest',
+                'role': 'guest'
+            }
+            self.is_admin = False
+            if hasattr(self, 'user_label'):
+                self.user_label.setText("User: Guest (Read-only)")
+                self.user_label.setStyleSheet("padding: 5px; color: #ff9a3c; font-weight: bold;")
+            self.show_status("Running in guest mode - login required for admin settings")
             if logger:
-                logger.info("Auto-logged in as admin (Nuke mode)")
+                logger.info("Guest session initialized (Nuke mode); admin login required for settings")
         else:
             # Show login dialog in standalone mode
             print("[StaXPanel.__init__] Scheduling login dialog...")
@@ -404,14 +423,11 @@ class StaXPanel(QtWidgets.QWidget):
         self.media_display.element_double_clicked.connect(self.on_element_double_clicked)
         main_splitter.addWidget(self.media_display)
         
-        # Right: Video player preview pane (hidden by default)
-        self.video_player_pane = VideoPlayerWidget(self.db, self.config, self)
-        self.video_player_pane.closed.connect(self.on_preview_pane_closed)
-        self.video_player_pane.hide()
-        main_splitter.addWidget(self.video_player_pane)
+        # Video preview disabled in embedded Nuke mode
+        self.video_player_pane = None
         
-        # Set splitter sizes (left: 220, center: 750, right: 350)
-        main_splitter.setSizes([220, 750, 350])
+        # Set splitter sizes (left: 260, center: remainder)
+        main_splitter.setSizes([260, 900])
         
         main_layout.addWidget(main_splitter)
         
@@ -449,6 +465,11 @@ class StaXPanel(QtWidgets.QWidget):
         search_action.setToolTip("Advanced search (Ctrl+F)")
         search_action.triggered.connect(self.show_advanced_search)
         toolbar.addAction(search_action)
+
+        favorites_action = QtWidgets.QAction(get_icon('favorite', size=20), "Favorites", self)
+        favorites_action.setToolTip("Show favorites across stacks")
+        favorites_action.triggered.connect(self.on_favorites_selected)
+        toolbar.addAction(favorites_action)
         
         toolbar.addSeparator()
         
@@ -586,6 +607,8 @@ class StaXPanel(QtWidgets.QWidget):
     
     def on_selection_changed(self):
         """Handle element selection change - update preview pane."""
+        if not self.video_player_pane:
+            return
         selected_ids = self.media_display.get_selected_element_ids()
         
         if len(selected_ids) == 1:
@@ -604,6 +627,8 @@ class StaXPanel(QtWidgets.QWidget):
     
     def on_preview_pane_closed(self):
         """Handle preview pane close button."""
+        if not self.video_player_pane:
+            return
         self.video_player_pane.hide()
         self.video_player_pane.clear()
     
@@ -688,33 +713,48 @@ class StaXPanel(QtWidgets.QWidget):
         dialog.setWindowTitle("Ingestion History")
         dialog.resize(800, 500)
         
-        layout = QtWidgets.QVBoxLayout(dialog)
+        dialog_layout = QtWidgets.QVBoxLayout(dialog)
         history_panel = HistoryPanel(self.db)
-        layout.addWidget(history_panel)
+        dialog_layout.addWidget(history_panel)
         
         # Close button
         close_btn = QtWidgets.QPushButton("Close")
         close_btn.clicked.connect(dialog.accept)
-        layout.addWidget(close_btn)
+        dialog_layout.addWidget(close_btn)
         
         history_panel.load_history()
         dialog.exec_()
     
     def show_settings(self):
-        """Show settings dialog."""
+        """Show settings dialog - requires admin access."""
+        # Check if user is admin, if not show login dialog first
+        if not self.is_admin:
+            print("[show_settings] Non-admin user attempting to access settings, showing login...")
+            self.show_login()
+            
+            # Check again after login attempt
+            if not self.is_admin:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Access Denied",
+                    "Settings panel requires administrator privileges.\n\n"
+                    "Please login as an administrator to access settings."
+                )
+                return
+        
         dialog = QtWidgets.QDialog(self)
         dialog.setWindowTitle("Settings")
         dialog.resize(900, 600)
         
-        layout = QtWidgets.QVBoxLayout(dialog)
+        dialog_layout = QtWidgets.QVBoxLayout(dialog)
         settings_panel = SettingsPanel(self.config, self.db, main_window=self)
         settings_panel.settings_changed.connect(self.on_settings_changed)
-        layout.addWidget(settings_panel)
+        dialog_layout.addWidget(settings_panel)
         
         # Close button
         close_btn = QtWidgets.QPushButton("Close")
         close_btn.clicked.connect(dialog.accept)
-        layout.addWidget(close_btn)
+        dialog_layout.addWidget(close_btn)
         
         dialog.exec_()
     
