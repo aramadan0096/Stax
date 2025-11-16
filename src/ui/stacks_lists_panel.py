@@ -64,10 +64,20 @@ class StacksListsPanel(QtWidgets.QWidget):
         separator.setFrameShadow(QtWidgets.QFrame.Sunken)
         layout.addWidget(separator)
         
+        # Main splitter between playlists/stacks and tags
+        self.main_splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
+        self.main_splitter.setChildrenCollapsible(False)
+        layout.addWidget(self.main_splitter)
+        
+        # Top container with playlists and stacks (using nested splitter)
+        top_container = QtWidgets.QWidget()
+        top_layout = QtWidgets.QVBoxLayout(top_container)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        
         # Splitter between playlists and stacks tree
         self.nav_splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
         self.nav_splitter.setChildrenCollapsible(False)
-        layout.addWidget(self.nav_splitter)
+        top_layout.addWidget(self.nav_splitter)
         
         # --- Playlists container ---
         playlists_container = QtWidgets.QWidget()
@@ -141,17 +151,35 @@ class StacksListsPanel(QtWidgets.QWidget):
         
         self.nav_splitter.addWidget(stacks_container)
         self.nav_splitter.setSizes([180, 320])
+        
+        # Add top container to main splitter
+        self.main_splitter.addWidget(top_container)
 
-        # Tags filter section
+        # Tags filter section (in its own container)
+        tags_container = QtWidgets.QWidget()
+        tags_layout = QtWidgets.QVBoxLayout(tags_container)
+        tags_layout.setContentsMargins(0, 0, 0, 0)
+        tags_layout.setSpacing(6)
+        
+        separator3 = QtWidgets.QFrame()
+        separator3.setFrameShape(QtWidgets.QFrame.HLine)
+        separator3.setFrameShadow(QtWidgets.QFrame.Sunken)
+        tags_layout.addWidget(separator3)
+        
         tags_label = QtWidgets.QLabel("Tags Filter")
         tags_label.setStyleSheet("font-weight: bold; padding: 5px;")
-        layout.addWidget(tags_label)
+        tags_layout.addWidget(tags_label)
 
         self.tags_list = QtWidgets.QListWidget()
         self.tags_list.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)
-        self.tags_list.setMaximumHeight(180)
         self.tags_list.itemSelectionChanged.connect(self.on_tags_selection_changed)
-        layout.addWidget(self.tags_list)
+        tags_layout.addWidget(self.tags_list)
+        
+        # Add tags container to main splitter
+        self.main_splitter.addWidget(tags_container)
+        
+        # Set initial sizes (top: 500px, tags: 180px)
+        self.main_splitter.setSizes([500, 180])
     
     def on_favorites_clicked(self):
         """Handle favorites button click."""

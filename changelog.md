@@ -6,7 +6,31 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
 
 ## [Unreleased]
 
+### Added
+- **Custom Focus Mode Icon**: Created `focus.svg` with corner brackets design representing focus/distraction-free mode, replacing generic expand arrow icon
+
 ### Fixed
+- **Focus Mode Geometry Bug** (Nuke & Standalone):
+  - Fixed ~50% shrinkage of elements browser when toggling focus mode
+  - **Problem:** Restoration logic used `sum(sizes)` which summed collapsed state `[0, X]` instead of actual widget width
+  - **Solution:** Changed both `nuke_launcher.py` and `main.py` to use `self.main_splitter.width()` for accurate total width
+  - Focus mode now correctly allocates space when hiding/showing navigation panel
+
+- **Empty State Placeholder Not Visible**:
+  - Fixed placeholder widget not appearing in empty stacks or lists
+  - **Problem:** Empty state widget and view_stack were siblings in layout, causing visibility conflicts
+  - **Solution:** Restructured to use `content_stack` (QStackedWidget) with two indices:
+    * Index 0: Empty state widget (icon, message, hint)
+    * Index 1: Views container (view_stack + pagination)
+  - Updated `show_empty_state()`, `load_elements()`, and `load_elements_by_tags()` to use `setCurrentIndex()`
+  - Empty state now properly displays when lists are empty
+
+- **Login Dialog Spacing**: 
+  - Increased vertical spacing between username/password fields to 25px (from 18px)
+  - Reduced button heights to 32px (from 35/48px) for better visual balance
+  - Added fixed button widths (Login: 100px, Guest: 140px)
+  - Improved layout margins and spacing throughout dialog
+
 - **SettingsPanel TypeError in Nuke Mode** (CRITICAL FIX):
   - Fixed `TypeError: string indices must be integers` when opening Settings panel
   - **Problem:** In Nuke mode, `current_user` was set as string `"admin"` instead of dictionary

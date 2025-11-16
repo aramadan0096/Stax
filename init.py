@@ -83,4 +83,3 @@ except Exception as e:
     traceback.print_exc()
     print("="*80 + "\n")
     raise
-sys.path.append(r'D:\Scripts\modern-stock-browser\dependencies\ffpyplayer')

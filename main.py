@@ -60,14 +60,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.nuke_integration = NukeIntegration(self.nuke_bridge, self.db)
         self.ingestion = IngestionCore(self.db, self.config.get_all())
         self.processor_manager = ProcessorManager(self.config.get_all())
-        self.focus_mode_button = None
-        self.focus_mode_enabled = False
         self._stored_left_width = None
         self.active_view = ('none', None)
         self._view_before_tags = None
         self._suspend_tag_restore = False
         
-        # User authentication
+        # User authentication - deferred login (only when accessing settings or delete operations)
         self.current_user = None
         self.is_admin = False
         
@@ -82,8 +80,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setup_ui()
         self.setup_shortcuts()
         
-        # Show login dialog
-        self.show_login()
+        # Skip login dialog - login will be requested only when needed
     
     def setup_ui(self):
         """Setup the main window UI."""
@@ -127,7 +124,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.main_splitter.setSizes([280, 920, 360])
 
         layout.addWidget(self.main_splitter)
-        self.setup_focus_button()
         
         # Connect selection changes to update preview pane
         self.media_display.gallery_view.itemSelectionChanged.connect(self.on_selection_changed)
@@ -164,7 +160,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.toolbar.setStyleSheet("QToolBar { spacing: 6px; padding: 4px; }")
         self.addToolBar(QtCore.Qt.TopToolBarArea, self.toolbar)
 
-        ingest_action = QtWidgets.QAction(get_icon('upload', size=20), "Ingest Files", self)
+        ingest_action = QtWidgets.QAction(get_icon('import', size=20), "Ingest Files", self)
         ingest_action.setToolTip("Ingest files into StaX (Ctrl+I)")
         ingest_action.triggered.connect(self.ingest_files)
         self.toolbar.addAction(ingest_action)
@@ -189,10 +185,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.toolbar.addSeparator()
 
-        toolset_action = QtWidgets.QAction(get_icon('add', size=20), "Register Toolset", self)
-        toolset_action.setToolTip("Save selected Nuke nodes as toolset (Ctrl+Shift+T)")
-        toolset_action.triggered.connect(self.register_toolset)
-        self.toolbar.addAction(toolset_action)
+        # Register Toolset action - hidden in standalone mode (only show in Nuke)
+        # Since this is standalone, we don't add this action at all
+        # toolset_action = QtWidgets.QAction(get_icon('add', size=20), "Register Toolset", self)
+        # toolset_action.setToolTip("Save selected Nuke nodes as toolset (Ctrl+Shift+T)")
+        # toolset_action.triggered.connect(self.register_toolset)
+        # self.toolbar.addAction(toolset_action)
 
         history_action = QtWidgets.QAction(get_icon('history', size=20), "History", self)
         history_action.setToolTip("Show ingestion history (Ctrl+2)")
@@ -204,85 +202,34 @@ class MainWindow(QtWidgets.QMainWindow):
         settings_action.triggered.connect(self.toggle_settings)
         self.toolbar.addAction(settings_action)
 
-    def setup_focus_button(self):
-        """Create floating action button for focus mode."""
-        if not getattr(self, 'media_display', None):
-            return
-        self.media_display.installEventFilter(self)
-        self.focus_mode_button = QtWidgets.QToolButton(self.media_display)
-        self.focus_mode_button.setIcon(get_icon('expand', size=20))
-        self.focus_mode_button.setIconSize(QtCore.QSize(20, 20))
-        self.focus_mode_button.setToolTip("Enter focus mode (hide navigation panel)")
-        self.focus_mode_button.setCheckable(True)
-        self.focus_mode_button.clicked.connect(self.toggle_focus_mode)
-        self.focus_mode_button.setCursor(QtCore.Qt.PointingHandCursor)
-        self.focus_mode_button.setStyleSheet(
-            """
-            QToolButton {
-                background-color: rgba(22, 198, 176, 0.9);
-                border: 0px;
-                border-radius: 22px;
-                padding: 10px;
-                color: #0b0e0c;
-            }
-            QToolButton:hover {
-                background-color: rgba(22, 198, 176, 1.0);
-            }
-            QToolButton:checked {
-                background-color: rgba(255, 154, 60, 0.95);
-                color: #1b1b1b;
-            }
-            """
-        )
-        self.focus_mode_button.resize(44, 44)
-        self.focus_mode_button.show()
-        self.position_focus_button()
-
-    def position_focus_button(self):
-        """Keep the focus toggle anchored to media display corner."""
-        if not self.focus_mode_button or not getattr(self, 'media_display', None):
-            return
-        margin = 16
-        parent_rect = self.media_display.rect()
-        x = max(margin, parent_rect.width() - self.focus_mode_button.width() - margin)
-        y = max(margin, parent_rect.height() - self.focus_mode_button.height() - margin)
-        self.focus_mode_button.move(x, y)
-        self.focus_mode_button.raise_()
-
     def toggle_focus_mode(self, checked):
-        """Hide or show navigation panel for distraction-free browsing."""
+        """Hide or show navigation panel and toolbar for distraction-free browsing."""
         sizes = self.main_splitter.sizes()
         if len(sizes) < 3:
             return
 
-        self.focus_mode_enabled = checked
-
         if checked:
+            # Store the left width before hiding
             self._stored_left_width = sizes[0] if sizes[0] > 0 else self.stacks_panel.minimumWidth()
-            sizes[1] += sizes[0]
-            sizes[0] = 0
+            # Give left panel space to center, keep preview pane unchanged
+            total_width = self.main_splitter.width()
+            preview_width = sizes[2]
+            center_width = max(400, total_width - preview_width)
+            sizes = [0, center_width, preview_width]
             self.stacks_panel.hide()
-            self.focus_mode_button.setToolTip("Exit focus mode (show navigation panel)")
+            self.toolbar.hide()  # Hide toolbar in focus mode
         else:
+            # Restore the left panel
             restore_width = self._stored_left_width or self.stacks_panel.minimumWidth()
-            total = sum(sizes)
-            preview = sizes[2]
-            center = max(400, total - restore_width - preview)
-            sizes = [max(self.stacks_panel.minimumWidth(), restore_width), center, preview]
+            total_width = self.main_splitter.width()
+            preview_width = sizes[2]
+            center_width = max(400, total_width - restore_width - preview_width)
+            sizes = [restore_width, center_width, preview_width]
             self.stacks_panel.show()
-            self.focus_mode_button.setToolTip("Enter focus mode (hide navigation panel)")
+            self.toolbar.show()  # Show toolbar when exiting focus mode
 
         self.main_splitter.setSizes(sizes)
-        self.position_focus_button()
 
-    def resizeEvent(self, event):
-        super(MainWindow, self).resizeEvent(event)
-        self.position_focus_button()
-
-    def eventFilter(self, obj, event):
-        if obj == getattr(self, 'media_display', None) and event.type() == QtCore.QEvent.Resize:
-            self.position_focus_button()
-        return super(MainWindow, self).eventFilter(obj, event)
 
     def expand_preview_pane(self):
         """Expand or show the preview pane without crushing other panes."""
@@ -369,15 +316,14 @@ class MainWindow(QtWidgets.QMainWindow):
         advanced_search_action.triggered.connect(self.show_advanced_search)
         search_menu.addAction(advanced_search_action)
         
-        # Nuke menu
-        nuke_menu = menubar.addMenu("Nuke")
-        
-        register_toolset_action = QtWidgets.QAction("Register Selection as Toolset...", self)
-        register_toolset_action.setIcon(get_icon('add', size=16))
-        register_toolset_action.setShortcut("Ctrl+Shift+T")
-        register_toolset_action.triggered.connect(self.register_toolset)
-        register_toolset_action.setToolTip("Save selected Nuke nodes as a reusable toolset")
-        nuke_menu.addAction(register_toolset_action)
+        # Nuke menu - hidden in standalone mode (only available in Nuke)
+        # nuke_menu = menubar.addMenu("Nuke")
+        # register_toolset_action = QtWidgets.QAction("Register Selection as Toolset...", self)
+        # register_toolset_action.setIcon(get_icon('add', size=16))
+        # register_toolset_action.setShortcut("Ctrl+Shift+T")
+        # register_toolset_action.triggered.connect(self.register_toolset)
+        # register_toolset_action.setToolTip("Save selected Nuke nodes as a reusable toolset")
+        # nuke_menu.addAction(register_toolset_action)
         
         # View menu
         view_menu = menubar.addMenu("View")
@@ -411,8 +357,15 @@ class MainWindow(QtWidgets.QMainWindow):
         # Ctrl+3 for settings
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+3"), self, self.toggle_settings)
     
-    def show_login(self):
-        """Show login dialog."""
+    def show_login(self, required=False):
+        """Show login dialog.
+        
+        Args:
+            required (bool): If True, prevents cancellation. If False, allows canceling login.
+        
+        Returns:
+            bool: True if user logged in successfully, False if cancelled
+        """
         login_dialog = LoginDialog(self.db, self)
         if login_dialog.exec_():
             self.current_user = login_dialog.authenticated_user
@@ -424,14 +377,18 @@ class MainWindow(QtWidgets.QMainWindow):
             self.setWindowTitle("Stax - {}{}".format(username, role_text))
             
             self.statusBar().showMessage("Logged in as: {}".format(username))
+            return True
         else:
-            # User cancelled login - exit application
-            QtWidgets.QApplication.quit()
+            # User cancelled login
+            if required:
+                # If login is required (e.g., for settings), return False
+                return False
+            return False
     
     def check_admin_permission(self, action_name="this action"):
         """
         Check if current user has admin permissions.
-        Shows error dialog if not.
+        Shows error dialog if not. Requests login if not logged in.
         
         Args:
             action_name (str): Name of the action being attempted
@@ -439,6 +396,18 @@ class MainWindow(QtWidgets.QMainWindow):
         Returns:
             bool: True if user is admin
         """
+        # Check if user is logged in
+        if not self.current_user:
+            # Request login first
+            if not self.show_login(required=True):
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "Login Required",
+                    "You must login to perform {}.".format(action_name)
+                )
+                return False
+        
+        # Check if user is admin
         if not self.is_admin:
             QtWidgets.QMessageBox.warning(
                 self,
@@ -475,7 +444,18 @@ class MainWindow(QtWidgets.QMainWindow):
             self.history_panel.load_history()
     
     def toggle_settings(self):
-        """Toggle settings panel visibility."""
+        """Toggle settings panel visibility - requires login."""
+        # Check if user is logged in
+        if not self.current_user:
+            # Request login first
+            if not self.show_login(required=True):
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "Login Required",
+                    "You must login to access settings."
+                )
+                return
+        
         self.settings_dock.setVisible(not self.settings_dock.isVisible())
     
     def on_list_selected(self, list_id):
