@@ -409,27 +409,31 @@ class StaXPanel(QtWidgets.QWidget):
         main_layout.addWidget(toolbar)
         
         # Main content splitter
-        main_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        self.main_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        self._stored_left_width = None
         
         # Left: Stacks/Lists panel
         self.stacks_panel = StacksListsPanel(self.db, self.config)
         self.stacks_panel.list_selected.connect(self.on_list_selected)
         self.stacks_panel.favorites_selected.connect(self.on_favorites_selected)
         self.stacks_panel.playlist_selected.connect(self.on_playlist_selected)
-        main_splitter.addWidget(self.stacks_panel)
+        self.main_splitter.addWidget(self.stacks_panel)
         
         # Center: Media display
         self.media_display = MediaDisplayWidget(self.db, self.config, self.nuke_bridge, main_window=self)
         self.media_display.element_double_clicked.connect(self.on_element_double_clicked)
-        main_splitter.addWidget(self.media_display)
+        self.main_splitter.addWidget(self.media_display)
         
         # Video preview disabled in embedded Nuke mode
         self.video_player_pane = None
         
         # Set splitter sizes (left: 260, center: remainder)
-        main_splitter.setSizes([260, 900])
+        self.main_splitter.setSizes([260, 900])
         
-        main_layout.addWidget(main_splitter)
+        main_layout.addWidget(self.main_splitter)
+        
+        # Store toolbar reference for focus mode
+        self.toolbar = toolbar
         
         # Connect selection changes to update preview pane
         self.media_display.gallery_view.itemSelectionChanged.connect(self.on_selection_changed)
@@ -570,6 +574,31 @@ class StaXPanel(QtWidgets.QWidget):
     def show_status(self, message):
         """Update status label."""
         self.status_label.setText(message)
+    
+    def toggle_focus_mode(self, checked):
+        """Hide or show navigation panel and toolbar for distraction-free browsing."""
+        sizes = self.main_splitter.sizes()
+        if len(sizes) < 2:
+            return
+
+        if checked:
+            # Store the left width before hiding
+            self._stored_left_width = sizes[0] if sizes[0] > 0 else self.stacks_panel.minimumWidth()
+            # Give all space to center
+            total_width = self.main_splitter.width()
+            sizes = [0, total_width]
+            self.stacks_panel.hide()
+            self.toolbar.hide()  # Hide toolbar in focus mode
+        else:
+            # Restore the left panel
+            restore_width = self._stored_left_width or self.stacks_panel.minimumWidth()
+            total_width = self.main_splitter.width()
+            center_width = max(400, total_width - restore_width)
+            sizes = [restore_width, center_width]
+            self.stacks_panel.show()
+            self.toolbar.show()  # Show toolbar when exiting focus mode
+
+        self.main_splitter.setSizes(sizes)
     
     def on_list_selected(self, list_id):
         """Handle list selection."""
