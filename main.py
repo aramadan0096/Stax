@@ -457,12 +457,17 @@ class MainWindow(QtWidgets.QMainWindow):
 
 def main():
     """Main entry point."""
+    # Enable High DPI scaling before creating the app (improves appearance on HiDPI displays)
+    try:
+        QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling)
+        QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_UseHighDpiPixmaps)
+    except Exception:
+        pass
+
     app = QtWidgets.QApplication(sys.argv)
     
-    # Set application style
+    # Set application style and load styles early
     app.setStyle('Fusion')
-    
-    # Load and apply stylesheet
     stylesheet_path = os.path.join(os.path.dirname(__file__), 'resources', 'style.qss')
     if os.path.exists(stylesheet_path):
         try:

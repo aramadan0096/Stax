@@ -41,7 +41,7 @@ Advanced solution for mass production stock footage management clone designed fo
   - User preferences management
   - Auto-detection of user/machine identity
 
-- **GUI Application** (`gui_main.py`): **✅ COMPLETE**
+- **GUI Application** (`main.py`): **✅ COMPLETE**
   - **StacksListsPanel**: Tree navigation with add/manage stacks and lists
   - **MediaDisplayWidget**: Gallery and List view modes
   - **Live Search**: Instant filtering as you type
@@ -80,7 +80,7 @@ pip install PySide2 Pillow
 
 ```python
 # Run GUI application
-python gui_main.py
+python main.py
 ```
 
 On first run:

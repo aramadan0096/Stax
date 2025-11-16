@@ -7,7 +7,7 @@ Session 6 successfully implemented all 7 requested features from the user's list
 
 ### ✅ Feature 1: Media Info Popup with Alt-Hover (ALREADY WORKING)
 - **Status**: Pre-existing, verified working
-- **Location**: `gui_main.py` lines 388-687 (MediaInfoPopup class)
+- **Location**: `main.py` lines 388-687 (MediaInfoPopup class)
 - **Implementation**: Alt+Hover triggers non-modal popup with:
   - Large media preview from `preview_path` (PNG thumbnail, 380x280px)
   - Metadata display (name, type, format, frames, size, path, comment)
@@ -18,7 +18,7 @@ Session 6 successfully implemented all 7 requested features from the user's list
 
 ### ✅ Feature 2: Toolset Creation - Register Selection as Toolset (ALREADY IMPLEMENTED)
 - **Status**: Pre-existing, fully functional
-- **Location**: `gui_main.py` lines 3993-4160 (RegisterToolsetDialog)
+- **Location**: `main.py` lines 3993-4160 (RegisterToolsetDialog)
 - **Implementation**:
   - Menu action: Nuke > Register Selection as Toolset (Ctrl+Shift+T)
   - Dialog UI: Toolset name, target list selector, comment field, preview generation option
@@ -29,7 +29,7 @@ Session 6 successfully implemented all 7 requested features from the user's list
 
 ### ✅ Feature 3: Drag & Drop into Nuke DAG (ALREADY IMPLEMENTED)
 - **Status**: Pre-existing, confirmed in changelog (Session 4)
-- **Location**: `gui_main.py` lines 1026-1145 (DragGalleryView)
+- **Location**: `main.py` lines 1026-1145 (DragGalleryView)
 - **Implementation**:
   - Custom QListWidget with drag & drop support
   - `startDrag()` override sets MIME data (element IDs, file URLs, custom app data)
@@ -122,8 +122,8 @@ Session 6 successfully implemented all 7 requested features from the user's list
 ### ✅ Feature 7: Lazy-loading Thumbnails & Pagination (ALREADY IMPLEMENTED)
 - **Status**: Pre-existing, confirmed working
 - **Location**: 
-  - `gui_main.py` lines 1210-1298: Pagination widget and controls
-  - `gui_main.py` lines 1303-1510: Page-based loading implementation
+  - `main.py` lines 1210-1298: Pagination widget and controls
+  - `main.py` lines 1303-1510: Page-based loading implementation
   - Settings panel: Pagination configuration
 - **Implementation**:
   - Pagination system with page selector widget

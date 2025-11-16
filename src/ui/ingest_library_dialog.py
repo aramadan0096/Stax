@@ -45,6 +45,8 @@ class IngestLibraryDialog(QtWidgets.QDialog):
         self.folder_path_edit.setReadOnly(True)
         self.folder_path_edit.setPlaceholderText("Click 'Browse' to select library folder...")
         browse_btn = QtWidgets.QPushButton("Browse...")
+        browse_btn.setObjectName('small')
+        browse_btn.setProperty('class', 'small')
         browse_btn.clicked.connect(self.select_folder)
         
         folder_layout.addWidget(folder_label)
@@ -95,15 +97,20 @@ class IngestLibraryDialog(QtWidgets.QDialog):
         button_layout = QtWidgets.QHBoxLayout()
         
         self.scan_btn = QtWidgets.QPushButton("Scan Folder")
+        self.scan_btn.setObjectName('primary')
+        self.scan_btn.setProperty('class', 'primary')
         self.scan_btn.clicked.connect(self.scan_folder)
         self.scan_btn.setEnabled(False)
         
         self.ingest_btn = QtWidgets.QPushButton("Start Ingestion")
+        self.ingest_btn.setObjectName('primary')
+        self.ingest_btn.setProperty('class', 'primary')
         self.ingest_btn.clicked.connect(self.start_ingestion)
         self.ingest_btn.setEnabled(False)
-        self.ingest_btn.setStyleSheet("background-color: #16c6b0; font-weight: bold;")
         
         cancel_btn = QtWidgets.QPushButton("Cancel")
+        cancel_btn.setObjectName('small')
+        cancel_btn.setProperty('class', 'small')
         cancel_btn.clicked.connect(self.reject)
         
         button_layout.addStretch()

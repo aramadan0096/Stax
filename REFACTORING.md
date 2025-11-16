@@ -2,11 +2,11 @@
 
 ## Overview
 
-This document describes the comprehensive refactoring of the StaX GUI codebase, which split a monolithic 4,663-line `gui_main.py` file into a well-organized modular structure.
+This document describes the comprehensive refactoring of the StaX GUI codebase, which split a monolithic 4,663-line `main.py` file into a well-organized modular structure.
 
 ## Problem Statement
 
-The original `gui_main.py` contained:
+The original `main.py` contained:
 - 19 widget and dialog classes
 - Mixed GUI presentation logic with business logic
 - Poor maintainability and testability
@@ -58,9 +58,9 @@ Each file contains a single, focused widget class:
 - `SettingsPanel` - Comprehensive settings interface
 - `IngestLibraryDialog` - Bulk library ingestion
 
-### gui_main.py
+### main.py
 
-The refactored `gui_main.py` now contains only:
+The refactored `main.py` now contains only:
 - `MainWindow` class (application entry point)
 - `main()` function
 - Necessary imports
@@ -69,7 +69,7 @@ The refactored `gui_main.py` now contains only:
 
 ## Import Structure
 
-### From gui_main.py
+### From main.py
 ```python
 from src.ui import (
     AdvancedSearchDialog,
@@ -143,7 +143,7 @@ If you need to modify a specific widget:
 2. Define your widget class
 3. Add imports to `src/ui/__init__.py`
 4. Add to `__all__` list in `__init__.py`
-5. Import in `gui_main.py` if needed by `MainWindow`
+5. Import in `main.py` if needed by `MainWindow`
 
 Example:
 ```python
@@ -206,7 +206,7 @@ Potential enhancements enabled by this refactoring:
 
 ## Related Files
 
-- `gui_main.py` - Main application entry point
+- `main.py` - Main application entry point
 - `src/ui/__init__.py` - UI module exports
 - `src/ui/*.py` - Individual widget modules
 - `.gitignore` - Excludes backup files

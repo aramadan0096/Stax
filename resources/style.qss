@@ -86,7 +86,7 @@ QPushButton:pressed {
   background: #202325;
 }
 QPushButton#primary, QPushButton.primary {
-  background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #17c6b2, stop:1 #0fb39f);
+  background: -qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #17c6b2, stop:1 #0fb39f);
   color: #071615;
   border: none;
   font-weight: 600;
@@ -144,7 +144,7 @@ QSlider::groove:horizontal {
   border-radius: 6px;
 }
 QSlider::sub-page:horizontal {
-  background: #16c6b0;
+  background: #e09834;
   border-radius: 6px;
 }
 QSlider::handle:horizontal {
@@ -265,3 +265,177 @@ QMenu::separator {
   background: #232729;
   margin: 4px 0;
 }
+
+/* ---------------------------
+   Additional widget variations
+   --------------------------- */
+
+/* Tool buttons (icon-only) - alternative compact style */
+QPushButton.icon, QToolButton.icon, QPushButton#icon, QToolButton#icon {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 6px;
+  min-width: 28px;
+  min-height: 28px;
+}
+QPushButton.icon:hover, QToolButton.icon:hover {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid #232628;
+}
+QPushButton.icon:pressed, QToolButton.icon:pressed {
+  background: rgba(0,0,0,0.2);
+}
+
+/* Primary/secondary small tool variants used in action bars */
+QPushButton.small, QToolButton.small, QPushButton#small, QToolButton#small {
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 10px;
+}
+QPushButton.small.primary, QToolButton.small.primary, QPushButton#small.primary, QToolButton#small.primary {
+  background: #16c6b0;
+  color: #061616;
+  border: none;
+}
+QPushButton.small.secondary, QToolButton.small.secondary, QPushButton#small.secondary, QToolButton#small.secondary {
+  background: #282c2e;
+  color: #e6eef0;
+  border: 1px solid #2b2f33;
+}
+
+/* ID based primary/accent fallbacks */
+QPushButton#primary, QPushButton.primary {
+  background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #17c6b2, stop:1 #0fb39f);
+  color: #071615;
+  border: none;
+  font-weight: 600;
+}
+QPushButton#accentOrange, QPushButton.accentOrange {
+  background: #ff9a3c;
+  color: #221009;
+  border: none;
+  font-weight: 600;
+}
+
+/* Tab widget styling */
+QTabWidget::pane { /* The tab widget frame */
+  border-top: 1px solid #222629;
+  background: transparent;
+}
+QTabBar::tab {
+  background: transparent;
+  color: #98a2a6;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+}
+QTabBar::tab:selected {
+  background: #151719;
+  color: #e6eef0;
+  border: 1px solid #2b2f33;
+  border-bottom: 1px solid #151719; /* visually connect with pane */
+}
+QTabBar::tab:hover { color: #e6eef0; }
+
+/* DockWidget titlebars */
+QDockWidget::title {
+  text-align: left;
+  padding: 6px 8px;
+  background: linear-gradient(#151719, #131516);
+  border-bottom: 1px solid #222629;
+}
+QDockWidget { background: #151719; border: 1px solid #222629; }
+
+/* Status bar */
+QStatusBar {
+  background: transparent;
+  border-top: 1px solid #222629;
+  padding: 4px 8px;
+}
+QStatusBar QLabel { color: #98a2a6; }
+
+/* Checkboxes and radio buttons - modern flat look */
+QCheckBox, QRadioButton {
+  spacing: 8px;
+}
+QCheckBox::indicator, QRadioButton::indicator {
+  width: 16px; height: 16px;
+}
+QCheckBox::indicator:unchecked {
+  border: 1px solid #2b2f33;
+  background: #111213;
+  border-radius: 3px;
+}
+QCheckBox::indicator:checked {
+  border: 1px solid #16c6b0;
+  background: #16c6b0;
+}
+QRadioButton::indicator:unchecked {
+  border: 1px solid #2b2f33;
+  background: #111213;
+  border-radius: 8px;
+}
+QRadioButton::indicator:checked {
+  border: 1px solid #16c6b0;
+  background: #16c6b0;
+  border-radius: 8px;
+}
+
+/* Disabled state */
+QWidget:disabled { color: #6b7376; }
+QPushButton:disabled, QToolButton:disabled { background: #202324; color: #6b7376; }
+
+/* Scroll area - subtle inner background */
+QScrollArea {
+  background: transparent;
+  border: 1px solid #222629;
+  border-radius: 8px;
+}
+
+/* Sliders - vertical variant and focused state */
+QSlider::groove:vertical {
+  width: 8px; background: #222527; border-radius: 6px;
+}
+QSlider::sub-page:vertical { background: #c6c016; border-radius: 6px; }
+QSlider:focus { outline: none; }
+
+/* Spin boxes - compact arrows */
+QSpinBox, QDoubleSpinBox {
+  padding-right: 6px;
+}
+QSpinBox::up-button, QSpinBox::down-button {
+  width: 18px;
+  border-left: 1px solid #232729;
+}
+
+/* Dial - subtle fill */
+QDial {
+  background: transparent;
+}
+
+/* Code-like viewer styles */
+QPlainTextEdit.code, QTextEdit.code {
+  background: #0f1113; color: #dfe9ea; font-family: 'Consolas', 'Courier New', monospace; font-size: 11px;
+  border: 1px solid #222629;
+  border-radius: 6px; padding: 8px;
+}
+
+/* Small badges / status chips */
+QLabel.badge {
+  background: #111213; color: #ffd93d; border: 1px solid #2b2f33; padding: 3px 8px; border-radius: 10px; font-size: 10px;
+}
+
+/* Thumbnail placeholder for media tiles */
+.thumbnail {
+  background: #111213; border: 1px dashed #232729; border-radius: 6px; min-width: 120px; min-height: 68px;
+}
+
+/* Tree header and list header emphasis */
+QHeaderView::section {
+  background: transparent; color: #98a2a6; padding: 6px 8px; border: none;
+}
+
+/* Interactive link label */
+QLabel.link { color: #16c6b0; text-decoration: underline; }

@@ -8,7 +8,7 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
 
 ### Added
 - **GUI Code Refactoring - Modular Structure** (COMPLETE):
-  - Extracted 19 widget/dialog classes from monolithic `gui_main.py` into organized modules
+  - Extracted 19 widget/dialog classes from monolithic `main.py` into organized modules
   - Created `src/ui/` module structure with 10 focused files
   - Module breakdown:
     * `dialogs.py` - 10 dialog classes (AdvancedSearchDialog, AddStackDialog, AddListDialog, etc.)
@@ -22,7 +22,7 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
     * `ingest_library_dialog.py` - IngestLibraryDialog
     * `__init__.py` - Central exports
   - Benefits:
-    * 90% reduction in gui_main.py size (187 KB → 18 KB)
+    * 90% reduction in main.py size (187 KB → 18 KB)
     * Improved maintainability - each widget in focused file
     * Better testability - widgets can be tested in isolation
     * No circular dependencies
@@ -47,7 +47,7 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
   - Performance optimized: Only processes visible page elements
   - Configuration options: items_per_page, pagination_enabled
   - Benefits: Handles large libraries (1000+ elements) without lag
-  - Files: gui_main.py (lines 1210-1298 Pagination widget, lines 1303-1510 page-based loading)
+  - Files: main.py (lines 1210-1298 Pagination widget, lines 1303-1510 page-based loading)
 - **Network-aware SQLite File Locking** (Session 6 - Feature 6 - COMPLETE):
   - Created `src/file_lock.py` - Cross-platform file locking manager (238 lines)
   - FileLockManager class with advisory file locking:
@@ -444,7 +444,7 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
 - Added `example_usage.py` to demonstrate core module usage.
 - Created `requirements.txt` with Python 2.7 compatible dependencies.
 - Added `.github/copilot-instructions.md` for AI agent guidance.
-- **Implemented `gui_main.py` - Complete PySide2 GUI application** (Alpha MVP complete):
+- **Implemented `main.py` - Complete PySide2 GUI application** (Alpha MVP complete):
   - StacksListsPanel: Tree view for navigating Stacks and Lists
   - MediaDisplayWidget: Gallery and List view modes with live search
   - HistoryPanel: Ingestion history display with CSV export

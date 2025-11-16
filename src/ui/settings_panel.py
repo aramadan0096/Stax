@@ -60,21 +60,15 @@ class SettingsPanel(QtWidgets.QWidget):
         
         save_btn = QtWidgets.QPushButton("Save All Settings")
         save_btn.setIcon(get_icon('settings', size=20))
-        save_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #16c6b0;
-                color: white;
-                font-weight: bold;
-                padding: 8px 20px;
-                border-radius: 3px;
-            }
-            QPushButton:hover { background-color: #14b39e; }
-        """)
+        save_btn.setObjectName('primary')
+        save_btn.setProperty('class', 'primary')
         save_btn.clicked.connect(self.save_all_settings)
         button_layout.addWidget(save_btn)
         
         reset_btn = QtWidgets.QPushButton("Reset to Defaults")
         reset_btn.setIcon(get_icon('refresh', size=20))
+        reset_btn.setObjectName('small')
+        reset_btn.setProperty('class', 'small')
         reset_btn.clicked.connect(self.reset_settings)
         button_layout.addWidget(reset_btn)
         
@@ -106,6 +100,8 @@ class SettingsPanel(QtWidgets.QWidget):
         db_path_layout.addWidget(self.db_path_edit)
         
         browse_db_btn = QtWidgets.QPushButton("Browse...")
+        browse_db_btn.setObjectName('small')
+        browse_db_btn.setProperty('class', 'small')
         browse_db_btn.clicked.connect(self.browse_database_path)
         db_path_layout.addWidget(browse_db_btn)
         
@@ -343,6 +339,8 @@ class SettingsPanel(QtWidgets.QWidget):
         pre_layout = QtWidgets.QHBoxLayout()
         pre_layout.addWidget(self.pre_ingest)
         pre_browse = QtWidgets.QPushButton("Browse...")
+        pre_browse.setObjectName('small')
+        pre_browse.setProperty('class', 'small')
         pre_browse.clicked.connect(lambda: self.browse_file(self.pre_ingest))
         pre_layout.addWidget(pre_browse)
         proc_layout.addRow("Pre-Ingest Hook:", pre_layout)
@@ -356,6 +354,8 @@ class SettingsPanel(QtWidgets.QWidget):
         post_layout = QtWidgets.QHBoxLayout()
         post_layout.addWidget(self.post_ingest)
         post_browse = QtWidgets.QPushButton("Browse...")
+        post_browse.setObjectName('small')
+        post_browse.setProperty('class', 'small')
         post_browse.clicked.connect(lambda: self.browse_file(self.post_ingest))
         post_layout.addWidget(post_browse)
         proc_layout.addRow("Post-Ingest Hook:", post_layout)
@@ -369,6 +369,8 @@ class SettingsPanel(QtWidgets.QWidget):
         import_layout = QtWidgets.QHBoxLayout()
         import_layout.addWidget(self.post_import)
         import_browse = QtWidgets.QPushButton("Browse...")
+        import_browse.setObjectName('small')
+        import_browse.setProperty('class', 'small')
         import_browse.clicked.connect(lambda: self.browse_file(self.post_import))
         import_layout.addWidget(import_browse)
         proc_layout.addRow("Post-Import Hook:", import_layout)
@@ -426,6 +428,8 @@ class SettingsPanel(QtWidgets.QWidget):
             pwd_layout.addRow("Confirm Password:", self.confirm_pwd)
             
             change_pwd_btn = QtWidgets.QPushButton("Change Password")
+            change_pwd_btn.setObjectName('primary')
+            change_pwd_btn.setProperty('class', 'primary')
             change_pwd_btn.clicked.connect(self.change_admin_password)
             pwd_layout.addRow("", change_pwd_btn)
             
@@ -450,14 +454,20 @@ class SettingsPanel(QtWidgets.QWidget):
             user_btn_layout = QtWidgets.QHBoxLayout()
             
             add_user_btn = QtWidgets.QPushButton("Add User")
+            add_user_btn.setObjectName('primary')
+            add_user_btn.setProperty('class', 'primary')
             add_user_btn.clicked.connect(self.add_user)
             user_btn_layout.addWidget(add_user_btn)
             
             edit_user_btn = QtWidgets.QPushButton("Edit User")
+            edit_user_btn.setObjectName('small')
+            edit_user_btn.setProperty('class', 'small')
             edit_user_btn.clicked.connect(self.edit_user)
             user_btn_layout.addWidget(edit_user_btn)
             
             deactivate_user_btn = QtWidgets.QPushButton("Deactivate User")
+            deactivate_user_btn.setObjectName('small')
+            deactivate_user_btn.setProperty('class', 'small')
             deactivate_user_btn.clicked.connect(self.deactivate_user)
             user_btn_layout.addWidget(deactivate_user_btn)
             

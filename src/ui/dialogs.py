@@ -51,6 +51,8 @@ class AdvancedSearchDialog(QtWidgets.QDialog):
         # Search button
         search_btn = QtWidgets.QPushButton("Search")
         search_btn.setIcon(get_icon('search', size=20))
+        search_btn.setObjectName('primary')
+        search_btn.setProperty('class', 'primary')
         search_btn.clicked.connect(self.perform_search)
         search_btn.setDefault(True)
         layout.addWidget(search_btn)
@@ -77,6 +79,8 @@ class AdvancedSearchDialog(QtWidgets.QDialog):
         button_layout = QtWidgets.QHBoxLayout()
         
         close_btn = QtWidgets.QPushButton("Close")
+        close_btn.setObjectName('small')
+        close_btn.setProperty('class', 'small')
         close_btn.clicked.connect(self.close)
         button_layout.addStretch()
         button_layout.addWidget(close_btn)
@@ -145,6 +149,8 @@ class AddStackDialog(QtWidgets.QDialog):
         path_layout.addWidget(self.path_edit)
         
         browse_btn = QtWidgets.QPushButton("Browse...")
+        browse_btn.setObjectName('small')
+        browse_btn.setProperty('class', 'small')
         browse_btn.clicked.connect(self.browse_path)
         path_layout.addWidget(browse_btn)
         
@@ -479,27 +485,15 @@ class LoginDialog(QtWidgets.QDialog):
         
         login_btn = QtWidgets.QPushButton("Login")
         login_btn.setMinimumHeight(35)
-        login_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #16c6b0;
-                color: white;
-                font-weight: bold;
-                border: none;
-                border-radius: 3px;
-                padding: 5px 20px;
-            }
-            QPushButton:hover {
-                background-color: #14b39e;
-            }
-            QPushButton:pressed {
-                background-color: #129a87;
-            }
-        """)
+        login_btn.setObjectName('primary')
+        login_btn.setProperty('class', 'primary')
         login_btn.clicked.connect(self.attempt_login)
         button_layout.addWidget(login_btn)
         
         guest_btn = QtWidgets.QPushButton("Continue as Guest")
         guest_btn.setMinimumHeight(35)
+        guest_btn.setObjectName('small')
+        guest_btn.setProperty('class', 'small')
         guest_btn.clicked.connect(self.continue_as_guest)
         button_layout.addWidget(guest_btn)
         

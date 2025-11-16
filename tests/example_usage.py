@@ -126,7 +126,7 @@ def main():
     print("Core modules initialized successfully!")
     print("=" * 60)
     print("\nNext steps:")
-    print("  - Run with GUI: python gui_main.py")
+    print("  - Run with GUI: python main.py")
     print("  - Configure processors in: {}".format(config.config_path))
     print("  - View database at: {}".format(config.get('database_path')))
 

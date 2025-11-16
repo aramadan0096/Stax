@@ -43,7 +43,7 @@ If you prefer manual control:
 
 ```bash
 # Create spec file
-pyi-makespec --onedir --windowed --name StaX --icon resources/icons/app_icon.ico gui_main.py
+pyi-makespec --onedir --windowed --name StaX --icon resources/icons/app_icon.ico main.py
 
 # Edit StaX.spec to add resources and data files
 # (See tools/build_installer.py for reference configuration)

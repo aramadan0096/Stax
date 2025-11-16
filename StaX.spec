@@ -3,7 +3,7 @@
 block_cipher = None
 
 a = Analysis(
-    ['D:/Scripts/modern-stock-browser/gui_main.py'],
+    ['D:/Scripts/modern-stock-browser/main.py'],
     pathex=['D:/Scripts/modern-stock-browser'],
     binaries=[],
     datas=[

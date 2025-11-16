@@ -4,7 +4,7 @@ GUI REFACTORING STRUCTURE
 BEFORE:
 -------
 ┌─────────────────────────────────────┐
-│      gui_main.py (187 KB)           │
+│      main.py (187 KB)           │
 │  ┌────────────────────────────────┐ │
 │  │ AdvancedSearchDialog           │ │
 │  │ MediaInfoPopup                 │ │
@@ -83,7 +83,7 @@ AFTER:
 └────────────────────────────────────────────────────────────┘
 
 ┌────────────────────────────────────┐
-│   gui_main.py (18 KB)              │
+│   main.py (18 KB)              │
 │ ┌────────────────────────────────┐ │
 │ │ MainWindow                     │ │
 │ │ main()                         │ │
@@ -100,7 +100,7 @@ AFTER:
 IMPORT STRUCTURE:
 -----------------
 
-gui_main.py
+main.py
     ├─> src.ui.__init__
     │       ├─> pagination_widget
     │       ├─> drag_gallery_view

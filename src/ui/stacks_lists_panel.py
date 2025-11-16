@@ -47,6 +47,7 @@ class StacksListsPanel(QtWidgets.QWidget):
         self.favorites_btn = QtWidgets.QPushButton("Favorites")
         self.favorites_btn.setIcon(get_icon('favorite', size=20))
         self.favorites_btn.setProperty("class", "primary")
+        self.favorites_btn.setObjectName('primary')
         self.favorites_btn.clicked.connect(self.on_favorites_clicked)
         layout.addWidget(self.favorites_btn)
         
@@ -65,6 +66,8 @@ class StacksListsPanel(QtWidgets.QWidget):
         self.add_playlist_btn = QtWidgets.QPushButton("New")
         self.add_playlist_btn.setIcon(get_icon('playlist', size=16))
         self.add_playlist_btn.setMaximumWidth(80)
+        self.add_playlist_btn.setObjectName('small')
+        self.add_playlist_btn.setProperty('class', 'small')
         self.add_playlist_btn.clicked.connect(self.add_playlist)
         playlists_header.addWidget(self.add_playlist_btn)
         
@@ -102,12 +105,16 @@ class StacksListsPanel(QtWidgets.QWidget):
         self.add_stack_btn = QtWidgets.QPushButton("Stack")
         self.add_stack_btn.setIcon(get_icon('stack', size=20))
         self.add_stack_btn.setToolTip("Add new Stack")
+        self.add_stack_btn.setObjectName('small')
+        self.add_stack_btn.setProperty('class', 'small')
         self.add_stack_btn.clicked.connect(self.add_stack)
         button_layout.addWidget(self.add_stack_btn)
         
         self.add_list_btn = QtWidgets.QPushButton("List")
         self.add_list_btn.setIcon(get_icon('add', size=20))
         self.add_list_btn.setToolTip("Add new List")
+        self.add_list_btn.setObjectName('small')
+        self.add_list_btn.setProperty('class', 'small')
         self.add_list_btn.clicked.connect(self.add_list)
         button_layout.addWidget(self.add_list_btn)
         

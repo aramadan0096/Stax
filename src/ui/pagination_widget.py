@@ -30,6 +30,8 @@ class PaginationWidget(QtWidgets.QWidget):
         # First page button
         self.first_btn = QtWidgets.QPushButton()
         self.first_btn.setIcon(get_icon('previous', size=16))
+        self.first_btn.setObjectName('icon')
+        self.first_btn.setProperty('class', 'small')
         self.first_btn.setToolTip("First Page")
         self.first_btn.setMaximumWidth(40)
         self.first_btn.clicked.connect(lambda: self.go_to_page(0))
@@ -38,6 +40,8 @@ class PaginationWidget(QtWidgets.QWidget):
         # Previous button
         self.prev_btn = QtWidgets.QPushButton()
         self.prev_btn.setIcon(get_icon('previous', size=16))
+        self.prev_btn.setObjectName('icon')
+        self.prev_btn.setProperty('class', 'small')
         self.prev_btn.setToolTip("Previous Page")
         self.prev_btn.setMaximumWidth(40)
         self.prev_btn.clicked.connect(self.previous_page)
@@ -52,6 +56,8 @@ class PaginationWidget(QtWidgets.QWidget):
         # Next button
         self.next_btn = QtWidgets.QPushButton()
         self.next_btn.setIcon(get_icon('next', size=16))
+        self.next_btn.setObjectName('icon')
+        self.next_btn.setProperty('class', 'small')
         self.next_btn.setToolTip("Next Page")
         self.next_btn.setMaximumWidth(40)
         self.next_btn.clicked.connect(self.next_page)
@@ -60,6 +66,8 @@ class PaginationWidget(QtWidgets.QWidget):
         # Last page button
         self.last_btn = QtWidgets.QPushButton()
         self.last_btn.setIcon(get_icon('next', size=16))
+        self.last_btn.setObjectName('icon')
+        self.last_btn.setProperty('class', 'small')
         self.last_btn.setToolTip("Last Page")
         self.last_btn.setMaximumWidth(40)
         self.last_btn.clicked.connect(lambda: self.go_to_page(self.total_pages - 1))

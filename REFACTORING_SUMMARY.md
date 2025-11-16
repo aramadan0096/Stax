@@ -1,18 +1,18 @@
 # GUI Refactoring Summary
 
 ## Objective
-Refactor the monolithic `gui_main.py` file by extracting widget classes into separate, focused modules to improve maintainability, testability, and code organization.
+Refactor the monolithic `main.py` file by extracting widget classes into separate, focused modules to improve maintainability, testability, and code organization.
 
 ## Metrics
 
 ### Before Refactoring
-- **gui_main.py:** 4,663 lines, 187 KB
+- **main.py:** 4,663 lines, 187 KB
 - **Structure:** 19 classes in single file
 - **Maintainability:** Low (difficult to navigate)
 - **Testability:** Poor (tightly coupled)
 
 ### After Refactoring  
-- **gui_main.py:** 479 lines, 18 KB (**90% reduction**)
+- **main.py:** 479 lines, 18 KB (**90% reduction**)
 - **Structure:** 10 modular files
 - **Maintainability:** High (focused, organized)
 - **Testability:** Good (isolated components)
@@ -44,7 +44,7 @@ Refactor the monolithic `gui_main.py` file by extracting widget classes into sep
 9. **ingest_library_dialog.py** - `IngestLibraryDialog`
 
 ### Main Application (1 file)
-10. **gui_main.py** - `MainWindow` + `main()` function
+10. **main.py** - `MainWindow` + `main()` function
 
 ## Technical Details
 
@@ -96,7 +96,7 @@ src/ui/
 ### Syntax Validation
 ```bash
 ✓ All 10 UI modules compile successfully
-✓ gui_main.py compiles successfully
+✓ main.py compiles successfully
 ✓ No import errors (structure validated)
 ```
 

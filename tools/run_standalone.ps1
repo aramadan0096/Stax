@@ -1,4 +1,4 @@
-# Create and activate a Python virtual environment, install requirements, and run gui_main.py
+# Create and activate a Python virtual environment, install requirements, and run main.py
 # - Places where this script is located: tools/run_standalone.ps1
 # - It expects the repository root to be the parent of the tools folder.
 # Prerequisites: Python (3.x) available on PATH and permission to run scripts.
@@ -69,10 +69,10 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# 5) Run gui_main.py from repository root
-$guiPath = Join-Path $repoRoot "gui_main.py"
+# 5) Run main.py from repository root
+$guiPath = Join-Path $repoRoot "main.py"
 if (-Not (Test-Path $guiPath)) {
-    Write-Err "gui_main.py not found at: $guiPath"
+    Write-Err "main.py not found at: $guiPath"
     exit 1
 }
 

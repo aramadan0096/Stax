@@ -72,7 +72,7 @@ Design required supporting Playlists (shared collaborative lists) and local Favo
 2.  **`ingestion_core.py`:** Manages file system operations (copy/reference), metadata extraction, image sequence detection, and preview generation.[1]
 3.  **`nuke_bridge.py`:** Contains functions executed *within* the Nuke environment for insertion (`ReadNode`, `ReadGeoNode`, Paste nodes) and registration (toolsets, media nodes).[1]
 4.  **`extensibility_hooks.py`:** Defines the Custom Processor architecture (see Section V).
-5.  **`gui_main.py`:** The primary PySide2 application, handling D&D, viewing modes, and UI elements.
+5.  **`main.py`:** The primary PySide2 application, handling D&D, viewing modes, and UI elements.
 
 ### III. Core GUI and Interaction Features
 

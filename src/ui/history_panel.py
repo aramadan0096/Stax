@@ -30,6 +30,8 @@ class HistoryPanel(QtWidgets.QWidget):
         
         # Export button
         export_btn = QtWidgets.QPushButton("Export CSV")
+        export_btn.setObjectName('small')
+        export_btn.setProperty('class', 'small')
         export_btn.clicked.connect(self.export_csv)
         title_layout.addWidget(export_btn)
         title_layout.addStretch()
@@ -46,6 +48,8 @@ class HistoryPanel(QtWidgets.QWidget):
         # Refresh button
         refresh_btn = QtWidgets.QPushButton("Refresh")
         refresh_btn.setIcon(get_icon('refresh', size=20))
+        refresh_btn.setObjectName('primary')
+        refresh_btn.setProperty('class', 'primary')
         refresh_btn.clicked.connect(self.load_history)
         layout.addWidget(refresh_btn)
     
