@@ -6,6 +6,142 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
 
 ## [Unreleased]
 
+### Fixed
+- **Directory Creation Permission Error** (CRITICAL FIX):
+  - Fixed `PermissionError: [WinError 5] Access is denied` in THREE locations
+  - **Problem:** Relative paths like `'./data'` and `'./previews'` don't work in Nuke's execution context
+  - **Solution:** Convert all relative paths to absolute paths before creating directories
+  - **Updated Files:**
+    * `src/config.py` - `Config.ensure_directories()` method (fixed `./data`, `./repository`, `./previews`, `./logs`)
+    * `src/db_manager.py` - `DatabaseManager.__init__()` method (fixed `./data` for database)
+    * `src/ingestion_core.py` - `IngestionCore.__init__()` method (fixed `./previews` for thumbnails)
+  - All three modules now:
+    * Detect script root directory (`D:\Scripts\modern-stock-browser\`)
+    * Convert relative paths to absolute paths
+    * Add better error handling (warnings instead of exceptions)
+    * Update internal paths to use absolute paths
+    * Print debug output showing resolved paths
+  - Also fixes: `AttributeError: 'NoneType' object has no attribute 'addToPane'`
+  - Prevents crash during StaXPanel initialization in Nuke
+
+- **Windows Console Encoding Issue** (CRITICAL FIX):
+  - Fixed `UnicodeEncodeError` on Nuke startup caused by Unicode symbols in debug output
+  - Replaced Unicode symbols with ASCII equivalents:
+    * `✓` → `[OK]`
+    * `✗` → `[ERROR]`
+    * `⚠` → `[WARN]`
+  - Updated all Python files: init.py, menu.py, nuke_launcher.py, stax_logger.py
+  - Created `fix_unicode.py` utility script for automated fixing
+  - Created `UNICODE_FIX.md` documentation
+  - Nuke on Windows uses CP1252 encoding which doesn't support these Unicode characters
+  - This was preventing StaX from loading in Nuke on Windows systems
+
+- **Nuke UI Compatibility Issues**:
+  - Disabled stylesheet loading in Nuke mode (uses Nuke's default Qt styling)
+  - Skipped login dialog in Nuke mode (auto-login as admin)
+  - Prevents potential Qt compatibility crashes between custom styles and Nuke's UI
+  - Login dialog only shown in standalone mode
+  - **Rationale**: Simplify Nuke integration, reduce crash points during startup
+
+### Added
+- **Comprehensive Debugging System** (NEW - Current Session):
+  - Created `stax_logger.py` - Centralized logging infrastructure (160 lines)
+  - `StaXLogger` class with dual output (console + timestamped log files)
+  - Log levels: debug, info, warning, error, critical, exception
+  - Automatic traceback capture with `exception()` method
+  - Log files stored in `logs/` directory with format: `stax_YYYYMMDD_HHMMSS.log`
+  - Singleton pattern via `get_logger()` function
+  - Log format: `[HH:MM:SS.mmm] [LEVEL] message`
+  - Added comprehensive debugging to all Nuke integration files:
+    * **init.py**: Plugin path verification, existence checks, full error handling
+    * **menu.py**: Per-command error handling, menu creation tracking
+    * **nuke_launcher.py**: Import-level debugging, initialization tracking, panel registration debugging
+  - **Import-Level Debugging**:
+    * Each module import wrapped in try/except with individual error reporting
+    * Progress indicators: ✓ for success, ✗ for failure, ⚠ for warnings
+    * Detailed error messages with full tracebacks
+    * 16 UI widget imports tracked individually
+  - **Initialization Debugging**:
+    * StaXPanel.__init__() fully instrumented with logging
+    * Every component creation tracked (Config, DatabaseManager, NukeBridge, etc.)
+    * Window property setting with error handling
+    * UI setup and login dialog scheduling with error tracking
+  - **Panel Registration Debugging**:
+    * show_stax_panel() function fully instrumented
+    * QApplication instance detection and tracking
+    * Stylesheet loading with file existence checks
+    * nukescripts.panels.registerWidgetAsPanel() with fallback handling
+    * Standalone mode debugging for testing
+  - **Main Function Debugging**:
+    * QApplication creation/retrieval tracking
+    * Panel creation and display monitoring
+    * Qt event loop execution tracking
+  - Total debugging additions: ~400+ lines across 4 files
+  - Purpose: Identify crash cause when opening StaX panel in Nuke
+
+- **Nuke Plugin Launcher** (Session 7):
+  - Created `nuke_launcher.py` - Nuke-specific panel implementation (563 lines)
+  - `StaXPanel` class - QWidget-based panel for embedding in Nuke
+  - Automatic Nuke detection and mock mode disabling
+  - Toolbar-based interface (replaces menubar for panel context)
+  - Real-time Nuke integration with actual Read/ReadGeo node creation
+  - Dockable panel using `nukescripts.panels.registerWidgetAsPanel()`
+  - Support for both Nuke panel mode and standalone dialog fallback
+  - User authentication with toolbar-based UI
+  - All features from standalone app available in panel
+  - **Key Features:**
+    * Opens with `Ctrl+Alt+S` keyboard shortcut
+    * Drag & drop elements directly into Node Graph
+    * Double-click to insert elements into DAG
+    * Register selected Nuke nodes as reusable toolsets
+    * Quick actions via StaX menu
+    * Preview pane with video playback
+    * Advanced search and filtering
+    * History and settings dialogs
+- **Updated Menu System** (`menu.py`):
+  - Professional Nuke menu integration under "StaX" top-level menu
+  - Menu commands:
+    * Open StaX Panel (`Ctrl+Alt+S`)
+    * Quick Ingest (`Ctrl+Shift+I`)
+    * Register Toolset (`Ctrl+Shift+T`)
+    * Advanced Search (`Ctrl+F`)
+  - Icon support for menu items
+  - Print confirmation messages for debugging
+  - Full error handling with per-command try/except blocks
+- **Enhanced Init Script** (`init.py`):
+  - Dynamic plugin path detection using `__file__`
+  - Adds src/, resources/, tools/ to Nuke plugin path
+  - Debug output showing loaded paths
+  - Compatible with both user directory and network installations
+  - Plugin path verification with existence checks
+  - Critical error handling with full tracebacks
+- **Comprehensive Nuke Installation Guide** (`NUKE_INSTALLATION.md`):
+  - Three installation methods (user dir, network, NUKE_PATH)
+  - Verification steps and troubleshooting
+  - Configuration examples for studios
+  - Facility-wide deployment patterns
+  - Post-import processor examples
+  - Batch operations examples
+  - 200+ lines of documentation
+- **Dual-Mode Architecture:**
+  - `main.py` remains as standalone launcher (QMainWindow)
+  - `nuke_launcher.py` for Nuke integration (QWidget panel)
+  - Shared core modules (src/) between both modes
+  - Automatic mode detection (`NUKE_MODE` flag)
+  - Mock mode toggle based on environment
+
+### Changed
+- **Standalone Launcher Preserved:**
+  - `main.py` kept intact for standalone usage
+  - No breaking changes to existing workflow
+  - Continues to use QMainWindow with full menubar
+  - Maintains compatibility with previous sessions
+- **Nuke Bridge Behavior:**
+  - Automatically disables mock mode when running in Nuke
+  - Uses real Nuke Python API for node creation
+  - `nuke_bridge.py` detects Nuke environment
+  - Creates actual Read/ReadGeo nodes instead of mocks
+
 ### Added
 - **GUI Code Refactoring - Modular Structure** (COMPLETE):
   - Extracted 19 widget/dialog classes from monolithic `main.py` into organized modules

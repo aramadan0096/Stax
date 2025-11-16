@@ -161,13 +161,30 @@ class Config(object):
     
     def ensure_directories(self):
         """Ensure all configured directories exist."""
+        # Get absolute paths to avoid permission issues with relative paths
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        root_dir = os.path.dirname(script_dir)  # Go up one level from src/
+        
         directories = [
             os.path.dirname(self.get('database_path')),
             self.get('default_repository_path'),
-            self.get('preview_dir')
+            self.get('preview_dir'),
+            os.path.join(root_dir, 'logs')  # Add logs directory
         ]
         
         for directory in directories:
             if directory and not os.path.exists(directory):
-                os.makedirs(directory)
-                print("Created directory: {}".format(directory))
+                try:
+                    # Convert relative paths to absolute paths
+                    if not os.path.isabs(directory):
+                        abs_directory = os.path.join(root_dir, directory)
+                    else:
+                        abs_directory = directory
+                    
+                    print("[Config] Creating directory: {}".format(abs_directory))
+                    os.makedirs(abs_directory)
+                    print("[Config]   [OK] Directory created successfully")
+                except OSError as e:
+                    print("[Config]   [WARN] Failed to create directory {}: {}".format(abs_directory, e))
+                    print("[Config]   (Continuing - directory may not be needed immediately)")
+                    # Don't raise - some directories might not be writable in Nuke context

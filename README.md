@@ -41,16 +41,25 @@ Advanced solution for mass production stock footage management clone designed fo
   - User preferences management
   - Auto-detection of user/machine identity
 
-- **GUI Application** (`main.py`): **✅ COMPLETE**
-  - **StacksListsPanel**: Tree navigation with add/manage stacks and lists
-  - **MediaDisplayWidget**: Gallery and List view modes
-  - **Live Search**: Instant filtering as you type
-  - **HistoryPanel**: Ingestion history with CSV export
-  - **SettingsPanel**: Complete configuration UI
-  - **Keyboard Shortcuts**: Ctrl+2 (History), Ctrl+3 (Settings), Ctrl+I (Ingest)
-  - **File Ingestion**: Dialog-based file selection and ingestion
-  - **Element Actions**: Double-click to insert into Nuke (mock mode)
-  - **Media Info Popup**: Alt+Hover for quick preview and metadata (✅ NEW)
+- **GUI Applications**: **✅ COMPLETE (Dual-Mode)**
+  
+  **Standalone App** (`main.py`):
+  - Full-featured desktop application with menubar
+  - StacksListsPanel, MediaDisplayWidget, HistoryPanel, SettingsPanel
+  - Live search and instant filtering
+  - Keyboard shortcuts (Ctrl+2, Ctrl+3, Ctrl+I)
+  - Mock Nuke mode for development
+  - Independent of Nuke license
+  
+  **Nuke Plugin** (`nuke_launcher.py`): **✅ NEW**
+  - Embeddable QWidget panel for Nuke integration
+  - Toolbar-based interface (replaces menubar)
+  - Dockable within Nuke's pane system
+  - Real Nuke API integration (no mock mode)
+  - Drag & drop directly into Node Graph
+  - Opens with Ctrl+Alt+S in Nuke
+  - All standalone features available
+  - See [NUKE_INSTALLATION.md](NUKE_INSTALLATION.md)
 
 ### 🚧 In Progress (Beta)
 - Drag-and-drop file ingestion from OS
@@ -73,15 +82,30 @@ python -m venv .venv
 .\.venv\Scripts\activate
 
 # Install dependencies
-pip install PySide2 Pillow
+pip install PySide2 ffpyplayer
 ```
 
 ### Running the Application
 
+**Option 1: Standalone Desktop Application**
+
 ```python
-# Run GUI application
+# Run standalone GUI application
 python main.py
 ```
+
+**Option 2: Nuke Plugin Integration**
+
+```python
+# Copy StaX to Nuke plugins directory
+# Windows: C:\Users\<username>\.nuke\StaX
+# Linux/Mac: ~/.nuke/StaX
+
+# In Nuke, press Ctrl+Alt+S to open StaX panel
+# Or use menu: StaX → Open StaX Panel
+```
+
+See [NUKE_INSTALLATION.md](NUKE_INSTALLATION.md) for detailed Nuke setup instructions.
 
 On first run:
 1. Database and config files are auto-created
