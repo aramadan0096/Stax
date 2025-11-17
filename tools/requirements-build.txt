@@ -1,4 +1,0 @@
-# Additional requirements for building standalone installer
-# Install with: pip install -r requirements-build.txt
-
-pyinstaller>=5.0.0

@@ -18,6 +18,27 @@ $requirementsFile = Join-Path $scriptDir "requirements.txt"
 function Write-Info($msg) { Write-Host "[info] $msg" -ForegroundColor Cyan }
 function Write-Err($msg) { Write-Host "[error] $msg" -ForegroundColor Red }
 
+function Install-FFmpeg {
+    param(
+        [string]$PythonExe,
+        [string]$DestRelative = "bin\ffmpeg\bin"
+    )
+
+    $ffmpegScript = Join-Path $repoRoot "tools\ffmpeg_downloader.py"
+    if (-Not (Test-Path $ffmpegScript)) {
+        Write-Err "FFmpeg downloader script not found at: $ffmpegScript"
+        exit 1
+    }
+
+    $destPath = Join-Path $repoRoot $DestRelative
+    Write-Info "Installing FFmpeg binaries to: $destPath"
+    & "$PythonExe" "$ffmpegScript" "--dest" "$destPath"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Err "FFmpeg download/install failed with exit code $LASTEXITCODE"
+        exit $LASTEXITCODE
+    }
+}
+
 Write-Info "Repository root: $repoRoot"
 Write-Info "Virtualenv path: $venvDir"
 Write-Info "Requirements file: $requirementsFile"
@@ -67,6 +88,14 @@ if ($LASTEXITCODE -ne 0) {
 if ($LASTEXITCODE -ne 0) {
     Write-Err "Failed to install dependencies from requirements.txt"
     exit 1
+}
+
+$ffmpegExe = Join-Path $repoRoot "bin\ffmpeg\ffmpeg.exe"
+$ffmpegUnix = Join-Path $repoRoot "bin\ffmpeg\ffmpeg"
+if (-Not ((Test-Path $ffmpegExe) -or (Test-Path $ffmpegUnix))) {
+    Install-FFmpeg -PythonExe "$pythonExe"
+} else {
+    Write-Info "FFmpeg binaries already installed at bin\ffmpeg; skipping download."
 }
 
 # 5) Run main.py from repository root

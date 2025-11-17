@@ -4,6 +4,7 @@
 
 StaX is an advanced media browser and asset management tool designed specifically for integration with Foundry Nuke. It provides powerful features for organizing, searching, and deploying visual effects assets with intelligent sequence detection, automated preview generation, and extensible pipeline hooks.
 
+</details>
 ---
 
 ## What is StaX?
@@ -19,6 +20,83 @@ StaX helps VFX artists and studios manage large collections of stock footage, 3D
 - **Extensible**: Custom Python processors for pre-ingest validation, post-ingest hooks, and post-import node configuration
 
 ---
+
+## How StaX Works
+
+### Organization Hierarchy
+
+StaX uses a three-level hierarchy to organize assets:
+
+```
+Stacks (Primary Categories)
+  └─ Lists (Sub-Categories)
+      └─ Sub-Lists (Optional nested categories)
+          └─ Elements (Individual Assets)
+```
+
+**Example structure:**
+```
+📦 Plates
+  └─ 🗂 Explosions
+      └─ 🗂 Aerial Explosions
+          └─ 🎬 explosion_aerial_001.mov
+          └─ 🎬 explosion_aerial_002.mov
+  └─ 🗂 Cityscapes
+      └─ 🖼 NYC_skyline_####.exr (frames 1001-1150)
+
+📦 3D Assets
+  └─ 🗂 Characters
+      └─ 🎨 hero_model.abc
+  └─ 🗂 Props
+      └─ 🎨 vehicle_rig.fbx
+```
+
+### Asset Ingestion
+
+**Single File Ingestion:**
+1. Go to **File → Ingest Files** (or press `Ctrl+I`)
+2. Select files to ingest
+3. Choose target Stack and List
+4. Select copy policy (hard copy or soft copy)
+5. StaX automatically:
+   - Detects image sequences and frame ranges
+   - Copies files to repository (if hard copy selected)
+   - Generates thumbnail, GIF, and video previews
+   - Extracts metadata (resolution, format, duration, etc.)
+   - Creates database entry
+
+**Library Ingestion (Bulk):**
+1. Go to **File → Ingest Library** (or press `Ctrl+Shift+I`)
+2. Select a root folder
+3. StaX scans the folder structure and maps folders to Stacks/Lists
+4. Preview the structure and configure options
+5. Ingest entire library in one operation
+
+### Copy Policies
+
+- **Hard Copy**: Physical files are copied to the repository directory. Assets remain accessible even if original files move.
+- **Soft Copy**: Only file path references are stored. Useful for large assets on network storage.
+
+### Searching and Filtering
+
+**Live Filter:**
+- Type in the search box to instantly filter elements by name
+- Use `#tagname` to search by tags (e.g., `#fire` or `#fire,explosion`)
+
+**Advanced Search** (`Ctrl+F`):
+- Search by property: name, format, type, comment, tags
+- Choose match type: loose (partial match) or strict (exact match)
+- Results displayed in sortable table
+
+### Favorites and Playlists
+
+- **Favorites**: Click the ⭐ button or right-click → "Add to Favorites" for quick access to frequently used assets
+- **Playlists**: Create collaborative collections with **+ Playlist** button. Add multiple elements to playlists for organized workflows.
+
+---
+
+<details>
+<summary><strong>Installation</strong></summary>
 
 ## Installation
 
@@ -154,6 +232,8 @@ What the build script creates
 
 If you want, I can update `tools/build_installer.py` to point its `ICON_PATH` to `resources/logo.ico` by default and/or add a small sample file into the `examples` folder that will be included in the build.
 
+
+
 4. **Restart Nuke**
 
 #### Method 2: Network Repository (Studio/Multi-User)
@@ -191,81 +271,9 @@ For VFX studios with shared network storage:
    export STOCK_DB=/server/share/vfx/stax_production.db
    ```
 
----
-
-## How StaX Works
-
-### Organization Hierarchy
-
-StaX uses a three-level hierarchy to organize assets:
-
-```
-Stacks (Primary Categories)
-  └─ Lists (Sub-Categories)
-      └─ Sub-Lists (Optional nested categories)
-          └─ Elements (Individual Assets)
-```
-
-**Example structure:**
-```
-📦 Plates
-  └─ 🗂 Explosions
-      └─ 🗂 Aerial Explosions
-          └─ 🎬 explosion_aerial_001.mov
-          └─ 🎬 explosion_aerial_002.mov
-  └─ 🗂 Cityscapes
-      └─ 🖼 NYC_skyline_####.exr (frames 1001-1150)
-
-📦 3D Assets
-  └─ 🗂 Characters
-      └─ 🎨 hero_model.abc
-  └─ 🗂 Props
-      └─ 🎨 vehicle_rig.fbx
-```
-
-### Asset Ingestion
-
-**Single File Ingestion:**
-1. Go to **File → Ingest Files** (or press `Ctrl+I`)
-2. Select files to ingest
-3. Choose target Stack and List
-4. Select copy policy (hard copy or soft copy)
-5. StaX automatically:
-   - Detects image sequences and frame ranges
-   - Copies files to repository (if hard copy selected)
-   - Generates thumbnail, GIF, and video previews
-   - Extracts metadata (resolution, format, duration, etc.)
-   - Creates database entry
-
-**Library Ingestion (Bulk):**
-1. Go to **File → Ingest Library** (or press `Ctrl+Shift+I`)
-2. Select a root folder
-3. StaX scans the folder structure and maps folders to Stacks/Lists
-4. Preview the structure and configure options
-5. Ingest entire library in one operation
-
-### Copy Policies
-
-- **Hard Copy**: Physical files are copied to the repository directory. Assets remain accessible even if original files move.
-- **Soft Copy**: Only file path references are stored. Useful for large assets on network storage.
-
-### Searching and Filtering
-
-**Live Filter:**
-- Type in the search box to instantly filter elements by name
-- Use `#tagname` to search by tags (e.g., `#fire` or `#fire,explosion`)
-
-**Advanced Search** (`Ctrl+F`):
-- Search by property: name, format, type, comment, tags
-- Choose match type: loose (partial match) or strict (exact match)
-- Results displayed in sortable table
-
-### Favorites and Playlists
-
-- **Favorites**: Click the ⭐ button or right-click → "Add to Favorites" for quick access to frequently used assets
-- **Playlists**: Create collaborative collections with **+ Playlist** button. Add multiple elements to playlists for organized workflows.
 
 ---
+</details>
 
 ## Nuke Plugin Usage
 
@@ -530,4 +538,13 @@ StaX is under active development. Contributions, bug reports, and feature reques
 
 ## License
 
-[To be determined]
+Copyright (c) 2025 Ahmed Ramadan
+
+This project is provided for non-commercial use under the following terms:
+
+- You are free to use, modify, and distribute the software for personal, educational, or non-commercial research and development purposes.
+- Commercial use (including distribution, sale, or incorporation into a commercial product or service) is NOT permitted without prior written permission from the copyright holder.
+
+To request commercial licensing or permission, contact the author at the address listed in the project metadata or open an issue on the repository describing your intended commercial use.
+
+If you require a standard open-source license instead (MIT, Apache, GPL, etc.), please contact the maintainer to discuss relicensing options.

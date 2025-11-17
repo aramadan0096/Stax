@@ -96,10 +96,7 @@ Low Priority / Future:
 - Preview generation can be slow on large assets: implement async processing and queue workers for heavy tasks.
 
 ## Owners & Contacts
-- Project lead: TBD
-- Backend: TBD
-- UI: TBD
-- QA: TBD
+- Ahmed Ramadan
 
 ## Notes
 Update this roadmap at the start of each sprint. Use `changelog.md` to record releases and significant merges to track progress against the roadmap.
