@@ -18,6 +18,23 @@ $requirementsFile = Join-Path $scriptDir "requirements.txt"
 function Write-Info($msg) { Write-Host "[info] $msg" -ForegroundColor Cyan }
 function Write-Err($msg) { Write-Host "[error] $msg" -ForegroundColor Red }
 
+function Test-FFmpegDestination {
+    param(
+        [string]$DestRelative = "bin\ffmpeg\bin"
+    )
+
+    $destFull = Join-Path $repoRoot $DestRelative
+    if (Test-Path $destFull) {
+        $existingFiles = Get-ChildItem -Path $destFull -File -Recurse -ErrorAction SilentlyContinue
+        if ($existingFiles -and $existingFiles.Count -gt 0) {
+            Write-Info "FFmpeg destination already contains files: $destFull"
+            return $true
+        }
+    }
+
+    return $false
+}
+
 function Install-FFmpeg {
     param(
         [string]$PythonExe,
@@ -93,7 +110,12 @@ if ($LASTEXITCODE -ne 0) {
 $ffmpegExe = Join-Path $repoRoot "bin\ffmpeg\ffmpeg.exe"
 $ffmpegUnix = Join-Path $repoRoot "bin\ffmpeg\ffmpeg"
 if (-Not ((Test-Path $ffmpegExe) -or (Test-Path $ffmpegUnix))) {
-    Install-FFmpeg -PythonExe "$pythonExe"
+    $ffmpegDestRelative = "bin\ffmpeg\bin"
+        if (Test-FFmpegDestination -DestRelative $ffmpegDestRelative) {
+            Write-Info "Skipping FFmpeg download; destination already populated."
+        } else {
+            Install-FFmpeg -PythonExe "$pythonExe" -DestRelative $ffmpegDestRelative
+        }
 } else {
     Write-Info "FFmpeg binaries already installed at bin\ffmpeg; skipping download."
 }
