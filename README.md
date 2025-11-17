@@ -4,8 +4,53 @@
 
 StaX is an advanced media browser and asset management tool designed specifically for integration with Foundry Nuke. It provides powerful features for organizing, searching, and deploying visual effects assets with intelligent sequence detection, automated preview generation, and extensible pipeline hooks.
 
+![StaX graph](assets\seq-animated.gif)
+
+
+
 </details>
 ---
+
+## Table of Contents
+
+- [What is StaX?](#what-is-stax)
+- [How StaX Works](#how-stax-works)
+   - [Organization Hierarchy](#organization-hierarchy)
+   - [Asset Ingestion](#asset-ingestion)
+   - [Copy Policies](#copy-policies)
+   - [Searching and Filtering](#searching-and-filtering)
+   - [Favorites and Playlists](#favorites-and-playlists)
+- [Installation](#installation)
+   - [Standalone Desktop Application](#standalone-desktop-application)
+   - [Nuke Plugin Installation](#nuke-plugin-installation)
+   - [Building the Windows installer (NSIS)](#building-the-windows-installer-nsis)
+   - [Method 2: Network Repository (Studio/Multi-User)](#method-2-network-repository-studio-multi-user)
+- [Nuke Plugin Usage](#nuke-plugin-usage)
+   - [Opening StaX in Nuke](#opening-stax-in-nuke)
+   - [Inserting Assets into Nuke](#inserting-assets-into-nuke)
+   - [Registering Toolsets](#registering-toolsets)
+   - [Quick Actions](#quick-actions)
+- [Keyboard Shortcuts](#keyboard-shortcuts)
+   - [Global Shortcuts](#global-shortcuts)
+   - [Nuke Plugin Shortcuts](#nuke-plugin-shortcuts)
+   - [Navigation Shortcuts](#navigation-shortcuts)
+- [Configuration](#configuration)
+   - [Database Location](#database-location)
+   - [Settings Panel](#settings-panel)
+   - [Custom Processors (Pipeline Integration)](#custom-processors-pipeline-integration)
+- [Advanced Features](#advanced-features)
+   - [Pagination](#pagination)
+   - [Preview System](#preview-system)
+   - [Network-Aware Database](#network-aware-database)
+   - [Tags and Metadata](#tags-and-metadata)
+- [Troubleshooting](#troubleshooting)
+   - [Nuke Plugin Not Loading](#nuke-plugin-not-loading)
+   - [Database Lock Errors](#database-lock-errors)
+   - [Drag & Drop Not Working in Nuke](#drag--drop-not-working-in-nuke)
+- [Documentation](#documentation)
+- [Project Status](#project-status)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## What is StaX?
 
@@ -19,9 +64,13 @@ StaX helps VFX artists and studios manage large collections of stock footage, 3D
 - **Network-Ready**: SQLite database with file locking for multi-user workstation access
 - **Extensible**: Custom Python processors for pre-ingest validation, post-ingest hooks, and post-import node configuration
 
+![StaX graph](assets\StaX-mian-standalone.png)
+
 ---
 
 ## How StaX Works
+
+![StaX graph](assets\StaX-ingestion-standalone.png)
 
 ### Organization Hierarchy
 
@@ -79,6 +128,8 @@ Stacks (Primary Categories)
 
 ### Searching and Filtering
 
+![StaX graph](assets\StaX-search-standalone.png)
+
 **Live Filter:**
 - Type in the search box to instantly filter elements by name
 - Use `#tagname` to search by tags (e.g., `#fire` or `#fire,explosion`)
@@ -95,10 +146,10 @@ Stacks (Primary Categories)
 
 ---
 
-<details>
-<summary><strong>Installation</strong></summary>
-
 ## Installation
+
+<details>
+<summary><strong>Installation Details</strong></summary>
 
 ### Standalone Desktop Application
 
@@ -277,6 +328,8 @@ For VFX studios with shared network storage:
 
 ## Nuke Plugin Usage
 
+![StaX graph](assets\StaX-mian-nuke.png)
+
 ### Opening StaX in Nuke
 
 **Keyboard Shortcut:**
@@ -362,6 +415,8 @@ Available in the **StaX** menu:
 ---
 
 ## Configuration
+
+![StaX graph](assets\StaX-settings-standalone.png)
 
 ### Database Location
 

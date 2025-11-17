@@ -44,5 +44,5 @@ bin/
 examples/
 installers/
 dependencies/
-
+config.json
 *.spec
