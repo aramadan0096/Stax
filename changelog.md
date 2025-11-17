@@ -36,8 +36,13 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
 - Modified: `src/ui/settings_panel.py` - Previews path UI, STOCK_DB environment checking, UI locking
 - Modified: `src/config.py` - Database integration, environment variable override logic
 - Modified: `src/db_manager.py` - Settings table schema, Migration 7, accessor methods
-- Modified: `src/ingestion_core.py` - Uses configurable previews_path
+- Modified: `src/ingestion_core.py` - Uses configurable previews_path, directory creation, path normalization
 - Modified: `main.py`, `nuke_launcher.py` - Load database settings at startup
+
+#### Bug Fixes
+- **Fixed preview generation with STOCK_DB**: Simplified preview directory creation logic
+- **Fixed path separator issues**: Normalized file paths at ingestion start to prevent Windows path errors
+- **Fixed WinError 1392**: Resolved "file or directory is corrupted" error caused by mixed forward/backward slashes in file paths
 
 ---
 
