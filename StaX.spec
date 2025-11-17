@@ -3,14 +3,14 @@
 block_cipher = None
 
 a = Analysis(
-    ['D:/Scripts/modern-stock-browser/main.py'],
-    pathex=['D:/Scripts/modern-stock-browser'],
+    ['E:/Scripts/Stax/main.py'],
+    pathex=['E:/Scripts/Stax'],
     binaries=[],
     datas=[
-        ('D:/Scripts/modern-stock-browser/resources', 'resources'),
-        ('D:/Scripts/modern-stock-browser/config', 'config'),
-        ('D:/Scripts/modern-stock-browser/examples', 'examples'),
-        ('D:/Scripts/modern-stock-browser/bin/ffmpeg', 'bin/ffmpeg'),
+        ('E:/Scripts/Stax/resources', 'resources'),
+        ('E:/Scripts/Stax/config', 'config'),
+        ('E:/Scripts/Stax/examples', 'examples'),
+        ('E:/Scripts/Stax/bin/ffmpeg', 'bin/ffmpeg'),
     ],
     hiddenimports=[
         'PySide2.QtCore',
@@ -47,7 +47,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='',
+    icon='E:/Scripts/Stax/resources/logo.ico',
 )
 
 coll = COLLECT(

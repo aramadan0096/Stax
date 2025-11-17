@@ -19,11 +19,11 @@ INSTALLER_OUTPUT = os.path.join(PROJECT_ROOT, 'installers')
 
 # Application metadata
 APP_NAME = "StaX"
-APP_VERSION = "1.0.0-beta"
-APP_DESCRIPTION = "Advanced VFX Asset Management for Nuke"
-APP_AUTHOR = "VFX Pipeline Team"
+APP_VERSION = "1.0.0"
+APP_DESCRIPTION = "Advanced Stock Management for VFX Pipelines"
+APP_AUTHOR = "Ahmed Ramadan"
 MAIN_SCRIPT = os.path.join(PROJECT_ROOT, 'main.py')
-ICON_PATH = os.path.join(PROJECT_ROOT, 'resources', 'icons', 'app_icon.ico')
+ICON_PATH = os.path.join(PROJECT_ROOT, 'resources', 'logo.ico')
 
 
 def clean_build_directories():
@@ -157,6 +157,24 @@ coll = COLLECT(
     return spec_file_path
 
 
+def ensure_examples_dir():
+    """Ensure an 'examples' directory exists in the project root.
+
+    Some packaging steps expect an 'examples' folder to be present. Create
+    it (empty) if it's missing so PyInstaller datas entries don't fail or
+    result in missing content.
+    """
+    examples_path = os.path.join(PROJECT_ROOT, 'examples')
+    if not os.path.exists(examples_path):
+        print("Creating missing examples directory: {}".format(examples_path))
+        try:
+            os.makedirs(examples_path)
+        except Exception as e:
+            print("[WARN] Failed to create examples directory: {}".format(e))
+    else:
+        print("Examples directory exists: {}".format(examples_path))
+
+
 def build_executable(spec_file):
     """Run PyInstaller to create standalone executable."""
     print("=" * 60)
@@ -204,7 +222,7 @@ advanced features for cataloging, previewing, and retrieving media
 assets including plates, 3D models, and toolsets.
 
 INSTALLATION:
-1. Run the installer (StaX_Setup_v{version}.exe)
+1. Run the installer (StaX_v{version}.exe)
 2. Choose installation directory (default: C:\\Program Files\\StaX)
 3. Follow installation wizard prompts
 4. Launch StaX from Start Menu or desktop shortcut
@@ -241,7 +259,7 @@ Example processor scripts: ./examples/
 
 SUPPORT:
 For issues, documentation, and updates, visit:
-https://github.com/your-repo/stax
+https://github.com/aramadan0096/Stax
 
 LICENSE:
 Copyright (c) 2025 {author}
@@ -275,7 +293,7 @@ def create_nsis_installer_script():
 !define APP_INSTALL_DIR "$PROGRAMFILES64\\StaX"
 
 Name "${{APP_NAME}} ${{APP_VERSION}}"
-OutFile "{installer_output}\\StaX_Setup_v{version}.exe"
+OutFile "{installer_output}\\StaX_v{version}.exe"
 InstallDir "${{APP_INSTALL_DIR}}"
 RequestExecutionLevel admin
 
@@ -378,6 +396,9 @@ def main():
     # Step 2: Check dependencies
     check_dependencies()
     
+    # Ensure examples folder exists before creating spec (datas include it)
+    ensure_examples_dir()
+
     # Step 3: Create spec file
     spec_file = create_spec_file()
     
@@ -403,7 +424,7 @@ def main():
     print("\nNext steps:")
     print("1. Test the executable: {}\\{}\\{}.exe".format(DIST_DIR, APP_NAME, APP_NAME))
     print("2. Build installer: Compile NSIS script with makensis")
-    print("3. Test installer: Run StaX_Setup_v{}.exe".format(APP_VERSION))
+    print("3. Test installer: Run StaX_v{}.exe".format(APP_VERSION))
     print("=" * 60 + "\n")
 
 

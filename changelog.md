@@ -6,28 +6,42 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
 
 ## [Unreleased]
 
+### ✅ Session 6 - Completed (Nov 17, 2025) - Production Deployment Features
+
+#### Configurable Previews Path
+- **Added "Previews Configuration" section** in Settings → General tab with path input and browse button
+- **Database storage**: Preview path now persists in database settings table (not just config.json)
+- **Settings priority order**: STOCK_DB env var > database settings > config.json
+
+#### STOCK_DB Environment Variable Support
+- **Production deployment control**: When `STOCK_DB` environment variable is set:
+  - Database path is automatically overridden to environment variable value
+  - Previews path is automatically derived as `<database_dir>/previews`
+  - Settings UI fields are locked (disabled) to prevent user modifications
+  - Lock icons (🔒) displayed next to disabled fields with status message
+  - Environment variable takes precedence over all other configuration sources
+
+#### Database Settings Infrastructure
+- **Added `settings` table** to database schema (key PRIMARY KEY, value, updated_at)
+- **Implemented database methods** in `DatabaseManager`:
+  - `get_setting(key, default=None)`: Retrieve setting value with fallback
+  - `set_setting(key, value)`: Store setting value with automatic timestamp
+  - `get_all_settings()`: Retrieve all settings as dictionary
+- **Added Migration 7**: Auto-creates settings table for existing databases
+- **Config class integration**: 
+  - `load_from_database(db_manager)`: Loads previews_path from database at startup
+  - `save_to_database(db_manager)`: Saves previews_path to database when changed
+
+#### Code Changes
+- Modified: `src/ui/settings_panel.py` - Previews path UI, STOCK_DB environment checking, UI locking
+- Modified: `src/config.py` - Database integration, environment variable override logic
+- Modified: `src/db_manager.py` - Settings table schema, Migration 7, accessor methods
+- Modified: `src/ingestion_core.py` - Uses configurable previews_path
+- Modified: `main.py`, `nuke_launcher.py` - Load database settings at startup
+
+---
+
 ### Added
-- **Configurable Previews Path**:
-  - Added "Previews Path" setting in Settings → General tab
-  - Allows configuration of shared network location for preview thumbnails and videos
-  - Previews path stored in database `settings` table for workspace-wide consistency
-  - Config system loads previews_path from database at startup
-  - Supports both file-based (config.json) and database-stored configuration
-
-- **STOCK_DB Environment Variable Support**:
-  - Added `STOCK_DB` environment variable hook for production deployments
-  - When set, automatically configures database path and derives previews path
-  - Disables "Database Path" and "Previews Path" editing in Settings to prevent user modifications
-  - Shows lock icon (🔒) and "Controlled by STOCK_DB environment variable" status message
-  - Previews path automatically set to `{database_dir}/previews` when STOCK_DB is active
-  - Environment variable takes precedence over config.json and database settings
-
-- **Database Settings Table**:
-  - Added `settings` table for storing configuration in database
-  - Supports key-value storage with timestamp tracking
-  - Methods: `get_setting()`, `set_setting()`, `get_all_settings()`
-  - Enables shared configuration across workstations in production environments
-
 - **Drag & Drop File Ingestion**:
   - Enabled drag & drop from OS file explorer into StaX media display
   - Implemented `dragEnterEvent`, `dragMoveEvent`, `dropEvent` handlers
@@ -1005,4 +1019,4 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
 
 > Notes:
 > - Update the Unreleased section while working on changes. When cutting a release, move Unreleased entries under a new version heading with the release date.
-> - Link issues or pull requests where applicable using the format: `[#123](https://github.com/your/repo/pull/123)`.
+> - Link issues or pull requests where applicable using the format: `[#123](https://github.com/aramadan0096/Stax/pull/123)`.

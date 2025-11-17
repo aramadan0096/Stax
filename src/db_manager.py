@@ -523,6 +523,23 @@ class DatabaseManager(object):
                 else:
                     self._log("Migration 6: playlist_items table does not exist; skipping")
 
+            # Migration 7: Create settings table if it doesn't exist
+            cursor.execute("""
+                SELECT name FROM sqlite_master WHERE type='table' AND name='settings'
+            """)
+            if not cursor.fetchone():
+                self._log("Migration 7: Creating settings table")
+                cursor.execute("""
+                    CREATE TABLE settings (
+                        key TEXT PRIMARY KEY,
+                        value TEXT,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                self._log("Migration 7: Complete")
+            else:
+                self._log("Migration 7: settings table already exists")
+
             self._log("All migrations applied successfully")
     
     # ======================
@@ -1653,7 +1670,7 @@ class DatabaseManager(object):
             )
             conn.commit()
             return cursor.rowcount > 0
-    
+
     # ============================================================================
     # Settings Management (Database-stored configuration)
     # ============================================================================
