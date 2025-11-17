@@ -4,7 +4,7 @@
 
 StaX is an advanced media browser and asset management tool designed specifically for integration with Foundry Nuke. It provides powerful features for organizing, searching, and deploying visual effects assets with intelligent sequence detection, automated preview generation, and extensible pipeline hooks.
 
-![StaX graph](assets\seq-animated.gif)
+![StaX graph](assets/seq-animated.gif)
 
 
 
@@ -64,13 +64,13 @@ StaX helps VFX artists and studios manage large collections of stock footage, 3D
 - **Network-Ready**: SQLite database with file locking for multi-user workstation access
 - **Extensible**: Custom Python processors for pre-ingest validation, post-ingest hooks, and post-import node configuration
 
-![StaX graph](assets\StaX-mian-standalone.png)
+![StaX graph](assets/StaX-mian-standalone.png)
 
 ---
 
 ## How StaX Works
 
-![StaX graph](assets\StaX-ingestion-standalone.png)
+![StaX graph](assets/StaX-ingestion-standalone.png)
 
 ### Organization Hierarchy
 
@@ -128,7 +128,7 @@ Stacks (Primary Categories)
 
 ### Searching and Filtering
 
-![StaX graph](assets\StaX-search-standalone.png)
+![StaX graph](assets/StaX-search-standalone.png)
 
 **Live Filter:**
 - Type in the search box to instantly filter elements by name
@@ -328,7 +328,7 @@ For VFX studios with shared network storage:
 
 ## Nuke Plugin Usage
 
-![StaX graph](assets\StaX-mian-nuke.png)
+![StaX graph](assets/StaX-mian-nuke.png)
 
 ### Opening StaX in Nuke
 
@@ -416,7 +416,7 @@ Available in the **StaX** menu:
 
 ## Configuration
 
-![StaX graph](assets\StaX-settings-standalone.png)
+![StaX graph](assets/StaX-settings-standalone.png)
 
 ### Database Location
 
