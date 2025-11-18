@@ -59,7 +59,7 @@ QTreeView::item:hover, QListView::item:hover {
   background: rgba(30, 40, 45, 0.6);
 }
 QTreeView::item:selected, QListView::item:selected {
-  background: #16c6b0; /* teal selection */
+  background: #7cc7be; /* teal selection */
   color: #061616;
   font-weight: 600;
 }
@@ -74,10 +74,10 @@ QTreeView::item[accent="orange"] {
 /* Buttons */
 QPushButton {
   background: #282c2e;
-  border: 1px solid #2b2f33;
-  border-radius: 12px;
-  padding: 9px 15px;
-  min-height: 42px;
+  border: 1px solid #484d52;
+  border-radius: 2px;
+  padding: 6px 10px;
+  min-height: 18px;
 }
 QPushButton:hover {
   background: #373b3f;
@@ -133,7 +133,7 @@ QComboBox::drop-down { border: none; }
 QComboBox QAbstractItemView {
   background: #1d2022;
   border: 1px solid #2b2f33;
-  selection-background-color: #16c6b0;
+  selection-background-color: #7cc7be;
   color: #061616;
 }
 
@@ -232,7 +232,7 @@ QLabel.chip {
 QPushButton.fit {
   background: #16c6b0;
   color: #061616;
-  border-radius: 9px;
+  border-radius: 4px;
   padding: 9px 15px;
   min-width: 78px;
 }
@@ -257,7 +257,7 @@ QMenu {
   border: 1px solid #2b2f33;
 }
 QMenu::item:selected {
-  background: #16c6b0;
+  background: #7cc7be;
   color: #061616;
 }
 QMenu::separator {
@@ -274,7 +274,7 @@ QMenu::separator {
 QPushButton.icon, QToolButton.icon, QPushButton#icon, QToolButton#icon {
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 9px;
+  border-radius: 4px;
   padding: 9px;
   min-width: 42px;
   min-height: 42px;
@@ -290,7 +290,7 @@ QPushButton.icon:pressed, QToolButton.icon:pressed {
 /* Primary/secondary small tool variants used in action bars */
 QPushButton.small, QToolButton.small, QPushButton#small, QToolButton#small {
   padding: 6px 9px;
-  border-radius: 9px;
+  border-radius: 5px;
   font-size: 15px;
 }
 QPushButton.small.primary, QToolButton.small.primary, QPushButton#small.primary, QToolButton#small.primary {

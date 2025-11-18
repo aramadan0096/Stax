@@ -227,7 +227,7 @@ class FFmpegWrapper(object):
             '-y',
             '-i', input_path,
             '-t', str(duration),  # Limit duration
-            '-vf', 'scale={}:{}:force_original_aspect_ratio=decrease'.format(max_size, max_size),
+            '-vf', 'scale={}:{}:force_original_aspect_ratio=decrease,pad=ceil(iw/2)*2:ceil(ih/2)*2'.format(max_size, max_size),
             '-c:v', 'libx264',
             '-preset', 'fast',
             '-crf', '28',  # Lower quality for preview
@@ -339,41 +339,58 @@ class FFmpegWrapper(object):
         except:
             return None
     
-    def generate_gif_preview(self, input_path, output_path, max_duration=3.0, size=256, fps=10, threads=4):
+    def generate_gif_preview(self, input_path, output_path, max_duration=None, size=256,
+                             fps=10, threads=4, start_frame=None, is_sequence=False,
+                             sequence_fps=24, max_frames=None, loop_forever=True):
         """
         Generate animated GIF preview from video or sequence.
         
         Args:
             input_path (str): Input video or sequence pattern
             output_path (str): Output GIF path
-            max_duration (float or None): Maximum GIF duration in seconds. None = full duration
+            max_duration (float or None): Maximum GIF duration in seconds. None = full duration/default limit
             size (int): Target size (width and height) in pixels - maintains aspect ratio with padding
             fps (int): GIF frame rate
             threads (int): Number of threads for FFmpeg to use
+            start_frame (int): Starting frame number for sequences (None for videos)
+            is_sequence (bool): True if input is an image sequence pattern
+            sequence_fps (int): Playback framerate for sequences (applied via -framerate)
+            max_frames (int or None): Limit total frames used for palette & GIF generation
+            loop_forever (bool): Whether to emit GIFs that loop infinitely (uses -loop 0)
             
         Returns:
             bool: True if successful, False otherwise
         """
         # Generate palette first for better quality GIF
         palette_path = os.path.join(tempfile.gettempdir(), 'palette.png')
+        scale_filter = 'scale={0}:-1:flags=lanczos'.format(size)
+        sequence_rate = sequence_fps or fps
+        start_number = start_frame if (start_frame is not None) else 1
         
         try:
             # Step 1: Generate color palette from source
-            # Scale to fit within size x size box, pad to make square
-            scale_filter = 'scale=w={}:h={}:force_original_aspect_ratio=decrease,pad={}:{}:(ow-iw)/2:(oh-ih)/2:color=black'.format(
-                size, size, size, size
-            )
-            
+            # Scale to requested width while letting FFmpeg preserve aspect ratio
             palette_cmd = [
                 self.ffmpeg_path,
                 '-threads', str(threads),  # Set thread count
-                '-y',
-                '-i', input_path
+                '-y'
             ]
+            
+            # Add start_number for sequences
+            if is_sequence:
+                palette_cmd.extend(['-start_number', str(start_number)])
+                palette_cmd.extend(['-framerate', str(sequence_rate)])
+            elif start_frame is not None:
+                palette_cmd.extend(['-ss', str(max(start_frame, 0))])
+
+            palette_cmd.extend(['-i', input_path])
             
             # Add duration limit only if specified
             if max_duration is not None:
                 palette_cmd.extend(['-t', str(max_duration)])
+            
+            if max_frames is not None:
+                palette_cmd.extend(['-frames:v', str(max_frames)])
             
             palette_cmd.extend([
                 '-vf', 'fps={},{},palettegen'.format(fps, scale_filter),
@@ -385,19 +402,37 @@ class FFmpegWrapper(object):
             gif_cmd = [
                 self.ffmpeg_path,
                 '-threads', str(threads),  # Set thread count
-                '-y',
+                '-y'
+            ]
+            
+            # Add start_number for sequences
+            if is_sequence:
+                gif_cmd.extend(['-start_number', str(start_number)])
+                gif_cmd.extend(['-framerate', str(sequence_rate)])
+            elif start_frame is not None:
+                gif_cmd.extend(['-ss', str(max(start_frame, 0))])
+            
+            gif_cmd.extend([
                 '-i', input_path,
                 '-i', palette_path
-            ]
+            ])
             
             # Add duration limit only if specified
             if max_duration is not None:
                 gif_cmd.extend(['-t', str(max_duration)])
             
+            if max_frames is not None:
+                gif_cmd.extend(['-frames:v', str(max_frames)])
+            
             gif_cmd.extend([
-                '-filter_complex', 'fps={},{}[x];[x][1:v]paletteuse'.format(fps, scale_filter),
-                output_path
+                '-filter_complex', 'fps={},{}[x];[x][1:v]paletteuse'.format(
+                    fps,
+                    scale_filter
+                )
             ])
+            if loop_forever:
+                gif_cmd.extend(['-loop', '0'])
+            gif_cmd.append(output_path)
             subprocess.check_output(gif_cmd, stderr=subprocess.STDOUT)
             
             # Cleanup palette
@@ -480,9 +515,9 @@ class FFmpegWrapper(object):
         if max_frames:
             cmd.extend(['-frames:v', str(max_frames)])
         
-        # Add scaling and encoding options
+        # Add scaling and encoding options with padding to ensure even dimensions (required by libx264)
         cmd.extend([
-            '-vf', 'scale={}:{}:force_original_aspect_ratio=decrease'.format(max_size, max_size),
+            '-vf', 'scale={}:{}:force_original_aspect_ratio=decrease,pad=ceil(iw/2)*2:ceil(ih/2)*2'.format(max_size, max_size),
             '-c:v', 'libx264',
             '-preset', 'fast',  # Fast encoding for previews
             '-crf', '28',  # Lower quality for smaller files

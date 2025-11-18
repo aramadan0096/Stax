@@ -29,9 +29,13 @@ class Config(object):
         'gif_size': 256,
         'gif_fps': 10,
         'gif_duration': 3.0,
+    'gif_full_duration': False,
+    'gif_max_frames': 24,
+    'gif_loop_forever': True,
         
         # FFmpeg settings
         'ffmpeg_threads': 4,
+    'sequence_preview_fps': 24,
         
         # Network/Database settings
         'db_max_retries': 10,
@@ -48,6 +52,7 @@ class Config(object):
         # Ingestion defaults
         'default_copy_policy': 'soft',  # 'soft' or 'hard'
         'auto_detect_sequences': True,
+        'sequence_pattern': '.####.ext',
         'generate_previews': True,
         
         # Processor hooks
@@ -84,6 +89,9 @@ class Config(object):
         self.config_path = config_path
         self.config = self.DEFAULT_CONFIG.copy()
         
+        # Valid sequence pattern choices
+        self.sequence_patterns = ['.####.ext', '_####.ext', ' ####.ext', '-####.ext']
+
         # Check for STOCK_DB environment variable (overrides database_path and previews_path)
         stock_db_env = os.environ.get('STOCK_DB')
         if stock_db_env:
@@ -116,6 +124,10 @@ class Config(object):
         else:
             # Create default config file
             self.save()
+
+        # Ensure sequence pattern is valid
+        if self.config.get('sequence_pattern') not in self.sequence_patterns:
+            self.config['sequence_pattern'] = '.####.ext'
     
     def load(self):
         """Load configuration from file."""

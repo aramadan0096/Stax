@@ -36,6 +36,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.hover_timer.setSingleShot(True)
         self.hover_timer.timeout.connect(self.show_info_popup)
         self.hover_item = None
+        self.hover_row = -1
         self.media_popup = MediaInfoPopup(self)
         self.media_popup.insert_requested.connect(self.on_popup_insert)
         self.media_popup.reveal_requested.connect(self.on_popup_reveal)
@@ -336,24 +337,42 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             def run(self):
                 try:
                     ingest_manager = IngestionCore(self.db, self.config)
-                    
-                    for i, file_path in enumerate(self.file_paths):
+                    normalized_pairs = [
+                        (original_path, os.path.normpath(original_path))
+                        for original_path in self.file_paths
+                    ]
+                    total_count = len(self.file_paths)
+                    processed_paths = set()
+                    processed_items = 0
+
+                    for file_path, normalized_path in normalized_pairs:
                         if self._cancelled:
                             break
-                        
-                        # Update progress
-                        self.progress_updated.emit(i, len(self.file_paths), os.path.basename(file_path))
-                        
+
+                        if normalized_path in processed_paths:
+                            processed_items += 1
+                            self.progress_updated.emit(processed_items, total_count, os.path.basename(file_path))
+                            continue
+
                         # Ingest file
-                        ingest_manager.ingest_file(
-                            source_path=file_path,
+                        result = ingest_manager.ingest_file(
+                            source_path=normalized_path,
                             target_list_id=self.list_id,
                             copy_policy=self.copy_policy
                         )
+
+                        processed_paths.add(normalized_path)
+                        if isinstance(result, dict) and result.get('success'):
+                            sequence_files = result.get('sequence_files') or []
+                            for seq_file in sequence_files:
+                                processed_paths.add(os.path.normpath(seq_file))
+
+                        processed_items += 1
+                        self.progress_updated.emit(processed_items, total_count, os.path.basename(file_path))
                     
                     # Complete
                     if not self._cancelled:
-                        self.progress_updated.emit(len(self.file_paths), len(self.file_paths), "Complete")
+                        self.progress_updated.emit(processed_items, total_count, "Complete")
                         self.ingestion_complete.emit()
                         
                 except Exception as e:
@@ -662,7 +681,27 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             self.table_view.setItem(row, 0, name_item)
 
             self.table_view.setItem(row, 1, QtWidgets.QTableWidgetItem(element.get('format') or ''))
-            self.table_view.setItem(row, 2, QtWidgets.QTableWidgetItem(element.get('frame_range') or ''))
+            
+            # Display frame count for sequences (parse frame_range like "1-7" -> "7")
+            frame_display = ''
+            frame_range = element.get('frame_range')
+            if frame_range and '-' in str(frame_range):
+                try:
+                    parts = str(frame_range).split('-')
+                    if len(parts) == 2:
+                        start_frame = int(parts[0])
+                        end_frame = int(parts[1])
+                        frame_count = end_frame - start_frame + 1
+                        frame_display = str(frame_count)
+                    else:
+                        # Malformed range, display as-is
+                        frame_display = str(frame_range)
+                except (ValueError, IndexError):
+                    frame_display = str(frame_range)
+            elif frame_range:
+                frame_display = str(frame_range)
+            
+            self.table_view.setItem(row, 2, QtWidgets.QTableWidgetItem(frame_display))
             self.table_view.setItem(row, 3, QtWidgets.QTableWidgetItem(element.get('type') or ''))
 
             size_str = ''
@@ -766,13 +805,13 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         element_id = self.table_view.item(item.row(), 0).data(QtCore.Qt.UserRole)
         self.element_double_clicked.emit(element_id)
     
-    def eventFilter(self, obj, event):
+    def eventFilter(self, watched, event):
         """Event filter to handle Alt+Hover."""
         # Check if widgets are initialized
         if not hasattr(self, 'gallery_view') or not hasattr(self, 'table_view'):
-            return super(MediaDisplayWidget, self).eventFilter(obj, event)
+            return super(MediaDisplayWidget, self).eventFilter(watched, event)
         
-        if obj in [self.gallery_view.viewport(), self.table_view.viewport()]:
+        if watched in [self.gallery_view.viewport(), self.table_view.viewport()]:
             if event.type() == QtCore.QEvent.MouseMove:
                 # Check if Alt is pressed
                 modifiers = QtWidgets.QApplication.keyboardModifiers()
@@ -780,18 +819,23 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 
                 if self.alt_pressed:
                     # Get item under cursor
-                    pos = event.pos()
+                    if isinstance(watched, QtWidgets.QWidget):
+                        pos = watched.mapFromGlobal(QtGui.QCursor.pos())
+                    else:
+                        pos = QtCore.QPoint()
                     
-                    if obj == self.gallery_view.viewport():
+                    if watched == self.gallery_view.viewport():
                         item = self.gallery_view.itemAt(pos)
                         if item and item != self.hover_item:
                             self.hover_item = item
+                            self.hover_row = -1
                             self.hover_timer.stop()
                             self.hover_timer.start(500)  # 500ms delay
-                    elif obj == self.table_view.viewport():
+                    elif watched == self.table_view.viewport():
                         item = self.table_view.itemAt(pos)
                         if item and item != self.hover_item:
                             self.hover_item = item
+                            self.hover_row = item.row() if hasattr(item, 'row') else -1
                             self.hover_timer.stop()
                             self.hover_timer.start(500)  # 500ms delay
                 else:
@@ -800,10 +844,14 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                         self.media_popup.hide()
                     self.hover_timer.stop()
                     self.hover_item = None
+                    self.hover_row = -1
                     
                 # Handle GIF preview on hover (without Alt key)
-                if not self.alt_pressed and obj == self.gallery_view.viewport():
-                    pos = event.pos()
+                if not self.alt_pressed and watched == self.gallery_view.viewport():
+                    if isinstance(watched, QtWidgets.QWidget):
+                        pos = watched.mapFromGlobal(QtGui.QCursor.pos())
+                    else:
+                        pos = QtCore.QPoint()
                     item = self.gallery_view.itemAt(pos)
                     
                     if item and item is not self.current_gif_item:
@@ -815,21 +863,24 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                         if element_id:
                             self.play_gif_for_item(item, element_id)
                             self.current_gif_item = item
+                            self.hover_row = -1
                     elif not item and self.current_gif_item:
                         # Mouse left all items, stop GIF
                         self.stop_current_gif()
                         self.current_gif_item = None
+                        self.hover_row = -1
             
             elif event.type() == QtCore.QEvent.Leave:
                 # Hide popup when leaving widget
                 self.hover_timer.stop()
                 self.hover_item = None
+                self.hover_row = -1
                 
                 # Stop GIF playback
                 self.stop_current_gif()
                 self.current_gif_item = None
         
-        return super(MediaDisplayWidget, self).eventFilter(obj, event)
+        return super(MediaDisplayWidget, self).eventFilter(watched, event)
     
     def play_gif_for_item(self, item, element_id):
         """
@@ -920,7 +971,11 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         if self.view_mode == 'gallery':
             element_id = self.hover_item.data(QtCore.Qt.UserRole)
         else:  # list view
-            element_id = self.table_view.item(self.hover_item.row(), 0).data(QtCore.Qt.UserRole)
+            row = self.hover_row if self.hover_row >= 0 else -1
+            if row >= 0:
+                table_item = self.table_view.item(row, 0)
+                if table_item:
+                    element_id = table_item.data(QtCore.Qt.UserRole)
         
         if element_id:
             element_data = self.db.get_element_by_id(element_id)
@@ -991,6 +1046,8 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         selected_ids = self.get_selected_element_ids()
         
         menu = QtWidgets.QMenu(self)
+        parent_widget = self.parent()
+        is_admin = bool(getattr(parent_widget, 'is_admin', False)) if parent_widget else False
         
         # If multiple items selected, show bulk operations menu
         if len(selected_ids) > 1:
@@ -1013,12 +1070,12 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             
             # Bulk mark as deprecated (admin only)
             bulk_deprecate_action = menu.addAction(get_icon('deprecated', size=16), "Mark All as Deprecated")
-            if not self.parent().is_admin:
+            if not is_admin:
                 bulk_deprecate_action.setEnabled(False)
             
             # Bulk delete (admin only)
             bulk_delete_action = menu.addAction(get_icon('delete', size=16), "Delete All Selected")
-            if not self.parent().is_admin:
+            if not is_admin:
                 bulk_delete_action.setEnabled(False)
             
             # Execute menu

@@ -7,6 +7,8 @@ Python 2.7 compatible
 
 import os
 
+from src.ingestion_core import SequenceDetector
+
 # Ensure bundled FFmpeg binaries are available when bridge runs outside standalone launcher
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 _FFMPEG_BIN_DIR = os.path.join(_PROJECT_ROOT, 'bin', 'ffmpeg', 'bin')
@@ -383,9 +385,18 @@ class NukeIntegration(object):
         node = None
         
         if element['type'] == '2D':
+            frame_range = element.get('frame_range')
+            filepath_for_node = filepath
+            if frame_range and '-' in frame_range:
+                sequence_info = SequenceDetector.detect_sequence(filepath, auto_detect=True)
+                if sequence_info:
+                    pattern_path = SequenceDetector.get_sequence_path(sequence_info)
+                    if pattern_path:
+                        filepath_for_node = pattern_path
+
             node = self.bridge.create_read_node(
-                filepath=filepath,
-                frame_range=element['frame_range'],
+                filepath=filepath_for_node,
+                frame_range=frame_range,
                 node_name=element['name']
             )
         elif element['type'] == '3D':

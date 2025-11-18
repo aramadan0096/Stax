@@ -228,7 +228,35 @@ class SettingsPanel(QtWidgets.QWidget):
         
         self.auto_detect = QtWidgets.QCheckBox("Auto-detect image sequences")
         self.auto_detect.setChecked(self.config.get('auto_detect_sequences'))
+        self.auto_detect.toggled.connect(self.on_auto_detect_sequences_toggled)
         seq_layout.addRow("", self.auto_detect)
+
+        # Sequence pattern selection
+        pattern_label = QtWidgets.QLabel("Sequence Pattern:")
+        pattern_help = QtWidgets.QLabel(
+            "Determines how image sequences are detected. '####' represents any number of digits (e.g. 1, 1001, 000034). Files matching the active pattern are grouped into a single sequence."
+        )
+        pattern_help.setStyleSheet("color: #888; font-size: 10px; font-style: italic;")
+
+        self.sequence_pattern_combo = QtWidgets.QComboBox()
+        pattern_options = ['.####.ext', '_####.ext', ' ####.ext', '-####.ext']
+        self.sequence_pattern_combo.addItems(pattern_options)
+        current_pattern = self.config.get('sequence_pattern', '.####.ext')
+        if current_pattern not in pattern_options:
+            current_pattern = '.####.ext'
+        self.sequence_pattern_combo.setCurrentText(current_pattern)
+        self.sequence_pattern_combo.setEnabled(self.auto_detect.isChecked())
+        self.sequence_pattern_combo.currentTextChanged.connect(self.update_sequence_pattern_hint)
+
+        self.sequence_pattern_hint = QtWidgets.QLabel()
+        self.sequence_pattern_hint.setStyleSheet("color: #aaa; font-size: 10px;")
+        self.sequence_pattern_hint.setWordWrap(True)
+        self.update_sequence_pattern_hint(current_pattern)
+        self.sequence_pattern_hint.setEnabled(self.auto_detect.isChecked())
+
+        seq_layout.addRow(pattern_label, self.sequence_pattern_combo)
+        seq_layout.addRow("", pattern_help)
+        seq_layout.addRow("", self.sequence_pattern_hint)
         
         seq_group.setLayout(seq_layout)
         layout.addWidget(seq_group)
@@ -752,6 +780,33 @@ class SettingsPanel(QtWidgets.QWidget):
     def on_gif_full_duration_toggled(self, checked):
         """Handle Full Duration checkbox toggle."""
         self.gif_duration.setEnabled(not checked)
+
+    def on_auto_detect_sequences_toggled(self, checked):
+        """Enable/disable sequence pattern selection based on auto-detect toggle."""
+        if hasattr(self, 'sequence_pattern_combo') and self.sequence_pattern_combo:
+            self.sequence_pattern_combo.setEnabled(checked)
+        if hasattr(self, 'sequence_pattern_hint') and self.sequence_pattern_hint:
+            self.sequence_pattern_hint.setEnabled(checked)
+            if checked:
+                self.update_sequence_pattern_hint(self.sequence_pattern_combo.currentText())
+            else:
+                self.sequence_pattern_hint.setText(
+                    "Sequence detection disabled. Files will ingest individually even if their names share a pattern."
+                )
+
+    def update_sequence_pattern_hint(self, pattern):
+        """Update the helper text under the pattern combo box."""
+        if not hasattr(self, 'sequence_pattern_hint') or not self.sequence_pattern_hint:
+            return
+
+        examples = {
+            '.####.ext': "Example: plate.1001.exr, plate.1002.exr",
+            '_####.ext': "Example: plate_0001.dpx, plate_0002.dpx",
+            ' ####.ext': "Example: render 1.png, render 2.png",
+            '-####.ext': "Example: shot-10.jpg, shot-11.jpg"
+        }
+        sample = examples.get(pattern, "Example: image.####.exr")
+        self.sequence_pattern_hint.setText(sample)
     
     def save_all_settings(self):
         """Save all settings to config and database."""
@@ -766,6 +821,7 @@ class SettingsPanel(QtWidgets.QWidget):
         # Ingestion settings
         self.config.set('default_copy_policy', self.copy_policy.currentText())
         self.config.set('auto_detect_sequences', self.auto_detect.isChecked())
+        self.config.set('sequence_pattern', self.sequence_pattern_combo.currentText())
         
         # Preview settings
         self.config.set('generate_previews', self.gen_previews.isChecked())
@@ -815,8 +871,11 @@ class SettingsPanel(QtWidgets.QWidget):
             # Clear layout
             while self.layout().count():
                 child = self.layout().takeAt(0)
-                if child.widget():
-                    child.widget().deleteLater()
+                if not child:
+                    continue
+                widget = child.widget()
+                if widget:
+                    widget.deleteLater()
             
             # Rebuild UI
             self.setup_ui()
