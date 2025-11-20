@@ -6,6 +6,18 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
 
 ## [Unreleased]
 
+### 🔧 Session 10 - Ingest Library Sequence Detection Fix (Nov 19, 2025)
+
+#### Duplicate GIF Prevention
+- **Issue Fixed**: Ingest Library "Scan Folder" treated each sequence frame as individual file, causing duplicate GIF generation (e.g., 10-frame sequence → 10 GIFs instead of 1)
+- **Root Cause**: `IngestLibraryDialog._get_media_files()` listed all files individually without sequence detection
+- **Enhancement**: Integrated `SequenceDetector` with configured pattern from settings
+  - Returns only first frame as representative of entire sequence
+  - Tracks processed files to prevent duplicate processing
+  - Respects 'sequence_pattern' setting from config (`.####.ext`, `_####.ext`, `-####.ext`, ` ####.ext`)
+- **Result**: 10-frame sequence like `shot001.1001-1010.exr` now generates 1 GIF instead of 10
+- **Testing**: Added `test_sequence_detection_simple.py` with 3 comprehensive test cases covering single/multiple sequences and pattern validation
+
 ### � Session 9 - Image & Sequence Ingestion Enhancements (Nov 19, 2025)
 
 #### Image vs Sequence Preview Flow
