@@ -562,6 +562,16 @@ class MainWindow(QtWidgets.QMainWindow):
     
     def on_element_double_clicked(self, element_id):
         """Handle element double-click (insert into Nuke)."""
+        # Guard insertion when running in standalone mode
+        if not self.nuke_bridge.is_available():
+            QtWidgets.QMessageBox.information(
+                self,
+                "Nuke Mode Required",
+                "Insert into Nuke requires running StaX within Nuke.\n\n"
+                "This feature is not available in standalone mode."
+            )
+            return
+        
         try:
             self.nuke_integration.insert_element(element_id)
             element = self.db.get_element_by_id(element_id)

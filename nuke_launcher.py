@@ -676,6 +676,16 @@ class StaXPanel(QtWidgets.QWidget):
     
     def on_element_double_clicked(self, element_id):
         """Handle element double-click (insert into Nuke)."""
+        # Guard insertion when running in standalone mode (shouldn't happen in nuke_launcher, but defensive)
+        if not NUKE_MODE:
+            QtWidgets.QMessageBox.information(
+                self,
+                "Nuke Mode Required",
+                "Insert into Nuke requires running StaX within Nuke.\n\n"
+                "This feature is not available in standalone mode."
+            )
+            return
+        
         try:
             self.nuke_integration.insert_element(element_id)
             element = self.db.get_element_by_id(element_id)

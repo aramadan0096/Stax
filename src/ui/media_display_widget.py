@@ -987,6 +987,16 @@ class MediaDisplayWidget(QtWidgets.QWidget):
     
     def on_popup_insert(self, element_id):
         """Handle insert request from popup - insert element into Nuke."""
+        # Guard insertion when running in standalone mode
+        if not self.nuke_bridge.is_available():
+            QtWidgets.QMessageBox.information(
+                self,
+                "Nuke Mode Required",
+                "Insert into Nuke requires running StaX within Nuke.\n\n"
+                "This feature is not available in standalone mode."
+            )
+            return
+        
         self.gallery_view.insert_to_nuke([element_id])
         self.element_double_clicked.emit(element_id)
     
