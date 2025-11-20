@@ -235,19 +235,50 @@ class IngestLibraryDialog(QtWidgets.QDialog):
                 lists_dict[list_name]['files'] = self._get_media_files(item_path)
     
     def _get_media_files(self, folder_path):
-        """Get all media files in folder (non-recursive)."""
+        """
+        Get all media files in folder (non-recursive).
+        Detects image sequences and returns them as single sequence entries.
+        """
+        from src.ingestion_core import SequenceDetector
+        
         media_extensions = ['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.exr', '.dpx', 
                            '.mp4', '.mov', '.avi', '.mkv', '.obj', '.fbx', '.abc', '.nk']
         
-        media_files = []
+        # Collect all media files
+        all_files = []
         for item in os.listdir(folder_path):
             item_path = os.path.join(folder_path, item)
             if os.path.isfile(item_path):
                 _, ext = os.path.splitext(item)
                 if ext.lower() in media_extensions:
-                    media_files.append(item_path)
+                    all_files.append(item_path)
         
-        return media_files
+        # Detect sequences among image files
+        image_extensions = ['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.exr', '.dpx', '.tga']
+        sequences_detected = set()
+        final_files = []
+        
+        for filepath in all_files:
+            _, ext = os.path.splitext(filepath)
+            
+            # Skip if already part of detected sequence
+            if filepath in sequences_detected:
+                continue
+            
+            # Try to detect sequence for image files
+            if ext.lower() in image_extensions:
+                sequence_info = SequenceDetector.detect_sequence(filepath, auto_detect=True)
+                if sequence_info and len(sequence_info.get('files', [])) > 1:
+                    # This is part of a sequence - add representative file (first frame)
+                    # and mark all sequence files as processed
+                    final_files.append(filepath)
+                    sequences_detected.update(sequence_info['files'])
+                    continue
+            
+            # Single file (video, 3D asset, or single image)
+            final_files.append(filepath)
+        
+        return final_files
     
     def _display_preview(self, structure):
         """Display scanned structure in tree widget."""
