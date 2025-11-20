@@ -746,6 +746,12 @@ class MediaDisplayWidget(QtWidgets.QWidget):
 
     def _get_default_icon_for_type(self, element_type):
         """Return a fallback icon when no preview is available."""
+        # Use film.svg illustration for all types as placeholder
+        film_icon = get_icon('film', size=128)
+        if not film_icon.isNull():
+            return film_icon
+        
+        # Fallback to Qt standard icons if film.svg not found
         if element_type == '2D':
             return self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon)
         if element_type == '3D':
