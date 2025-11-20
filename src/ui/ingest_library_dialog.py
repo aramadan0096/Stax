@@ -237,12 +237,18 @@ class IngestLibraryDialog(QtWidgets.QDialog):
     def _get_media_files(self, folder_path):
         """
         Get all media files in folder (non-recursive).
-        Detects image sequences and returns them as single sequence entries.
+        Detects image sequences and returns them as single entries using the first frame.
+        Respects the 'sequence_pattern' setting from config.
         """
         from src.ingestion_core import SequenceDetector
         
         media_extensions = ['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.exr', '.dpx', 
-                           '.mp4', '.mov', '.avi', '.mkv', '.obj', '.fbx', '.abc', '.nk']
+                           '.mp4', '.mov', '.avi', '.mkv', '.obj', '.fbx', '.abc', '.nk', '.tga']
+        
+        image_extensions = ['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.exr', '.dpx', '.tga']
+        
+        # Get sequence pattern from config (default to '.####.ext' if not set)
+        sequence_pattern = self.config.get('sequence_pattern', '.####.ext')
         
         # Collect all media files
         all_files = []
@@ -253,32 +259,44 @@ class IngestLibraryDialog(QtWidgets.QDialog):
                 if ext.lower() in media_extensions:
                     all_files.append(item_path)
         
-        # Detect sequences among image files
-        image_extensions = ['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.exr', '.dpx', '.tga']
-        sequences_detected = set()
-        final_files = []
+        # Track which files have been processed as part of sequences
+        processed_files = set()
+        result_files = []
         
+        # Process files and detect sequences
         for filepath in all_files:
-            _, ext = os.path.splitext(filepath)
-            
-            # Skip if already part of detected sequence
-            if filepath in sequences_detected:
+            # Skip if already processed as part of a sequence
+            if filepath in processed_files:
                 continue
             
-            # Try to detect sequence for image files
+            _, ext = os.path.splitext(filepath)
+            
+            # Only try sequence detection for image files
             if ext.lower() in image_extensions:
-                sequence_info = SequenceDetector.detect_sequence(filepath, auto_detect=True)
-                if sequence_info and len(sequence_info.get('files', [])) > 1:
-                    # This is part of a sequence - add representative file (first frame)
-                    # and mark all sequence files as processed
-                    final_files.append(filepath)
-                    sequences_detected.update(sequence_info['files'])
+                # Try to detect sequence using configured pattern
+                sequence_info = SequenceDetector.detect_sequence(
+                    filepath, 
+                    pattern_key=sequence_pattern, 
+                    auto_detect=True
+                )
+                
+                # If this is a sequence with multiple frames
+                if sequence_info and sequence_info.get('frame_count', 1) > 1:
+                    # Add only the first frame as representative
+                    # This will be ingested as a sequence
+                    result_files.append(filepath)
+                    
+                    # Mark all sequence files as processed
+                    for seq_file in sequence_info.get('files', []):
+                        processed_files.add(seq_file)
+                    
                     continue
             
-            # Single file (video, 3D asset, or single image)
-            final_files.append(filepath)
+            # Single file (video, 3D asset, or standalone image)
+            result_files.append(filepath)
+            processed_files.add(filepath)
         
-        return final_files
+        return result_files
     
     def _display_preview(self, structure):
         """Display scanned structure in tree widget."""
