@@ -345,16 +345,15 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         
         header_layout.addStretch()
         
-        # Close/Exit button (use clearer exit SVG icon)
+        # Close/Exit button (use exit SVG icon via icon loader)
+        from src.icon_loader import get_icon
         close_btn = QtWidgets.QPushButton()
-        close_icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icons', 'exit.svg')
-        if not os.path.exists(close_icon_path):
-            # Fallback to delete.svg if exit.svg is not yet present
-            close_icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icons', 'delete.svg')
-        if os.path.exists(close_icon_path):
-            close_btn.setIcon(QtGui.QIcon(close_icon_path))
+        exit_icon = get_icon('exit', size=16)
+        if not exit_icon.isNull():
+            close_btn.setIcon(exit_icon)
             close_btn.setIconSize(QtCore.QSize(16, 16))
         close_btn.setMaximumWidth(30)
+        close_btn.setToolTip('Close preview pane')
         close_btn.setStyleSheet("""
             QPushButton { background-color: transparent; border: none; }
             QPushButton:hover { background-color: rgba(255,85,85,0.12); border-radius: 3px; }
@@ -454,12 +453,13 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         self.stop_btn.clicked.connect(self.stop_playback)
         controls_layout.addWidget(self.stop_btn)
         
-        # External player / Fullscreen button
+        # External player button (use external_player SVG icon via icon loader)
+        from src.icon_loader import get_icon
         self.external_btn = QtWidgets.QPushButton()
-        ext_icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icons', 'external_player.svg')
-        if os.path.exists(ext_icon_path):
-            self.external_btn.setIcon(QtGui.QIcon(ext_icon_path))
-        self.external_btn.setIconSize(QtCore.QSize(18, 18))
+        external_icon = get_icon('external_player', size=18)
+        if not external_icon.isNull():
+            self.external_btn.setIcon(external_icon)
+            self.external_btn.setIconSize(QtCore.QSize(18, 18))
         self.external_btn.setToolTip('Open in external player')
         self.external_btn.clicked.connect(self.open_in_external_player)
         self.external_btn.setEnabled(False)
