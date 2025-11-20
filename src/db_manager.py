@@ -803,8 +803,17 @@ class DatabaseManager(object):
             )
             return cursor.rowcount > 0
     
-    def delete_element(self, element_id):
-        """Delete element."""
+    def delete_element(self, element_id, delete_files=False):
+        """
+        Delete element from database.
+        
+        Args:
+            element_id (int): Element ID to delete
+            delete_files (bool): If True, caller should delete physical files first
+            
+        Returns:
+            bool: True if deleted successfully
+        """
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM elements WHERE element_id = ?", (element_id,))
