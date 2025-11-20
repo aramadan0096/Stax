@@ -654,18 +654,6 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         # Get file path
         filepath = self.current_element.get('filepath_hard') or self.current_element.get('filepath_soft')
         
-        # Check for image sequences (not supported by ffpyplayer MediaPlayer)
-        if filepath and '%' in filepath:
-            self.video_widget.clear_frame("Image sequences not supported")
-            QtWidgets.QMessageBox.warning(
-                self,
-                "Format Not Supported",
-                "Image sequences are not supported in the embedded video player.\n\n"
-                "ffpyplayer can only play video files (mp4, mov, avi, mkv, etc.).\n\n"
-                "File: {}".format(filepath)
-            )
-            return
-        
         if not filepath:
             QtWidgets.QMessageBox.warning(
                 self,
@@ -674,11 +662,19 @@ class VideoPlayerWidget(QtWidgets.QWidget):
             )
             return
         
-        if not os.path.exists(filepath):
+        # Check for image sequences - convert pattern to ffpyplayer format if needed
+        playback_path = filepath
+        if '%' in filepath:
+            # This is an image sequence pattern (e.g., image.%04d.exr)
+            # ffpyplayer supports this format directly
+            print("Image sequence detected: {}".format(filepath))
+            playback_path = filepath
+        
+        if not os.path.exists(filepath if '%' not in filepath else os.path.dirname(filepath)):
             QtWidgets.QMessageBox.warning(
                 self,
                 "File Not Found",
-                "Cannot load media: File does not exist\n\n{}".format(filepath)
+                "Cannot load media: File or directory does not exist\n\n{}".format(filepath)
             )
             return
         
@@ -696,13 +692,13 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         # Try to open the media file with ffpyplayer
         try:
             self.video_widget.clear_frame("Loading preview…")
-            self.player_controller.open(filepath)
+            self.player_controller.open(playback_path)
             self._set_controls_enabled(True)
             self._set_play_button_state(self.player_controller.is_playing())
             self.stop_btn.setEnabled(True)
             self.external_btn.setEnabled(True)
             self.video_widget.clear_frame("Ready to play")
-            print("Media loaded with ffpyplayer: {}".format(filepath))
+            print("Media loaded with ffpyplayer: {}".format(playback_path))
         except Exception as e:
             self._shutdown_player()
             QtWidgets.QMessageBox.critical(
