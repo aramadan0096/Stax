@@ -1,6 +1,10 @@
-# StaX
+<p align="center">
+  <a href="https://github.com/aramadan0096/Stax"><img src="resources/logo.png" alt="StaX"></a>
+</p>
+<p align="center">
+    <em>Professional stock footage and asset management system for VFX pipelines</em>
+</p>
 
-**Professional stock footage and asset management system for VFX pipelines**
 
 StaX is an advanced media browser and asset management tool designed specifically for integration with Foundry Nuke. It provides powerful features for organizing, searching, and deploying visual effects assets with intelligent sequence detection, automated preview generation, and extensible pipeline hooks.
 
