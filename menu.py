@@ -134,6 +134,58 @@ try:
         if logger:
             logger.error("Failed to add 'Advanced Search': {}".format(e))
 
+    # Register StaX panel in the Pane menu (dockable panel)
+    try:
+        print("[StaX menu.py] Setting up StaX panel in Pane menu...")
+
+        class StaXPanelKnob(object):
+            """Wrapper for creating StaXPanel widgets inside a Nuke PythonPanel."""
+
+            def makeUI(self):
+                print("[StaX menu.py]   [Pane] Creating StaXPanel widget...")
+                try:
+                    from nuke_launcher import StaXPanel as _StaXPanelWidget
+                    self._widget = _StaXPanelWidget()
+                    if logger:
+                        logger.info("StaXPanel widget created via Pane knob")
+                    return self._widget
+                except Exception as knob_error:
+                    print("[StaX menu.py]   [Pane][ERROR] Failed to create StaXPanel widget: {}".format(knob_error))
+                    if logger:
+                        logger.exception("Failed to create StaXPanel widget inside StaXPanelKnob.makeUI")
+                    raise
+
+        class StaXPanePythonPanel(nukescripts.PythonPanel):
+            """PythonPanel wrapper that embeds StaXPanel using PyCustom_Knob."""
+
+            def __init__(self):
+                nukescripts.PythonPanel.__init__(
+                    self,
+                    title="StaX",
+                    id="uk.co.thefoundry.StaXPanel"
+                )
+                try:
+                    self._custom_knob = nuke.PyCustom_Knob("", "", "StaXPanelKnob()")
+                    self.addKnob(self._custom_knob)
+                    if logger:
+                        logger.info("StaX Pane PythonPanel initialized with PyCustom_Knob")
+                except Exception as panel_error:
+                    print("[StaX menu.py]   [Pane][ERROR] Failed to initialize StaXPanePythonPanel: {}".format(panel_error))
+                    if logger:
+                        logger.exception("Failed to initialize StaXPanePythonPanel")
+                    raise
+
+        stax_panel_instance = StaXPanePythonPanel()
+        nuke.menu('Pane').addCommand("StaX", "stax_panel_instance.addToPane()")
+        print("[StaX menu.py]   [OK] StaX panel registered in Pane menu")
+        if logger:
+            logger.info("StaX panel registered in Pane menu")
+
+    except Exception as pane_error:
+        print("[StaX menu.py]   [ERROR] Failed to register StaX panel in Pane menu: {}".format(pane_error))
+        if logger:
+            logger.error("Failed to register StaX panel in Pane menu: {}".format(pane_error))
+
     print("[StaX menu.py] [OK] Menu installed successfully")
     print("[StaX menu.py] Press Ctrl+Alt+S to open StaX panel")
     

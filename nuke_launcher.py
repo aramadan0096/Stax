@@ -290,17 +290,6 @@ class StaXPanel(QtWidgets.QWidget):
             raise
         
         try:
-            self.nuke_integration = NukeIntegration(self.nuke_bridge, self.db)
-            print("[StaXPanel.__init__]   [OK] NukeIntegration initialized")
-            if logger:
-                logger.info("NukeIntegration initialized")
-        except Exception as e:
-            print("[StaXPanel.__init__]   [ERROR] Failed to initialize NukeIntegration: {}".format(e))
-            if logger:
-                logger.exception("Failed to initialize NukeIntegration")
-            raise
-        
-        try:
             self.ingestion = IngestionCore(self.db, self.config.get_all())
             print("[StaXPanel.__init__]   [OK] IngestionCore initialized")
             if logger:
@@ -320,6 +309,23 @@ class StaXPanel(QtWidgets.QWidget):
             print("[StaXPanel.__init__]   [ERROR] Failed to initialize ProcessorManager: {}".format(e))
             if logger:
                 logger.exception("Failed to initialize ProcessorManager")
+            raise
+
+        try:
+            self.nuke_integration = NukeIntegration(
+                self.nuke_bridge,
+                self.db,
+                config=self.config,
+                ingestion_core=self.ingestion,
+                processor_manager=self.processor_manager
+            )
+            print("[StaXPanel.__init__]   [OK] NukeIntegration initialized")
+            if logger:
+                logger.info("NukeIntegration initialized")
+        except Exception as e:
+            print("[StaXPanel.__init__]   [ERROR] Failed to initialize NukeIntegration: {}".format(e))
+            if logger:
+                logger.exception("Failed to initialize NukeIntegration")
             raise
         
         # User authentication
@@ -781,7 +787,7 @@ class StaXPanel(QtWidgets.QWidget):
             QtWidgets.QMessageBox.warning(self, "Nuke Required", "This feature requires Nuke to be running.")
             return
         
-        dialog = RegisterToolsetDialog(self.db, self.nuke_bridge, self.config, self)
+        dialog = RegisterToolsetDialog(self.db, self.nuke_integration, self.config, self)
         if dialog.exec_():
             # Refresh media display to show new toolset
             if hasattr(self.media_display, 'current_list_id') and self.media_display.current_list_id:

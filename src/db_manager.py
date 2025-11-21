@@ -680,6 +680,53 @@ class DatabaseManager(object):
             row = cursor.fetchone()
             return dict(row) if row else None
     
+    def get_list_hierarchy(self, list_id):
+        """Return list ancestors from top-level to the specified list."""
+        hierarchy = []
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            current_id = list_id
+            while current_id:
+                cursor.execute("SELECT * FROM lists WHERE list_id = ?", (current_id,))
+                row = cursor.fetchone()
+                if not row:
+                    break
+                hierarchy.append(dict(row))
+                current_id = row['parent_list_fk']
+        hierarchy.reverse()
+        return hierarchy
+
+    def get_repository_path_for_list(self, list_id):
+        """Return the repository path on disk for a list hierarchy."""
+        hierarchy = self.get_list_hierarchy(list_id)
+        if not hierarchy:
+            return None
+
+        top_entry = hierarchy[0]
+        stack = self.get_stack_by_id(top_entry['stack_fk']) if top_entry else None
+        stack_path = stack.get('path') if stack else None
+        if not stack_path:
+            return None
+
+        parts = [stack_path] + [entry['name'] for entry in hierarchy]
+        path = parts[0]
+        if len(parts) > 1:
+            path = os.path.join(*parts)
+        return os.path.normpath(path)
+
+    def get_list_display_path(self, list_id, separator=' / '):
+        """Return a human-readable Stack/List path."""
+        hierarchy = self.get_list_hierarchy(list_id)
+        if not hierarchy:
+            return ''
+
+        stack = self.get_stack_by_id(hierarchy[0]['stack_fk']) if hierarchy else None
+        names = []
+        if stack and stack.get('name'):
+            names.append(stack['name'])
+        names.extend([entry['name'] for entry in hierarchy])
+        return separator.join(names)
+
     def delete_list(self, list_id):
         """Delete list (cascades to elements)."""
         with self.get_connection() as conn:

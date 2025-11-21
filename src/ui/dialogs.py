@@ -5,6 +5,7 @@ Collection of dialog classes for StaX application
 """
 
 import os
+import sys
 from PySide2 import QtWidgets, QtCore, QtGui
 
 from src.icon_loader import get_icon
@@ -699,12 +700,11 @@ class EditElementDialog(QtWidgets.QDialog):
 class RegisterToolsetDialog(QtWidgets.QDialog):
     """Dialog for registering selected Nuke nodes as a toolset."""
     
-    def __init__(self, db_manager, nuke_bridge, config, parent=None):
+    def __init__(self, db_manager, nuke_integration, config, parent=None):
         super(RegisterToolsetDialog, self).__init__(parent)
         self.db = db_manager
-        self.nuke_bridge = nuke_bridge
+        self.nuke_integration = nuke_integration
         self.config = config
-        self.toolset_path = None
         
         self.setWindowTitle("Register Toolset")
         self.setMinimumWidth(500)
@@ -784,80 +784,17 @@ class RegisterToolsetDialog(QtWidgets.QDialog):
             return
         
         try:
-            # Create toolset file path
-            import tempfile
-            import hashlib
-            import time
-            
-            # Generate unique filename
-            timestamp = str(int(time.time()))
-            name_hash = hashlib.md5(name.encode('utf-8')).hexdigest()[:8]
-            filename = "toolset_{}_{}.nk".format(name_hash, timestamp)
-            
-            # Save to temporary location first
-            temp_path = os.path.join(tempfile.gettempdir(), filename)
-            
-            # Save selected nodes as toolset
-            success = self.nuke_bridge.save_selected_as_toolset(temp_path)
-            
-            if not success or not os.path.exists(temp_path):
-                QtWidgets.QMessageBox.critical(self, "Error", "Failed to save toolset from Nuke.")
-                return
-            
-            # Determine final storage path
-            repository_path = self.config.get('default_repository_path')
-            if not os.path.exists(repository_path):
-                os.makedirs(repository_path)
-            
-            final_path = os.path.join(repository_path, filename)
-            
-            # Move toolset file to repository
-            import shutil
-            shutil.move(temp_path, final_path)
-            
-            # Generate preview if requested
-            preview_path = None
-            if self.gen_preview_check.isChecked():
-                preview_dir = self.config.get('preview_dir')
-                if not os.path.exists(preview_dir):
-                    os.makedirs(preview_dir)
-                
-                preview_filename = "toolset_{}_{}.png".format(name_hash, timestamp)
-                preview_path = os.path.join(preview_dir, preview_filename)
-                
-                # Capture node graph preview (if available)
-                try:
-                    self.nuke_bridge.capture_node_graph_preview(preview_path)
-                except Exception as e:
-                    print("Preview generation failed: {}".format(str(e)))
-                    preview_path = None
-            
-            # Ingest toolset into database
-            element_data = {
-                'name': name,
-                'list_fk': list_id,
-                'type': 'toolset',
-                'format': 'nk',
-                'filepath_soft': None,  # Toolset is always hard copy
-                'filepath_hard': final_path,
-                'is_hard_copy': True,
-                'preview_path': preview_path,
-                'comment': self.comment_edit.toPlainText().strip() or None,
-                'frames': 1,
-                'width': None,
-                'height': None,
-                'size_bytes': os.path.getsize(final_path)
-            }
-            
-            element_id = self.db.add_element(**element_data)
-            
-            # Log to history
-            self.db.add_history_entry(
-                'toolset_registered',
-                "Registered toolset: {}".format(name),
-                {'element_id': element_id, 'list_id': list_id}
+            comment_text = self.comment_edit.toPlainText().strip() or None
+            generate_preview = self.gen_preview_check.isChecked()
+
+            element_id = self.nuke_integration.register_selection_as_toolset(
+                name,
+                list_id,
+                comment=comment_text,
+                preview_path=None,
+                generate_preview=generate_preview
             )
-            
+
             QtWidgets.QMessageBox.information(
                 self,
                 "Toolset Registered",
@@ -872,8 +809,6 @@ class RegisterToolsetDialog(QtWidgets.QDialog):
                 "Error",
                 "Failed to register toolset: {}".format(str(e))
             )
-
-
 
 
 class SelectListDialog(QtWidgets.QDialog):
@@ -951,6 +886,19 @@ def main():
     else:
         print("Stylesheet not found at: {}".format(stylesheet_path))
     
+    import importlib
+    MainWindow = None
+    try:
+        module = importlib.import_module('main')
+        MainWindow = getattr(module, 'MainWindow', None)
+    except Exception as import_error:
+        print("MainWindow unavailable: {}".format(import_error))
+        MainWindow = None
+
+    if MainWindow is None:
+        print("MainWindow class could not be loaded; aborting standalone dialog test.")
+        return
+
     # Create and show main window
     window = MainWindow()
     window.show()

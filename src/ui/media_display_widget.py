@@ -161,7 +161,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.view_stack = QtWidgets.QStackedWidget()
         
         # Gallery view (grid of thumbnails with drag & drop)
-        self.gallery_view = DragGalleryView(self.db, self.nuke_bridge)
+        self.gallery_view = DragGalleryView(self.db, self.config, self.nuke_bridge)
         self.gallery_view.setViewMode(QtWidgets.QListView.IconMode)
         self.gallery_view.setResizeMode(QtWidgets.QListView.Adjust)
         self.gallery_view.setIconSize(QtCore.QSize(256, 256))

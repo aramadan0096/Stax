@@ -7,6 +7,7 @@ Python 2.7 compatible
 
 import os
 import json
+import errno
 
 
 class Config(object):
@@ -88,6 +89,8 @@ class Config(object):
             config_path (str): Path to configuration file
         """
         self.config_path = config_path
+        # Project root (two levels up from this file: src/..)
+        self.root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.config = self.DEFAULT_CONFIG.copy()
         
         # Valid sequence pattern choices
@@ -230,34 +233,80 @@ class Config(object):
     def ensure_directories(self):
         """Ensure all configured directories exist."""
         # Get absolute paths to avoid permission issues with relative paths
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        root_dir = os.path.dirname(script_dir)  # Go up one level from src/
-        
+        root_dir = self.root_dir
+
         directories = []
+
         db_path = self.get('database_path')
         if db_path:
-            directories.append(os.path.dirname(db_path))
+            directories.append(os.path.dirname(self.resolve_path(db_path)))
 
-        directories.extend([
-            self.get('default_repository_path'),
-            self.get('preview_dir'),
-            os.path.join(root_dir, 'logs')  # Add logs directory
-        ])
-        
+        repository_path = self.get('default_repository_path')
+        if repository_path:
+            directories.append(self.resolve_path(repository_path, treat_as_dir=True))
+
+        preview_dir = self.get('preview_dir')
+        if preview_dir:
+            directories.append(self.resolve_path(preview_dir, treat_as_dir=True))
+
+        previews_path = self.get('previews_path')
+        if previews_path and previews_path != preview_dir:
+            directories.append(self.resolve_path(previews_path, treat_as_dir=True))
+
+        directories.append(os.path.join(root_dir, 'logs'))  # Add logs directory
+
+        seen = set()
         for directory in directories:
-            if directory and not os.path.exists(directory):
-                abs_directory = directory
+            if not directory:
+                continue
+            # Normalise and deduplicate
+            normalised = os.path.normpath(directory)
+            if normalised in seen:
+                continue
+            seen.add(normalised)
+
+            if not os.path.exists(normalised):
                 try:
-                    # Convert relative paths to absolute paths
-                    if not os.path.isabs(directory):
-                        abs_directory = os.path.join(root_dir, directory)
-                    else:
-                        abs_directory = directory
-                    
-                    print("[Config] Creating directory: {}".format(abs_directory))
-                    os.makedirs(abs_directory)
+                    print("[Config] Creating directory: {}".format(normalised))
+                    os.makedirs(normalised)
                     print("[Config]   [OK] Directory created successfully")
                 except OSError as e:
-                    print("[Config]   [WARN] Failed to create directory {}: {}".format(abs_directory, e))
-                    print("[Config]   (Continuing - directory may not be needed immediately)")
+                    if e.errno != errno.EEXIST:
+                        print("[Config]   [WARN] Failed to create directory {}: {}".format(normalised, e))
+                        print("[Config]   (Continuing - directory may not be needed immediately)")
                     # Don't raise - some directories might not be writable in Nuke context
+
+    def resolve_path(self, path, ensure_dir=False, treat_as_dir=None):
+        """Resolve a possibly relative path to an absolute path rooted at project."""
+        if not path:
+            return None
+        resolved = path
+        if not os.path.isabs(path):
+            resolved = os.path.normpath(os.path.join(self.root_dir, path))
+        else:
+            resolved = os.path.normpath(path)
+
+        if ensure_dir:
+            directory = resolved
+            if treat_as_dir is False or (treat_as_dir is None and os.path.splitext(resolved)[1]):
+                directory = os.path.dirname(resolved)
+            if directory and not os.path.exists(directory):
+                try:
+                    os.makedirs(directory)
+                except OSError as error:
+                    if error.errno != errno.EEXIST:
+                        raise
+        return resolved
+
+    def make_relative(self, path):
+        """Return path relative to project root when possible."""
+        if not path:
+            return None
+        path = os.path.normpath(path)
+        try:
+            relative = os.path.relpath(path, self.root_dir)
+        except ValueError:
+            return path.replace('\\', '/').replace('\\', '/')
+        if relative.startswith('..'):
+            return path.replace('\\', '/').replace('\\', '/')
+        return relative.replace('\\', '/').replace('\\', '/')

@@ -60,10 +60,16 @@ class MainWindow(QtWidgets.QMainWindow):
         # Load database-stored settings (previews_path, etc.)
         self.config.load_from_database(self.db)
         
-        self.nuke_bridge = NukeBridge(mock_mode=self.config.get('nuke_mock_mode'))
-        self.nuke_integration = NukeIntegration(self.nuke_bridge, self.db)
         self.ingestion = IngestionCore(self.db, self.config.get_all())
         self.processor_manager = ProcessorManager(self.config.get_all())
+        self.nuke_bridge = NukeBridge(mock_mode=self.config.get('nuke_mock_mode'))
+        self.nuke_integration = NukeIntegration(
+            self.nuke_bridge,
+            self.db,
+            config=self.config,
+            ingestion_core=self.ingestion,
+            processor_manager=self.processor_manager
+        )
         self._stored_left_width = None
         self.active_view = ('none', None)
         self._view_before_tags = None
@@ -693,7 +699,7 @@ class MainWindow(QtWidgets.QMainWindow):
     
     def register_toolset(self):
         """Open Register Toolset dialog to save selected Nuke nodes as a toolset."""
-        dialog = RegisterToolsetDialog(self.db, self.nuke_bridge, self.config, self)
+        dialog = RegisterToolsetDialog(self.db, self.nuke_integration, self.config, self)
         if dialog.exec_():
             # Refresh media display to show new toolset
             if hasattr(self.media_display, 'current_list_id') and self.media_display.current_list_id:

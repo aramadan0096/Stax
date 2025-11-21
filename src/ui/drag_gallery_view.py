@@ -4,6 +4,8 @@ Drag Gallery View Widget
 Custom QListWidget with drag & drop support for Nuke integration
 """
 
+import os
+
 from PySide2 import QtWidgets, QtCore, QtGui
 
 from src.ingestion_core import SequenceDetector
@@ -12,12 +14,25 @@ from src.ingestion_core import SequenceDetector
 class DragGalleryView(QtWidgets.QListWidget):
     """Custom QListWidget with drag & drop support for Nuke integration."""
     
-    def __init__(self, db_manager, nuke_bridge, parent=None):
+    def __init__(self, db_manager, config, nuke_bridge, parent=None):
         super(DragGalleryView, self).__init__(parent)
         self.db = db_manager
+        self.config = config
         self.nuke_bridge = nuke_bridge
+        self._project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
         self.setDragEnabled(True)
         self.setAcceptDrops(False)  # We don't accept drops, only drag out
+
+    def _resolve_storage_path(self, path_value):
+        if not path_value:
+            return None
+        if os.path.isabs(path_value):
+            return os.path.normpath(path_value)
+        if self.config:
+            resolved = self.config.resolve_path(path_value)
+            if resolved:
+                return os.path.normpath(resolved)
+        return os.path.normpath(os.path.join(self._project_root, path_value))
     
     def startDrag(self, supportedActions):
         """Override startDrag to set custom mime data with element info."""
@@ -48,9 +63,13 @@ class DragGalleryView(QtWidgets.QListWidget):
             if element:
                 # Get appropriate file path (hard copy if exists, else soft copy)
                 if element.get('is_hard_copy') and element.get('filepath_hard'):
-                    file_paths.append(element['filepath_hard'])
+                    resolved = self._resolve_storage_path(element['filepath_hard'])
                 elif element.get('filepath_soft'):
-                    file_paths.append(element['filepath_soft'])
+                    resolved = self._resolve_storage_path(element['filepath_soft'])
+                else:
+                    resolved = None
+                if resolved:
+                    file_paths.append(resolved)
         
         # Set URL list for file paths (standard for drag & drop)
         urls = [QtCore.QUrl.fromLocalFile(path) for path in file_paths]
@@ -93,21 +112,23 @@ class DragGalleryView(QtWidgets.QListWidget):
             else:
                 filepath = element.get('filepath_soft')
             
-            if not filepath:
+            resolved_path = self._resolve_storage_path(filepath)
+            if not resolved_path:
                 continue
             
             # Determine node type based on element type
-            element_type = element.get('type', '2D')
+            element_type = (element.get('type') or '2D').strip()
+            element_type_lower = element_type.lower()
             
-            if element_type == '3D':
+            if element_type_lower == '3d':
                 # Create ReadGeo node for 3D assets
                 self.nuke_bridge.create_read_geo_node(
-                    filepath,
+                    resolved_path,
                     node_name=element['name']
                 )
-            elif element_type == 'toolset':
+            elif element_type_lower == 'toolset':
                 # Paste toolset (.nk file) into DAG
-                self.nuke_bridge.paste_nodes_from_file(filepath)
+                self.nuke_bridge.paste_nodes_from_file(resolved_path)
             else:
                 # Create Read node for 2D assets (images, sequences, videos)
                 frame_range = None
@@ -122,9 +143,8 @@ class DragGalleryView(QtWidgets.QListWidget):
                 if not frame_range:
                     frame_range = element.get('frame_range')
 
-                resolved_path = filepath
                 if frame_range and '-' in frame_range:
-                    sequence_info = SequenceDetector.detect_sequence(filepath, auto_detect=True)
+                    sequence_info = SequenceDetector.detect_sequence(resolved_path, auto_detect=True)
                     if sequence_info:
                         pattern_path = SequenceDetector.get_sequence_path(sequence_info)
                         if pattern_path:
