@@ -12,6 +12,10 @@ import dependency_bootstrap
 
 dependency_bootstrap.bootstrap()
 
+from src.debug_manager import DebugManager
+
+DebugManager.bootstrap_from_config()
+
 print("\n" + "="*80)
 print("[nuke_launcher] Module loading started...")
 print("="*80)
@@ -269,6 +273,7 @@ class StaXPanel(QtWidgets.QWidget):
             print("[StaXPanel.__init__] Loading database-stored settings...")
             self.config.load_from_database(self.db)
             print("[StaXPanel.__init__]   [OK] Database settings loaded")
+            DebugManager.sync_from_config(self.config)
             
         except Exception as e:
             print("[StaXPanel.__init__]   [ERROR] Failed to initialize DatabaseManager: {}".format(e))

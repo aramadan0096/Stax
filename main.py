@@ -12,6 +12,10 @@ import dependency_bootstrap
 
 dependency_bootstrap.bootstrap()
 
+from src.debug_manager import DebugManager
+
+DebugManager.bootstrap_from_config()
+
 from PySide2 import QtWidgets, QtCore, QtGui
 
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -48,17 +52,22 @@ from src.ui import (
 class MainWindow(QtWidgets.QMainWindow):
     """Main application window."""
     
-    def __init__(self):
+    def __init__(self, config=None):
         super(MainWindow, self).__init__()
         
         # Initialize core components
-        self.config = Config()
-        self.config.ensure_directories()
+        if config is not None:
+            self.config = config
+        else:
+            self.config = Config()
+            self.config.ensure_directories()
         
         self.db = DatabaseManager(self.config.get('database_path'))
         
         # Load database-stored settings (previews_path, etc.)
         self.config.load_from_database(self.db)
+
+        DebugManager.sync_from_config(self.config)
         
         self.ingestion = IngestionCore(self.db, self.config.get_all())
         self.processor_manager = ProcessorManager(self.config.get_all())
@@ -760,6 +769,10 @@ def main():
         pass
 
     app = QtWidgets.QApplication(sys.argv)
+
+    config = Config()
+    DebugManager.sync_from_config(config)
+    config.ensure_directories()
     
     # Set application style and load styles early
     app.setStyle('Fusion')
@@ -782,7 +795,7 @@ def main():
         print("Stylesheet not found at: {}".format(stylesheet_path))
     
     # Create and show main window
-    window = MainWindow()
+    window = MainWindow(config=config)
     window.show()
     
     sys.exit(app.exec_())

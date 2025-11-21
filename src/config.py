@@ -25,6 +25,9 @@ class Config(object):
         'previews_path': './previews',  # Configurable previews location
         'preview_size': 512,
         'preview_quality': 85,
+
+        # Diagnostics
+        'debug_mode': True,
         
         # GIF settings
         'gif_size': 256,
@@ -132,6 +135,8 @@ class Config(object):
         # Ensure sequence pattern is valid
         if self.config.get('sequence_pattern') not in self.sequence_patterns:
             self.config['sequence_pattern'] = '.####.ext'
+
+        self._apply_debug_mode(self.config.get('debug_mode', True))
     
     def load(self):
         """Load configuration from file."""
@@ -169,16 +174,21 @@ class Config(object):
         """Set configuration value and save."""
         self.config[key] = value
         self.save()
+        if key == 'debug_mode':
+            self._apply_debug_mode(value)
     
     def update(self, updates):
         """Update multiple configuration values and save."""
         self.config.update(updates)
         self.save()
+        if 'debug_mode' in updates:
+            self._apply_debug_mode(updates.get('debug_mode'))
     
     def reset_to_defaults(self):
         """Reset configuration to defaults."""
         self.config = self.DEFAULT_CONFIG.copy()
         self.save()
+        self._apply_debug_mode(self.config.get('debug_mode', True))
     
     def get_all(self):
         """Get all configuration as dictionary."""
@@ -310,3 +320,11 @@ class Config(object):
         if relative.startswith('..'):
             return path.replace('\\', '/').replace('\\', '/')
         return relative.replace('\\', '/').replace('\\', '/')
+
+    def _apply_debug_mode(self, value):
+        """Update global debug manager with current setting."""
+        try:
+            from src.debug_manager import DebugManager
+            DebugManager.set_enabled(bool(value))
+        except Exception:
+            pass

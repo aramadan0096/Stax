@@ -9,6 +9,7 @@ from PySide2 import QtWidgets, QtCore, QtGui
 
 from src.icon_loader import get_icon, get_pixmap
 from src.preview_cache import get_preview_cache
+from src.debug_manager import DebugManager
 
 
 class SettingsPanel(QtWidgets.QWidget):
@@ -192,6 +193,15 @@ class SettingsPanel(QtWidgets.QWidget):
         self.machine_name_edit = QtWidgets.QLineEdit(self.config.get('machine_name') or socket.gethostname())
         self.machine_name_edit.setReadOnly(True)
         pref_layout.addRow("Machine Name:", self.machine_name_edit)
+
+        self.debug_mode_checkbox = QtWidgets.QCheckBox("Enable Debug Mode (verbose console output)")
+        self.debug_mode_checkbox.setChecked(self.config.get('debug_mode', True))
+        pref_layout.addRow("Debug Mode:", self.debug_mode_checkbox)
+
+        debug_hint = QtWidgets.QLabel("When disabled, all print statements across StaX are suppressed.")
+        debug_hint.setStyleSheet("color: #888; font-size: 10px; font-style: italic;")
+        debug_hint.setWordWrap(True)
+        pref_layout.addRow("", debug_hint)
         
         pref_group.setLayout(pref_layout)
         layout.addWidget(pref_group)
@@ -881,6 +891,7 @@ class SettingsPanel(QtWidgets.QWidget):
         self.config.set('database_path', self.db_path_edit.text())
         self.config.set('previews_path', self.previews_path_edit.text())
         self.config.set('user_name', self.user_name_edit.text())
+        self.config.set('debug_mode', self.debug_mode_checkbox.isChecked())
         
         # Ingestion settings
         self.config.set('default_copy_policy', self.copy_policy.currentText())
@@ -917,6 +928,9 @@ class SettingsPanel(QtWidgets.QWidget):
 
         # Persist database-aware settings
         self.config.save_to_database(self.db)
+
+        # Ensure DebugManager reflects the latest preference immediately
+        DebugManager.set_enabled(self.debug_mode_checkbox.isChecked())
         
         QtWidgets.QMessageBox.information(
             self,

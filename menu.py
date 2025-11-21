@@ -11,6 +11,10 @@ import dependency_bootstrap
 
 dependency_bootstrap.bootstrap()
 
+from src.debug_manager import DebugManager
+
+DebugManager.bootstrap_from_config()
+
 print("\n" + "="*80)
 print("[StaX menu.py] Starting menu configuration...")
 print("="*80)
