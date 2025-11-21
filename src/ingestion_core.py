@@ -555,7 +555,9 @@ class IngestionCore(object):
             except (TypeError, ValueError):
                 gif_fps = 10
 
-            if self.config.get('gif_full_duration', False):
+            gif_full_duration = bool(self.config.get('gif_full_duration', False))
+
+            if gif_full_duration:
                 gif_duration = None
             else:
                 gif_duration_setting = self.config.get('gif_duration', 3.0)
@@ -564,7 +566,9 @@ class IngestionCore(object):
                 except (TypeError, ValueError):
                     gif_duration = 3.0
             gif_max_frames = self.config.get('gif_max_frames', None)
-            if gif_max_frames is not None:
+            if gif_full_duration:
+                gif_max_frames = None
+            elif gif_max_frames is not None:
                 try:
                     gif_max_frames = int(gif_max_frames)
                 except (TypeError, ValueError):

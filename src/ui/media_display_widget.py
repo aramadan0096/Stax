@@ -127,9 +127,13 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         # Icon label (using a large icon)
         self.empty_icon_label = QtWidgets.QLabel()
         self.empty_icon_label.setAlignment(QtCore.Qt.AlignCenter)
-        empty_icon = get_icon('folder', size=96)
-        if empty_icon:
+        empty_icon = get_icon('film', size=96)
+        if empty_icon and not empty_icon.isNull():
             self.empty_icon_label.setPixmap(empty_icon.pixmap(96, 96))
+        else:
+            fallback_icon = get_icon('folder', size=96)
+            if fallback_icon and not fallback_icon.isNull():
+                self.empty_icon_label.setPixmap(fallback_icon.pixmap(96, 96))
         self.empty_icon_label.setStyleSheet("padding: 20px;")
         empty_state_layout.addWidget(self.empty_icon_label)
         
@@ -746,12 +750,6 @@ class MediaDisplayWidget(QtWidgets.QWidget):
 
     def _get_default_icon_for_type(self, element_type):
         """Return a fallback icon when no preview is available."""
-        # Use film.svg illustration for all types as placeholder
-        film_icon = get_icon('film', size=128)
-        if not film_icon.isNull():
-            return film_icon
-        
-        # Fallback to Qt standard icons if film.svg not found
         if element_type == '2D':
             return self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon)
         if element_type == '3D':
@@ -993,16 +991,6 @@ class MediaDisplayWidget(QtWidgets.QWidget):
     
     def on_popup_insert(self, element_id):
         """Handle insert request from popup - insert element into Nuke."""
-        # Guard insertion when running in standalone mode
-        if not self.nuke_bridge.is_available():
-            QtWidgets.QMessageBox.information(
-                self,
-                "Nuke Mode Required",
-                "Insert into Nuke requires running StaX within Nuke.\n\n"
-                "This feature is not available in standalone mode."
-            )
-            return
-        
         self.gallery_view.insert_to_nuke([element_id])
         self.element_double_clicked.emit(element_id)
     
@@ -1125,10 +1113,12 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             add_playlist_action = menu.addAction(get_icon('playlist', size=16), "Add to Playlist...")
             
             menu.addSeparator()
-            
-            # Insert into Nuke action
-            insert_action = menu.addAction("Insert into Nuke")
-            
+
+            insert_action = None
+            if self.nuke_bridge and hasattr(self.nuke_bridge, 'is_available') and self.nuke_bridge.is_available():
+                insert_action = menu.addAction("Insert into Nuke")
+                menu.addSeparator()
+
             # Edit metadata action
             edit_action = menu.addAction(get_icon('edit', size=16), "Edit Metadata...")
             
@@ -1153,7 +1143,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 self.toggle_favorite(element_id)
             elif action == add_playlist_action:
                 self.add_to_playlist(element_id)
-            elif action == insert_action:
+            elif insert_action and action == insert_action:
                 self.element_double_clicked.emit(element_id)
             elif action == edit_action:
                 self.edit_element(element_id)
@@ -1215,7 +1205,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             QtWidgets.QMessageBox.critical(self, "Error", "Failed to update element: {}".format(str(e)))
     
     def delete_element(self, element_id):
-        """Delete element after confirmation (admin only) - includes physical files."""
+        """Delete element after confirmation (admin only)."""
         # Check admin permission
         if self.main_window and not self.main_window.check_admin_permission("delete elements"):
             return
@@ -1225,116 +1215,49 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             if not element:
                 return
             
-            # Confirmation dialog with file deletion option
-            msg_box = QtWidgets.QMessageBox(self)
-            msg_box.setIcon(QtWidgets.QMessageBox.Warning)
-            msg_box.setWindowTitle("Confirm Deletion")
-            msg_box.setText("Are you sure you want to delete '{}'?".format(element['name']))
-            msg_box.setInformativeText(
-                "This will remove the database record.\n\n"
-                "Click 'Delete Files Too' to also remove physical files:\n"
-                "- Hard/soft copy files\n"
-                "- Generated previews (thumbnail, GIF, proxy)\n\n"
-                "This action cannot be undone."
+            # Confirmation dialog
+            reply = QtWidgets.QMessageBox.question(
+                self,
+                "Confirm Deletion",
+                "Are you sure you want to delete '{}'?\n\nThis action cannot be undone.".format(element['name']),
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                QtWidgets.QMessageBox.No
             )
             
-            # Add buttons
-            delete_db_only_btn = msg_box.addButton("Delete DB Only", QtWidgets.QMessageBox.AcceptRole)
-            delete_files_btn = msg_box.addButton("Delete Files Too", QtWidgets.QMessageBox.DestructiveRole)
-            cancel_btn = msg_box.addButton(QtWidgets.QMessageBox.Cancel)
-            msg_box.setDefaultButton(cancel_btn)
-            
-            msg_box.exec_()
-            clicked_button = msg_box.clickedButton()
-            
-            if clicked_button == cancel_btn or clicked_button is None:
-                return
-            
-            delete_files = (clicked_button == delete_files_btn)
-            
-            # Collect all file paths to delete
-            files_to_delete = []
-            errors = []
-            
-            if delete_files:
-                # Hard copy path
-                if element.get('is_hard_copy') and element.get('filepath_hard'):
-                    filepath_hard = self._resolve_path(element['filepath_hard'])
-                    if filepath_hard:
-                        files_to_delete.append(('hard copy', filepath_hard))
-                
-                # Soft copy path (only if not hard copy)
-                elif element.get('filepath_soft'):
-                    filepath_soft = self._resolve_path(element['filepath_soft'])
-                    if filepath_soft:
-                        files_to_delete.append(('soft copy', filepath_soft))
-                
-                # Generated previews
-                if element.get('preview_path'):
-                    preview_path = self._resolve_path(element['preview_path'])
-                    if preview_path:
-                        files_to_delete.append(('thumbnail preview', preview_path))
-                
-                if element.get('gif_preview_path'):
-                    gif_path = self._resolve_path(element['gif_preview_path'])
-                    if gif_path:
-                        files_to_delete.append(('GIF preview', gif_path))
-                
-                if element.get('proxy_path'):
-                    proxy_path = self._resolve_path(element['proxy_path'])
-                    if proxy_path:
-                        files_to_delete.append(('proxy', proxy_path))
-                
-                # Delete files
-                for file_type, filepath in files_to_delete:
-                    try:
-                        if os.path.exists(filepath):
-                            # Check if it's a sequence pattern
-                            if '%' in filepath:
-                                # For sequences, delete directory or specific pattern files
-                                # For safety, we'll skip sequence deletion in this version
-                                errors.append("Skipped sequence file deletion: {}".format(filepath))
-                            else:
-                                os.remove(filepath)
-                                print("Deleted {}: {}".format(file_type, filepath))
-                        else:
-                            print("File not found ({}): {}".format(file_type, filepath))
-                    except Exception as e:
-                        errors.append("Failed to delete {} ({}): {}".format(file_type, filepath, str(e)))
-            
-            # Delete from database (transactional safety - delete files first, then DB)
-            if self.db.delete_element(element_id, delete_files=delete_files):
-                if errors:
+            if reply == QtWidgets.QMessageBox.Yes:
+                removal_errors = []
+                preview_keys = ('preview_path', 'gif_preview_path', 'video_preview_path')
+                for key in preview_keys:
+                    resolved_path = self._resolve_path(element.get(key))
+                    if resolved_path and os.path.exists(resolved_path):
+                        try:
+                            os.remove(resolved_path)
+                            self.preview_cache.remove(resolved_path)
+                        except OSError as err:
+                            removal_errors.append((resolved_path, str(err)))
+
+                # Delete from database
+                deleted = self.db.delete_element(element_id)
+
+                if not deleted:
+                    QtWidgets.QMessageBox.warning(self, "Delete Failed", "Element could not be removed from the database.")
+                    return
+
+                if removal_errors:
+                    error_lines = ["{}: {}".format(path, message) for path, message in removal_errors]
                     QtWidgets.QMessageBox.warning(
                         self,
-                        "Partial Success",
-                        "Element deleted from database.\n\n"
-                        "File deletion errors:\n" + "\n".join(errors)
+                        "Partial Cleanup",
+                        "Element removed, but some preview files could not be deleted:\n\n{}".format("\n".join(error_lines))
                     )
                 else:
-                    QtWidgets.QMessageBox.information(
-                        self,
-                        "Success",
-                        "Element deleted successfully{}".format(
-                            " (including {} file(s))".format(len(files_to_delete)) if delete_files else ""
-                        )
-                    )
-            else:
-                QtWidgets.QMessageBox.critical(
-                    self,
-                    "Error",
-                    "Failed to delete element from database."
-                )
-                return
-            
-            # Refresh display
-            if self.current_list_id:
-                self.load_elements(self.current_list_id)
+                    QtWidgets.QMessageBox.information(self, "Success", "Element deleted successfully.")
                 
+                # Refresh display
+                if self.current_list_id:
+                    self.load_elements(self.current_list_id)
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", "Failed to delete element: {}".format(str(e)))
-            import traceback
-            traceback.print_exc()
     
     def show_bulk_menu(self):
         """Show bulk operations menu."""

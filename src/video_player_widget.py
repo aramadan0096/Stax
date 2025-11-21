@@ -54,6 +54,8 @@ if FFMediaPlayer is None:
 if FFMediaPlayer is None:
     print("Warning: ffpyplayer not available ({}). Install with: pip install ffpyplayer".format(_FFPY_IMPORT_ERROR or 'unknown error'))
 
+IMAGE_SEQUENCE_EXTS = ('.exr', '.dpx', '.tif', '.tiff', '.png', '.jpg', '.jpeg', '.tga', '.bmp')
+
 
 class FFpyVideoWidget(QtWidgets.QLabel):
     """Custom QLabel-based widget that shows QPixmap frames from raw RGB byte data."""
@@ -316,6 +318,8 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         self.current_element = None
         self._resume_after_scrub = False
         self._duration_known = False
+        self._project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+        self._current_playback_path = None
         
         # Create player controller
         self.player_controller = PlayerController(self)
@@ -345,15 +349,16 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         
         header_layout.addStretch()
         
-        # Close/Exit button (use exit SVG icon via icon loader)
-        from src.icon_loader import get_icon
+        # Close/Exit button (use clearer exit SVG icon)
         close_btn = QtWidgets.QPushButton()
-        exit_icon = get_icon('exit', size=16)
-        if not exit_icon.isNull():
-            close_btn.setIcon(exit_icon)
+        close_icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icons', 'exit.svg')
+        if not os.path.exists(close_icon_path):
+            # Fallback to delete.svg if exit.svg is not yet present
+            close_icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icons', 'delete.svg')
+        if os.path.exists(close_icon_path):
+            close_btn.setIcon(QtGui.QIcon(close_icon_path))
             close_btn.setIconSize(QtCore.QSize(16, 16))
         close_btn.setMaximumWidth(30)
-        close_btn.setToolTip('Close preview pane')
         close_btn.setStyleSheet("""
             QPushButton { background-color: transparent; border: none; }
             QPushButton:hover { background-color: rgba(255,85,85,0.12); border-radius: 3px; }
@@ -453,13 +458,12 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         self.stop_btn.clicked.connect(self.stop_playback)
         controls_layout.addWidget(self.stop_btn)
         
-        # External player button (use external_player SVG icon via icon loader)
-        from src.icon_loader import get_icon
+        # External player / Fullscreen button
         self.external_btn = QtWidgets.QPushButton()
-        external_icon = get_icon('external_player', size=18)
-        if not external_icon.isNull():
-            self.external_btn.setIcon(external_icon)
-            self.external_btn.setIconSize(QtCore.QSize(18, 18))
+        ext_icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icons', 'external_player.svg')
+        if os.path.exists(ext_icon_path):
+            self.external_btn.setIcon(QtGui.QIcon(ext_icon_path))
+        self.external_btn.setIconSize(QtCore.QSize(18, 18))
         self.external_btn.setToolTip('Open in external player')
         self.external_btn.clicked.connect(self.open_in_external_player)
         self.external_btn.setEnabled(False)
@@ -554,6 +558,51 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         tooltip = "Pause" if is_playing else "Play"
         self.play_pause_btn.setToolTip(tooltip)
 
+    def _resolve_path(self, path):
+        """Resolve stored relative paths against the project root."""
+        if not path:
+            return None
+        path = path.strip()
+        if not path:
+            return None
+        if os.path.isabs(path):
+            return os.path.normpath(path)
+        return os.path.normpath(os.path.join(self._project_root, path))
+
+    def _is_sequence_element(self, element):
+        """Return True if the element represents an image sequence."""
+        if not element:
+            return False
+        frame_range = element.get('frame_range')
+        if not frame_range:
+            return False
+        file_format = (element.get('format') or '').lower()
+        return file_format in IMAGE_SEQUENCE_EXTS
+
+    def _determine_playback_source(self):
+        """Determine which file path should be used for playback."""
+        if not self.current_element:
+            return None, False, None
+
+        original_hard = self._resolve_path(self.current_element.get('filepath_hard'))
+        original_soft = self._resolve_path(self.current_element.get('filepath_soft'))
+
+        primary_source = None
+        for candidate in (original_hard, original_soft):
+            if candidate and os.path.exists(candidate):
+                primary_source = candidate
+                break
+
+        preview_source = self._resolve_path(self.current_element.get('video_preview_path'))
+        is_sequence = self._is_sequence_element(self.current_element)
+
+        if is_sequence:
+            if preview_source and os.path.exists(preview_source):
+                return preview_source, True, primary_source
+            return None, True, primary_source
+
+        return primary_source, False, primary_source
+
     def _shutdown_player(self, clear_element_state=False):
         """Completely stop playback and reset the UI state."""
         self.player_controller.stop()
@@ -567,6 +616,9 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         self.total_time_label.setText("00:00:00")
         self.frame_label.setText("Frame: 0 / 0")
         self.video_widget.clear_frame("No media loaded")
+        self._current_playback_path = None
+        if hasattr(self, 'external_btn'):
+            self.external_btn.setEnabled(False)
         if clear_element_state:
             self.current_element = None
 
@@ -617,8 +669,13 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         if not self.current_element:
             return
 
-        filepath = self.current_element.get('filepath_hard') or self.current_element.get('filepath_soft')
-        if not filepath or not os.path.exists(filepath):
+        playback_path = self._current_playback_path
+        if not playback_path:
+            hard_path = self._resolve_path(self.current_element.get('filepath_hard'))
+            soft_path = self._resolve_path(self.current_element.get('filepath_soft'))
+            playback_path = hard_path if hard_path and os.path.exists(hard_path) else soft_path
+
+        if not playback_path or not os.path.exists(playback_path):
             QtWidgets.QMessageBox.warning(self, 'File not found', 'Media file not available for external playback')
             return
 
@@ -630,9 +687,9 @@ class VideoPlayerWidget(QtWidgets.QWidget):
             # On Windows, use shell execute when user provides command like "C:\Program Files\..." or a URL
             if sys.platform == 'win32':
                 # Use subprocess.Popen to preserve non-blocking UI
-                subprocess.Popen([player, filepath], shell=False)
+                subprocess.Popen([player, playback_path], shell=False)
             else:
-                subprocess.Popen([player, filepath])
+                subprocess.Popen([player, playback_path])
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, 'Launch Error', 'Failed to start external player:\n{}'.format(e))
     
@@ -651,31 +708,35 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         # Update metadata display with the newly selected element
         self.update_metadata_display()
         
-        # Get file path
-        filepath = self.current_element.get('filepath_hard') or self.current_element.get('filepath_soft')
-        
-        if not filepath:
+        playback_path, from_sequence_preview, original_source = self._determine_playback_source()
+
+        if from_sequence_preview and playback_path is None:
+            self.video_widget.clear_frame("Sequence preview unavailable")
+            preview_path = self._resolve_path(self.current_element.get('video_preview_path'))
+            message_lines = [
+                "An MP4 preview is required to play image sequences in the embedded viewer.",
+                "Generate previews during ingestion or ensure the file exists.",
+            ]
+            if preview_path:
+                message_lines.append("Missing preview: {}".format(preview_path))
             QtWidgets.QMessageBox.warning(
                 self,
-                "No File Path",
-                "Element has no file path associated with it."
+                "Preview Missing",
+                "\n".join(message_lines)
             )
+            self.external_btn.setEnabled(False)
             return
-        
-        # Check for image sequences - convert pattern to ffpyplayer format if needed
-        playback_path = filepath
-        if '%' in filepath:
-            # This is an image sequence pattern (e.g., image.%04d.exr)
-            # ffpyplayer supports this format directly
-            print("Image sequence detected: {}".format(filepath))
-            playback_path = filepath
-        
-        if not os.path.exists(filepath if '%' not in filepath else os.path.dirname(filepath)):
+
+        if not playback_path:
+            resolved_original = original_source or self._resolve_path(
+                self.current_element.get('filepath_hard') or self.current_element.get('filepath_soft')
+            )
             QtWidgets.QMessageBox.warning(
                 self,
                 "File Not Found",
-                "Cannot load media: File or directory does not exist\n\n{}".format(filepath)
+                "Cannot load media: File does not exist\n\n{}".format(resolved_original or 'Unknown path')
             )
+            self.external_btn.setEnabled(False)
             return
         
         # Check if ffpyplayer is available
@@ -692,15 +753,17 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         # Try to open the media file with ffpyplayer
         try:
             self.video_widget.clear_frame("Loading preview…")
+            self._current_playback_path = playback_path
             self.player_controller.open(playback_path)
             self._set_controls_enabled(True)
             self._set_play_button_state(self.player_controller.is_playing())
             self.stop_btn.setEnabled(True)
             self.external_btn.setEnabled(True)
-            self.video_widget.clear_frame("Ready to play")
+            self.video_widget.clear_frame("Ready to play" if not from_sequence_preview else "Sequence preview ready")
             print("Media loaded with ffpyplayer: {}".format(playback_path))
         except Exception as e:
             self._shutdown_player()
+            self._current_playback_path = None
             QtWidgets.QMessageBox.critical(
                 self,
                 "Playback Error",

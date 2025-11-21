@@ -20,61 +20,59 @@ from src.ingestion_core import SequenceDetector
 from src.config import Config
 
 
-def simulate_get_media_files(folder_path, sequence_pattern='.####.ext'):
-    """
-    Simulate the enhanced _get_media_files logic.
-    This is the same logic implemented in IngestLibraryDialog._get_media_files
-    """
-    media_extensions = ['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.exr', '.dpx', 
-                       '.mp4', '.mov', '.avi', '.mkv', '.obj', '.fbx', '.abc', '.nk', '.tga']
-    
+def simulate_get_media_files(folder_path, sequence_pattern='.####.ext', auto_detect=True):
+    """Simulate IngestLibraryDialog._get_media_files for unit tests."""
+    media_extensions = ['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.exr', '.dpx',
+                        '.mp4', '.mov', '.avi', '.mkv', '.obj', '.fbx', '.abc', '.nk', '.tga']
     image_extensions = ['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.exr', '.dpx', '.tga']
-    
-    # Collect all media files
+
     all_files = []
     for item in os.listdir(folder_path):
+        if item.startswith('.'):
+            continue
         item_path = os.path.join(folder_path, item)
         if os.path.isfile(item_path):
             _, ext = os.path.splitext(item)
             if ext.lower() in media_extensions:
-                all_files.append(item_path)
-    
-    # Track which files have been processed as part of sequences
+                all_files.append(os.path.normpath(item_path))
+
     processed_files = set()
+    processed_sequences = set()
     result_files = []
-    
-    # Process files and detect sequences
-    for filepath in all_files:
-        # Skip if already processed as part of a sequence
+
+    for filepath in sorted(all_files):
         if filepath in processed_files:
             continue
-        
+
         _, ext = os.path.splitext(filepath)
-        
-        # Only try sequence detection for image files
-        if ext.lower() in image_extensions:
-            # Try to detect sequence using configured pattern
+        ext_lower = ext.lower()
+
+        if auto_detect and ext_lower in image_extensions:
             sequence_info = SequenceDetector.detect_sequence(
-                filepath, 
-                pattern_key=sequence_pattern, 
-                auto_detect=True
+                filepath,
+                pattern_key=sequence_pattern,
+                auto_detect=auto_detect
             )
-            
-            # If this is a sequence with multiple frames
+
             if sequence_info and sequence_info.get('frame_count', 1) > 1:
-                # Add only the first frame as representative
-                result_files.append(filepath)
-                
-                # Mark all sequence files as processed
-                for seq_file in sequence_info.get('files', []):
-                    processed_files.add(seq_file)
-                
-                continue
-        
-        # Single file (video, 3D asset, or standalone image)
+                sequence_files = sequence_info.get('files') or []
+                if sequence_files:
+                    sequence_dir = os.path.dirname(sequence_files[0])
+                    frame_pattern = sequence_info.get('frame_pattern') or ''
+                    sequence_key = (os.path.normpath(sequence_dir), frame_pattern.lower())
+
+                    if sequence_key not in processed_sequences:
+                        processed_sequences.add(sequence_key)
+                        representative = os.path.normpath(sequence_files[0])
+                        result_files.append(representative)
+
+                    for seq_file in sequence_files:
+                        processed_files.add(os.path.normpath(seq_file))
+                    continue
+
         result_files.append(filepath)
         processed_files.add(filepath)
-    
+
     return result_files
 
 

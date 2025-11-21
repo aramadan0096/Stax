@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-Test script for IngestLibraryDialog image sequence detection
-Verifies that bulk folder ingestion properly detects image sequences
+Test script for IngestLibraryDialog sequence detection with different patterns
+Verifies that the scan folder feature properly detects image sequences
+using the configured sequence pattern from settings.
 """
 import os
 import sys
@@ -20,73 +21,154 @@ from src.ingestion_core import SequenceDetector
 from src.ui.ingest_library_dialog import IngestLibraryDialog
 from src.config import Config
 from src.db_manager import DatabaseManager
+from PySide2 import QtWidgets
 
-def test_sequence_detection_in_folder():
-    """Test that _get_media_files detects sequences correctly."""
-    # Create temporary test folder structure
-    test_dir = tempfile.mkdtemp(prefix='stax_test_')
+
+def create_test_sequences(test_dir):
+    """Create test sequences with different naming patterns."""
+    
+    # Pattern 1: .####.ext (e.g., shot001.1001.exr)
+    seq1_dir = os.path.join(test_dir, 'pattern_dot')
+    os.makedirs(seq1_dir)
+    for i in range(1001, 1011):
+        filepath = os.path.join(seq1_dir, 'shot001.{}.exr'.format(i))
+        with open(filepath, 'w') as f:
+            f.write('test')
+    
+    # Pattern 2: _####.ext (e.g., render_0001.png)
+    seq2_dir = os.path.join(test_dir, 'pattern_underscore')
+    os.makedirs(seq2_dir)
+    for i in range(1, 11):
+        filepath = os.path.join(seq2_dir, 'render_{:04d}.png'.format(i))
+        with open(filepath, 'w') as f:
+            f.write('test')
+    
+    # Pattern 3: -####.ext (e.g., plate-0100.dpx)
+    seq3_dir = os.path.join(test_dir, 'pattern_dash')
+    os.makedirs(seq3_dir)
+    for i in range(100, 110):
+        filepath = os.path.join(seq3_dir, 'plate-{:04d}.dpx'.format(i))
+        with open(filepath, 'w') as f:
+            f.write('test')
+    
+    # Single images (should not be treated as sequences)
+    singles_dir = os.path.join(test_dir, 'singles')
+    os.makedirs(singles_dir)
+    with open(os.path.join(singles_dir, 'reference.png'), 'w') as f:
+        f.write('test')
+    with open(os.path.join(singles_dir, 'matte.exr'), 'w') as f:
+        f.write('test')
+    
+    # Video files (should be treated as singles)
+    with open(os.path.join(singles_dir, 'video.mp4'), 'w') as f:
+        f.write('test')
+    
+    # 3D assets (should be treated as singles)
+    with open(os.path.join(singles_dir, 'model.fbx'), 'w') as f:
+        f.write('test')
+    
+    return {
+        'pattern_dot': (seq1_dir, 10),
+        'pattern_underscore': (seq2_dir, 10),
+        'pattern_dash': (seq3_dir, 10),
+        'singles': (singles_dir, 4)
+    }
+
+
+def test_pattern(pattern_key, pattern_dir, expected_files):
+    """Test sequence detection with specific pattern."""
+    print("\n" + "=" * 70)
+    print("Testing pattern: {}".format(pattern_key))
+    print("=" * 70)
+    
+    config = Config()
+    config.set('sequence_pattern', pattern_key)
+    db = DatabaseManager(':memory:')
+    
+    class MockIngestion:
+        pass
+    
+    app = QtWidgets.QApplication.instance()
+    if not app:
+        app = QtWidgets.QApplication(sys.argv)
+    
+    dialog = IngestLibraryDialog(db, MockIngestion(), config)
+    
+    # Test sequence detection
+    media_files = dialog._get_media_files(pattern_dir)
+    
+    print("Expected items: {}".format(expected_files))
+    print("Detected items: {}".format(len(media_files)))
+    print("\nDetected files:")
+    for f in media_files:
+        print("  - {}".format(os.path.basename(f)))
+    
+    if len(media_files) == expected_files:
+        print("\n✓ SUCCESS: Pattern '{}' detected correctly".format(pattern_key))
+        return True
+    else:
+        print("\n✗ FAILED: Pattern '{}' detection mismatch".format(pattern_key))
+        print("  Expected {} items, got {}".format(expected_files, len(media_files)))
+        return False
+
+
+def run_all_tests():
+    """Run comprehensive tests for all sequence patterns."""
+    print("\n" + "=" * 70)
+    print("IngestLibraryDialog Sequence Detection Test Suite")
+    print("=" * 70)
+    
+    test_dir = tempfile.mkdtemp(prefix='stax_seq_test_')
     
     try:
-        # Create test sequence files
-        sequence_dir = os.path.join(test_dir, 'test_sequence')
-        os.makedirs(sequence_dir)
+        # Create test sequences
+        test_data = create_test_sequences(test_dir)
         
-        # Create sequence: shot001.1001.exr to shot001.1010.exr
-        for i in range(1001, 1011):
-            filepath = os.path.join(sequence_dir, 'shot001.{}.exr'.format(i))
-            with open(filepath, 'w') as f:
-                f.write('test')
+        results = []
         
-        # Create single image
-        single_img = os.path.join(sequence_dir, 'reference.png')
-        with open(single_img, 'w') as f:
-            f.write('test')
+        # Test Pattern 1: .####.ext
+        results.append(test_pattern(
+            '.####.ext',
+            test_data['pattern_dot'][0],
+            1  # 10 frames should be detected as 1 sequence
+        ))
         
-        # Create video file
-        video_file = os.path.join(sequence_dir, 'video.mp4')
-        with open(video_file, 'w') as f:
-            f.write('test')
+        # Test Pattern 2: _####.ext
+        results.append(test_pattern(
+            '_####.ext',
+            test_data['pattern_underscore'][0],
+            1  # 10 frames should be detected as 1 sequence
+        ))
         
-        # Initialize dialog (mock components)
-        config = Config()
-        db = DatabaseManager(':memory:')  # In-memory database for testing
+        # Test Pattern 3: -####.ext
+        results.append(test_pattern(
+            '-####.ext',
+            test_data['pattern_dash'][0],
+            1  # 10 frames should be detected as 1 sequence
+        ))
         
-        # Create mock ingestion_core
-        class MockIngestion:
-            pass
+        # Test singles folder (no sequences)
+        results.append(test_pattern(
+            '.####.ext',  # Pattern doesn't matter for singles
+            test_data['singles'][0],
+            4  # 4 individual files
+        ))
         
-        from PySide2 import QtWidgets
-        app = QtWidgets.QApplication.instance()
-        if not app:
-            app = QtWidgets.QApplication(sys.argv)
+        # Summary
+        print("\n" + "=" * 70)
+        print("TEST SUMMARY")
+        print("=" * 70)
+        passed = sum(results)
+        total = len(results)
+        print("Passed: {}/{}".format(passed, total))
         
-        dialog = IngestLibraryDialog(db, MockIngestion(), config)
-        
-        # Test sequence detection
-        media_files = dialog._get_media_files(sequence_dir)
-        
-        print("\nTest Results:")
-        print("=" * 60)
-        print("Created 10 sequence files (shot001.1001-1010.exr)")
-        print("Created 1 single image (reference.png)")
-        print("Created 1 video file (video.mp4)")
-        print("-" * 60)
-        print("Files detected by _get_media_files: {}".format(len(media_files)))
-        print("\nDetected files:")
-        for f in media_files:
-            print("  - {}".format(os.path.basename(f)))
-        
-        print("\n" + "=" * 60)
-        
-        # Verify results
-        expected_count = 3  # 1 sequence (as single representative), 1 image, 1 video
-        if len(media_files) == expected_count:
-            print("✓ SUCCESS: Correctly detected {} media items".format(expected_count))
-            print("  (10-frame sequence counted as 1 item)")
+        if passed == total:
+            print("\n✓ ALL TESTS PASSED")
+            print("\nThe scan folder feature now properly detects sequences")
+            print("and prevents duplicate GIF generation for each frame.")
             return True
         else:
-            print("✗ FAILED: Expected {} items, got {}".format(expected_count, len(media_files)))
-            print("  Sequence detection may not be working in bulk ingest")
+            print("\n✗ SOME TESTS FAILED")
             return False
     
     finally:
@@ -97,5 +179,6 @@ def test_sequence_detection_in_folder():
 
 if __name__ == '__main__':
     print("Testing IngestLibraryDialog sequence detection...")
-    success = test_sequence_detection_in_folder()
+    print("This verifies the fix for the duplicate GIF generation issue.")
+    success = run_all_tests()
     sys.exit(0 if success else 1)

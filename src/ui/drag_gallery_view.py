@@ -79,15 +79,8 @@ class DragGalleryView(QtWidgets.QListWidget):
         Args:
             element_ids (list): List of element IDs to insert
         """
-        # Guard insertion when running in standalone mode
         if not self.nuke_bridge.is_available():
-            QtWidgets.QMessageBox.information(
-                None,
-                "Nuke Mode Required",
-                "Insert into Nuke requires running StaX within Nuke.\n\n"
-                "This feature is not available in standalone mode."
-            )
-            return
+            print("[MOCK] Would insert {} elements into Nuke".format(len(element_ids)))
         
         for element_id in element_ids:
             element = self.db.get_element_by_id(element_id)
