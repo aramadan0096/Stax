@@ -36,6 +36,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.hover_timer.setSingleShot(True)
         self.hover_timer.timeout.connect(self.show_info_popup)
         self.hover_item = None
+        self.hover_row = -1
         self.media_popup = MediaInfoPopup(self)
         self.media_popup.insert_requested.connect(self.on_popup_insert)
         self.media_popup.reveal_requested.connect(self.on_popup_reveal)
@@ -126,9 +127,13 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         # Icon label (using a large icon)
         self.empty_icon_label = QtWidgets.QLabel()
         self.empty_icon_label.setAlignment(QtCore.Qt.AlignCenter)
-        empty_icon = get_icon('folder', size=96)
-        if empty_icon:
+        empty_icon = get_icon('film', size=96)
+        if empty_icon and not empty_icon.isNull():
             self.empty_icon_label.setPixmap(empty_icon.pixmap(96, 96))
+        else:
+            fallback_icon = get_icon('folder', size=96)
+            if fallback_icon and not fallback_icon.isNull():
+                self.empty_icon_label.setPixmap(fallback_icon.pixmap(96, 96))
         self.empty_icon_label.setStyleSheet("padding: 20px;")
         empty_state_layout.addWidget(self.empty_icon_label)
         
@@ -336,24 +341,42 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             def run(self):
                 try:
                     ingest_manager = IngestionCore(self.db, self.config)
-                    
-                    for i, file_path in enumerate(self.file_paths):
+                    normalized_pairs = [
+                        (original_path, os.path.normpath(original_path))
+                        for original_path in self.file_paths
+                    ]
+                    total_count = len(self.file_paths)
+                    processed_paths = set()
+                    processed_items = 0
+
+                    for file_path, normalized_path in normalized_pairs:
                         if self._cancelled:
                             break
-                        
-                        # Update progress
-                        self.progress_updated.emit(i, len(self.file_paths), os.path.basename(file_path))
-                        
+
+                        if normalized_path in processed_paths:
+                            processed_items += 1
+                            self.progress_updated.emit(processed_items, total_count, os.path.basename(file_path))
+                            continue
+
                         # Ingest file
-                        ingest_manager.ingest_file(
-                            source_path=file_path,
+                        result = ingest_manager.ingest_file(
+                            source_path=normalized_path,
                             target_list_id=self.list_id,
                             copy_policy=self.copy_policy
                         )
+
+                        processed_paths.add(normalized_path)
+                        if isinstance(result, dict) and result.get('success'):
+                            sequence_files = result.get('sequence_files') or []
+                            for seq_file in sequence_files:
+                                processed_paths.add(os.path.normpath(seq_file))
+
+                        processed_items += 1
+                        self.progress_updated.emit(processed_items, total_count, os.path.basename(file_path))
                     
                     # Complete
                     if not self._cancelled:
-                        self.progress_updated.emit(len(self.file_paths), len(self.file_paths), "Complete")
+                        self.progress_updated.emit(processed_items, total_count, "Complete")
                         self.ingestion_complete.emit()
                         
                 except Exception as e:
@@ -662,7 +685,27 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             self.table_view.setItem(row, 0, name_item)
 
             self.table_view.setItem(row, 1, QtWidgets.QTableWidgetItem(element.get('format') or ''))
-            self.table_view.setItem(row, 2, QtWidgets.QTableWidgetItem(element.get('frame_range') or ''))
+            
+            # Display frame count for sequences (parse frame_range like "1-7" -> "7")
+            frame_display = ''
+            frame_range = element.get('frame_range')
+            if frame_range and '-' in str(frame_range):
+                try:
+                    parts = str(frame_range).split('-')
+                    if len(parts) == 2:
+                        start_frame = int(parts[0])
+                        end_frame = int(parts[1])
+                        frame_count = end_frame - start_frame + 1
+                        frame_display = str(frame_count)
+                    else:
+                        # Malformed range, display as-is
+                        frame_display = str(frame_range)
+                except (ValueError, IndexError):
+                    frame_display = str(frame_range)
+            elif frame_range:
+                frame_display = str(frame_range)
+            
+            self.table_view.setItem(row, 2, QtWidgets.QTableWidgetItem(frame_display))
             self.table_view.setItem(row, 3, QtWidgets.QTableWidgetItem(element.get('type') or ''))
 
             size_str = ''
@@ -710,6 +753,9 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         if element_type == '2D':
             return self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon)
         if element_type == '3D':
+            cube_icon = get_icon('cube', size=64)
+            if cube_icon and not cube_icon.isNull():
+                return cube_icon
             return self.style().standardIcon(QtWidgets.QStyle.SP_DriveFDIcon)
         return self.style().standardIcon(QtWidgets.QStyle.SP_FileDialogDetailedView)
 
@@ -766,13 +812,13 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         element_id = self.table_view.item(item.row(), 0).data(QtCore.Qt.UserRole)
         self.element_double_clicked.emit(element_id)
     
-    def eventFilter(self, obj, event):
+    def eventFilter(self, watched, event):
         """Event filter to handle Alt+Hover."""
         # Check if widgets are initialized
         if not hasattr(self, 'gallery_view') or not hasattr(self, 'table_view'):
-            return super(MediaDisplayWidget, self).eventFilter(obj, event)
+            return super(MediaDisplayWidget, self).eventFilter(watched, event)
         
-        if obj in [self.gallery_view.viewport(), self.table_view.viewport()]:
+        if watched in [self.gallery_view.viewport(), self.table_view.viewport()]:
             if event.type() == QtCore.QEvent.MouseMove:
                 # Check if Alt is pressed
                 modifiers = QtWidgets.QApplication.keyboardModifiers()
@@ -780,18 +826,23 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 
                 if self.alt_pressed:
                     # Get item under cursor
-                    pos = event.pos()
+                    if isinstance(watched, QtWidgets.QWidget):
+                        pos = watched.mapFromGlobal(QtGui.QCursor.pos())
+                    else:
+                        pos = QtCore.QPoint()
                     
-                    if obj == self.gallery_view.viewport():
+                    if watched == self.gallery_view.viewport():
                         item = self.gallery_view.itemAt(pos)
                         if item and item != self.hover_item:
                             self.hover_item = item
+                            self.hover_row = -1
                             self.hover_timer.stop()
                             self.hover_timer.start(500)  # 500ms delay
-                    elif obj == self.table_view.viewport():
+                    elif watched == self.table_view.viewport():
                         item = self.table_view.itemAt(pos)
                         if item and item != self.hover_item:
                             self.hover_item = item
+                            self.hover_row = item.row() if hasattr(item, 'row') else -1
                             self.hover_timer.stop()
                             self.hover_timer.start(500)  # 500ms delay
                 else:
@@ -800,10 +851,14 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                         self.media_popup.hide()
                     self.hover_timer.stop()
                     self.hover_item = None
+                    self.hover_row = -1
                     
                 # Handle GIF preview on hover (without Alt key)
-                if not self.alt_pressed and obj == self.gallery_view.viewport():
-                    pos = event.pos()
+                if not self.alt_pressed and watched == self.gallery_view.viewport():
+                    if isinstance(watched, QtWidgets.QWidget):
+                        pos = watched.mapFromGlobal(QtGui.QCursor.pos())
+                    else:
+                        pos = QtCore.QPoint()
                     item = self.gallery_view.itemAt(pos)
                     
                     if item and item is not self.current_gif_item:
@@ -815,21 +870,24 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                         if element_id:
                             self.play_gif_for_item(item, element_id)
                             self.current_gif_item = item
+                            self.hover_row = -1
                     elif not item and self.current_gif_item:
                         # Mouse left all items, stop GIF
                         self.stop_current_gif()
                         self.current_gif_item = None
+                        self.hover_row = -1
             
             elif event.type() == QtCore.QEvent.Leave:
                 # Hide popup when leaving widget
                 self.hover_timer.stop()
                 self.hover_item = None
+                self.hover_row = -1
                 
                 # Stop GIF playback
                 self.stop_current_gif()
                 self.current_gif_item = None
         
-        return super(MediaDisplayWidget, self).eventFilter(obj, event)
+        return super(MediaDisplayWidget, self).eventFilter(watched, event)
     
     def play_gif_for_item(self, item, element_id):
         """
@@ -920,7 +978,11 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         if self.view_mode == 'gallery':
             element_id = self.hover_item.data(QtCore.Qt.UserRole)
         else:  # list view
-            element_id = self.table_view.item(self.hover_item.row(), 0).data(QtCore.Qt.UserRole)
+            row = self.hover_row if self.hover_row >= 0 else -1
+            if row >= 0:
+                table_item = self.table_view.item(row, 0)
+                if table_item:
+                    element_id = table_item.data(QtCore.Qt.UserRole)
         
         if element_id:
             element_data = self.db.get_element_by_id(element_id)
@@ -971,7 +1033,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
     def _prepare_element_for_popup(self, element_data):
         """Return a copy of element data with absolute filesystem paths."""
         element_copy = dict(element_data)
-        for key in ('preview_path', 'gif_preview_path', 'filepath_soft', 'filepath_hard'):
+        for key in ('preview_path', 'gif_preview_path', 'filepath_soft', 'filepath_hard', 'geometry_preview_path'):
             original = element_copy.get(key)
             resolved = self._resolve_path(original)
             if resolved:
@@ -991,6 +1053,8 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         selected_ids = self.get_selected_element_ids()
         
         menu = QtWidgets.QMenu(self)
+        parent_widget = self.parent()
+        is_admin = bool(getattr(parent_widget, 'is_admin', False)) if parent_widget else False
         
         # If multiple items selected, show bulk operations menu
         if len(selected_ids) > 1:
@@ -1013,12 +1077,12 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             
             # Bulk mark as deprecated (admin only)
             bulk_deprecate_action = menu.addAction(get_icon('deprecated', size=16), "Mark All as Deprecated")
-            if not self.parent().is_admin:
+            if not is_admin:
                 bulk_deprecate_action.setEnabled(False)
             
             # Bulk delete (admin only)
             bulk_delete_action = menu.addAction(get_icon('delete', size=16), "Delete All Selected")
-            if not self.parent().is_admin:
+            if not is_admin:
                 bulk_delete_action.setEnabled(False)
             
             # Execute menu
@@ -1052,10 +1116,12 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             add_playlist_action = menu.addAction(get_icon('playlist', size=16), "Add to Playlist...")
             
             menu.addSeparator()
-            
-            # Insert into Nuke action
-            insert_action = menu.addAction("Insert into Nuke")
-            
+
+            insert_action = None
+            if self.nuke_bridge and hasattr(self.nuke_bridge, 'is_available') and self.nuke_bridge.is_available():
+                insert_action = menu.addAction("Insert into Nuke")
+                menu.addSeparator()
+
             # Edit metadata action
             edit_action = menu.addAction(get_icon('edit', size=16), "Edit Metadata...")
             
@@ -1080,7 +1146,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 self.toggle_favorite(element_id)
             elif action == add_playlist_action:
                 self.add_to_playlist(element_id)
-            elif action == insert_action:
+            elif insert_action and action == insert_action:
                 self.element_double_clicked.emit(element_id)
             elif action == edit_action:
                 self.edit_element(element_id)
@@ -1162,15 +1228,33 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             )
             
             if reply == QtWidgets.QMessageBox.Yes:
+                removal_errors = []
+                preview_keys = ('preview_path', 'gif_preview_path', 'video_preview_path', 'geometry_preview_path')
+                for key in preview_keys:
+                    resolved_path = self._resolve_path(element.get(key))
+                    if resolved_path and os.path.exists(resolved_path):
+                        try:
+                            os.remove(resolved_path)
+                            self.preview_cache.remove(resolved_path)
+                        except OSError as err:
+                            removal_errors.append((resolved_path, str(err)))
+
                 # Delete from database
-                self.db.delete_element(element_id)
-                
-                # TODO: Optionally delete physical files
-                # filepath = element.get('filepath_hard') or element.get('filepath_soft')
-                # if filepath and os.path.exists(filepath):
-                #     os.remove(filepath)
-                
-                QtWidgets.QMessageBox.information(self, "Success", "Element deleted successfully.")
+                deleted = self.db.delete_element(element_id)
+
+                if not deleted:
+                    QtWidgets.QMessageBox.warning(self, "Delete Failed", "Element could not be removed from the database.")
+                    return
+
+                if removal_errors:
+                    error_lines = ["{}: {}".format(path, message) for path, message in removal_errors]
+                    QtWidgets.QMessageBox.warning(
+                        self,
+                        "Partial Cleanup",
+                        "Element removed, but some preview files could not be deleted:\n\n{}".format("\n".join(error_lines))
+                    )
+                else:
+                    QtWidgets.QMessageBox.information(self, "Success", "Element deleted successfully.")
                 
                 # Refresh display
                 if self.current_list_id:

@@ -29,9 +29,13 @@ class Config(object):
         'gif_size': 256,
         'gif_fps': 10,
         'gif_duration': 3.0,
+    'gif_full_duration': False,
+    'gif_max_frames': 24,
+    'gif_loop_forever': True,
         
         # FFmpeg settings
         'ffmpeg_threads': 4,
+    'sequence_preview_fps': 24,
         
         # Network/Database settings
         'db_max_retries': 10,
@@ -48,7 +52,9 @@ class Config(object):
         # Ingestion defaults
         'default_copy_policy': 'soft',  # 'soft' or 'hard'
         'auto_detect_sequences': True,
+        'sequence_pattern': '.####.ext',
         'generate_previews': True,
+    'blender_path': None,
         
         # Processor hooks
         'pre_ingest_processor': None,
@@ -84,6 +90,9 @@ class Config(object):
         self.config_path = config_path
         self.config = self.DEFAULT_CONFIG.copy()
         
+        # Valid sequence pattern choices
+        self.sequence_patterns = ['.####.ext', '_####.ext', ' ####.ext', '-####.ext']
+
         # Check for STOCK_DB environment variable (overrides database_path and previews_path)
         stock_db_env = os.environ.get('STOCK_DB')
         if stock_db_env:
@@ -116,6 +125,10 @@ class Config(object):
         else:
             # Create default config file
             self.save()
+
+        # Ensure sequence pattern is valid
+        if self.config.get('sequence_pattern') not in self.sequence_patterns:
+            self.config['sequence_pattern'] = '.####.ext'
     
     def load(self):
         """Load configuration from file."""
@@ -185,6 +198,10 @@ class Config(object):
                     self.config['previews_path'] = previews_path
                     self.config['preview_dir'] = previews_path  # Backward compatibility
                     print("[Config] Loaded previews_path from database: {}".format(previews_path))
+
+            blender_setting = db_manager.get_setting('blender_path')
+            if blender_setting is not None and blender_setting != '':
+                self.config['blender_path'] = blender_setting
         except Exception as e:
             print("[Config] Warning: Could not load settings from database: {}".format(e))
     
@@ -202,6 +219,11 @@ class Config(object):
                 if previews_path:
                     db_manager.set_setting('previews_path', previews_path)
                     print("[Config] Saved previews_path to database: {}".format(previews_path))
+
+            blender_setting = self.config.get('blender_path')
+            if blender_setting is not None:
+                db_manager.set_setting('blender_path', blender_setting or '')
+                print("[Config] Saved blender_path to database")
         except Exception as e:
             print("[Config] Warning: Could not save settings to database: {}".format(e))
     
@@ -211,15 +233,20 @@ class Config(object):
         script_dir = os.path.dirname(os.path.abspath(__file__))
         root_dir = os.path.dirname(script_dir)  # Go up one level from src/
         
-        directories = [
-            os.path.dirname(self.get('database_path')),
+        directories = []
+        db_path = self.get('database_path')
+        if db_path:
+            directories.append(os.path.dirname(db_path))
+
+        directories.extend([
             self.get('default_repository_path'),
             self.get('preview_dir'),
             os.path.join(root_dir, 'logs')  # Add logs directory
-        ]
+        ])
         
         for directory in directories:
             if directory and not os.path.exists(directory):
+                abs_directory = directory
                 try:
                     # Convert relative paths to absolute paths
                     if not os.path.isabs(directory):

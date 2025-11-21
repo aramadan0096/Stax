@@ -6,6 +6,8 @@ Custom QListWidget with drag & drop support for Nuke integration
 
 from PySide2 import QtWidgets, QtCore, QtGui
 
+from src.ingestion_core import SequenceDetector
+
 
 class DragGalleryView(QtWidgets.QListWidget):
     """Custom QListWidget with drag & drop support for Nuke integration."""
@@ -117,9 +119,19 @@ class DragGalleryView(QtWidgets.QListWidget):
                             frame_range = "1-{}".format(frames)
                     except (ValueError, TypeError):
                         pass
-                
+                if not frame_range:
+                    frame_range = element.get('frame_range')
+
+                resolved_path = filepath
+                if frame_range and '-' in frame_range:
+                    sequence_info = SequenceDetector.detect_sequence(filepath, auto_detect=True)
+                    if sequence_info:
+                        pattern_path = SequenceDetector.get_sequence_path(sequence_info)
+                        if pattern_path:
+                            resolved_path = pattern_path
+
                 self.nuke_bridge.create_read_node(
-                    filepath,
+                    resolved_path,
                     frame_range=frame_range,
                     node_name=element['name']
                 )

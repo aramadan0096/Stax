@@ -2,3 +2,9 @@ ffpyplayer==4.5.3
 PySide2==5.15.2.1
 shiboken2==5.15.2.1
 pyinstaller>=5.0.0
+numpy>=1.21.0
+trimesh>=3.9.35
+pygltflib>=1.15.7
+pyrender>=0.1.45
+PyOpenGL>=3.1.6
+pyglet>=1.5.27

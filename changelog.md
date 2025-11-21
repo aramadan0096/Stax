@@ -6,6 +6,153 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
 
 ## [Unreleased]
 
+### ✨ Scene Viewer & Blender Configuration (Nov 21, 2025)
+
+- Added an interactive in-app Scene Viewer for geometry assets. GLB previews now render directly inside the preview panel using pyrender off-screen rendering with simple orbit controls and scroll-to-zoom support.
+- Replaced the temporary geometry placeholder and external viewer buttons with the embedded Scene Viewer experience; preview status messaging now surfaces conversion results inline.
+- Settings → Ingestion tab now includes a "Blender Executable" picker so studios can point StaX at a local Blender installation when it is not already on `PATH`.
+- Extended dependency list (`tools/requirements.txt`) to include `numpy`, `trimesh`, `pygltflib`, `pyrender`, `PyOpenGL`, and `pyglet` required for geometry conversion and rendering workflows.
+- Updated documentation (README) to highlight the Blender override and the new 3D preview workflow.
+
+### 🔧 Session 10 - Ingest Library Sequence Detection Fix (Nov 19, 2025)
+
+#### Duplicate GIF Prevention
+- **Issue Fixed**: Ingest Library "Scan Folder" treated each sequence frame as individual file, causing duplicate GIF generation (e.g., 10-frame sequence → 10 GIFs instead of 1)
+- **Root Cause**: `IngestLibraryDialog._get_media_files()` listed all files individually without sequence detection
+- **Enhancement**: Integrated `SequenceDetector` with configured pattern from settings
+  - Returns only first frame as representative of entire sequence
+  - Tracks processed files to prevent duplicate processing
+  - Respects 'sequence_pattern' setting from config (`.####.ext`, `_####.ext`, `-####.ext`, ` ####.ext`)
+- **Result**: 10-frame sequence like `shot001.1001-1010.exr` now generates 1 GIF instead of 10
+- **Testing**: Added `test_sequence_detection_simple.py` with 3 comprehensive test cases covering single/multiple sequences and pattern validation
+
+### � Session 9 - Image & Sequence Ingestion Enhancements (Nov 19, 2025)
+
+#### Image vs Sequence Preview Flow
+- Single-image ingests now generate only PNG thumbnails (no redundant GIFs) while video + image sequences still create both GIF and PNG previews for gallery parity.
+- Preview thumbnails respect the configurable `preview_size` setting for both single images and sequence middle-frame captures.
+- GIF generation pipeline now mirrors the documented FFmpeg command: sequence jobs pass `-start_number`, `-framerate`, frame limits, and loop settings so bulk-ingested sequences behave like standalone videos.
+
+#### Sequence Detection & Settings Improvements
+- Pattern detection regex now allows any number of digits (not just 4+) and keeps frame/file ordering aligned numerically to avoid shuffled preview generation.
+- Settings → Ingestion tab gained richer helper messaging plus real-time hints showing examples for each pattern option; hints disable gracefully when auto-detect is turned off.
+- Bulk ingestion and drag/drop flows re-query the latest auto-detect + pattern preferences to ensure folder processing follows the user’s current selection.
+
+#### Testing
+- Added `tests/test_sequence_pattern_selection.py` covering mixed pattern directories and variable digit lengths to prevent regressions in grouping logic.
+- Updated `tests/test_gif_startframe.py` to validate new GIF parameters (start frame, sequence framerate, loop behavior) align with the latest FFmpeg command structure.
+
+### �🔧 Session 8 - UI Frame Count Display Fix (Nov 18, 2025)
+
+#### Frame Count Display
+- **Issue Identified**: Sequences were detected correctly, but UI "Frames" column showed frame_range string ("1-7") instead of frame count (7)
+- **Root Cause**: `media_display_widget.py` line 684 displayed `element.get('frame_range')` directly without parsing
+- **Fix Implemented**: Added frame range parser to compute frame count from "start-end" format
+  - Parses ranges like "1-7" → displays "7"
+  - Parses ranges like "1001-1050" → displays "50"
+  - Handles edge cases: malformed ranges, null values, non-numeric strings
+- **Validation**: Created `tests/test_frame_count_display.py` with 8 test cases - all passing
+
+#### FFmpeg Video Encoding Fix
+- **Issue**: Video preview generation failing with exit codes (libx264 requires even dimensions)
+- **Fix**: Updated video filter command to include padding: `pad=ceil(iw/2)*2:ceil(ih/2)*2`
+- **Applied to**:
+  - `generate_sequence_video_preview()`: MP4 previews from image sequences
+  - `generate_video_preview()`: MP4 previews from video files
+- **Result**: Ensures output dimensions are always even, preventing libx264 encoding failures
+
+#### GIF Generation Fix for Non-Standard Start Frames
+- **Issue**: GIF generation failing for sequences that don't start at frame 1 (e.g., frames 8-14)
+- **Root Cause**: FFmpeg `-start_number` parameter was missing, causing "file not found" errors
+- **Fix**: Updated `generate_gif_preview()` to accept and use `start_frame` parameter
+  - Modified `ffmpeg_wrapper.py` to add `-start_number` before `-i` for sequences
+  - Modified `ingestion_core.py` to pass `first_frame` from sequence_info to GIF generation
+- **Result**: GIF previews now work for sequences with any starting frame number
+- **Validation**: Created `tests/test_gif_startframe.py` - successfully generates GIF from frames 8-14
+
+#### Files Modified
+- `src/ui/media_display_widget.py` (lines 684-702): Added frame count parsing logic for table view display
+- `src/ffmpeg_wrapper.py` (lines 230, 342-395, 485): Added padding filter + start_frame parameter support
+- `src/ingestion_core.py` (lines 544-556): Pass start_frame to GIF generation for sequences
+- `tests/test_frame_count_display.py`: New test suite for frame count display logic
+- `tests/test_gif_startframe.py`: New test for GIF generation with non-standard start frames
+
+#### Additional Fixes
+- **FFmpeg Binary Corruption**: Re-downloaded FFmpeg 8.0 essentials build (~94MB each) to replace corrupted binaries (were only 57-215KB)
+- **WinError 1392 Resolved**: File corruption errors were caused by incomplete FFmpeg binaries, not source files
+
+---
+
+### ✅ Session 7 - Completed (Nov 18, 2025) - Enhanced Sequence Detection & Preview System
+
+#### Pattern-Oriented Sequence Detection
+- **Configurable Pattern Selection**: Added "Sequence Pattern" combobox in Settings → Ingestion tab with 4 pattern options:
+  - `.####.ext` (dot separator) - e.g., `image.1001.exr`
+  - `_####.ext` (underscore separator) - e.g., `plate_1001.dpx`
+  - ` ####.ext` (space separator) - e.g., `render 1001.png`
+  - `-####.ext` (dash separator) - e.g., `shot-1001.jpg`
+- **Auto-Pattern Fallback**: When no pattern is specified, automatically tries all patterns in order
+- **Pattern-Aware Detection**: `SequenceDetector.detect_sequence()` now respects configured pattern and only groups files matching that pattern
+- **Smart Separator Handling**: Correctly identifies sequences with different separators and rejects mismatches
+- **FFmpeg Integration**: Generates proper `%04d` format patterns for FFmpeg video/GIF generation
+
+#### Unified Preview Generation System
+- **Images**: Generate PNG thumbnails only (512px max dimension)
+- **Videos**: Generate PNG thumbnail + animated GIF preview (256px, 3 sec, 10fps)
+- **Image Sequences**: Treated like videos - generate PNG thumbnail from middle frame + animated GIF + MP4 video preview
+- **Consistent Workflow**: All asset types now follow the same preview generation pattern for uniform UI experience
+
+#### Sequence Ingestion Intelligence
+- **Bulk Folder Ingestion**: Automatically detects and groups sequences, prevents duplicate frame ingestion
+- **Drag & Drop**: Single file drops trigger directory scan to detect if part of sequence
+- **Deduplication**: Tracks processed paths and sequence files to prevent double-ingestion across all methods
+- **Progress Tracking**: Accurate progress counts even when sequences are detected and consolidated
+
+#### Database & Storage Improvements
+- **First-Frame Storage**: Stores first frame path in `filepath_soft`/`filepath_hard` for reliable file access
+- **FFmpeg Pattern Storage**: Sequences store both display pattern (`####`) and FFmpeg pattern (`%04d`) in metadata
+- **Frame Range Persistence**: Proper frame range format (`1001-1010`) stored and used for Nuke Read node creation
+
+#### Nuke Integration Enhancements
+- **Sequence Path Resolution**: When inserting sequences, automatically converts stored first-frame path to FFmpeg pattern
+- **Pattern Detection on Insert**: `DragGalleryView` and `NukeIntegration` detect sequences and use pattern paths for Nuke Read nodes
+- **Frame Range Propagation**: Sequences inserted with correct frame range from database metadata
+
+#### UI/UX Improvements
+- **Settings Panel**: Pattern combobox enabled/disabled based on "Auto-detect sequences" toggle state
+- **Pattern Persistence**: Selected pattern saved to `config.json` and database settings
+- **Validation**: Pattern selection validates against known patterns with fallback to default
+
+#### Code Architecture
+- **SequenceDetector Enhancements**:
+  - Added `PATTERN_MAP` with regex patterns and separator definitions
+  - Added `PATTERN_ORDER` for deterministic auto-detection priority
+  - Enhanced `detect_sequence()` with multi-pattern trial loop
+  - Added `ffmpeg_pattern` field to returned metadata dictionary
+  - Added `start_frame` field for FFmpeg frame numbering
+- **IngestionCore Updates**:
+  - Pattern-aware sequence detection using configured `self.sequence_pattern`
+  - Dual-path architecture: stores first frame, uses pattern for previews
+  - Deduplication in `ingest_multiple()` and `ingest_folder()`
+- **Config System**: Added `sequence_pattern` to default config with validation
+
+#### Bug Fixes
+- **Fixed**: Hover event handling in `media_display_widget.py` (eventFilter signature, row attribute access)
+- **Fixed**: Admin permission checks using `getattr()` for safe attribute access
+- **Fixed**: Drag/drop progress tracking now handles normalized paths correctly
+- **Fixed**: Config indentation for new `sequence_pattern` defaults
+
+#### Testing
+- **Added**: Comprehensive test suite (`tests/test_sequence_detection.py`) covering:
+  - All 4 pattern types with 10-frame sequences
+  - Single file detection (should NOT be sequence)
+  - Auto-detect pattern matching
+  - Mixed pattern handling (selective grouping)
+  - FFmpeg pattern generation
+- **Result**: All 8 tests pass successfully
+
+---
+
 ### ✅ Session 6 - Completed (Nov 17, 2025) - Production Deployment Features
 
 #### Configurable Previews Path

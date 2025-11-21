@@ -1,6 +1,10 @@
-# StaX
+<p align="center">
+  <a href="https://github.com/aramadan0096/Stax"><img src="resources/logo.png" alt="StaX"></a>
+</p>
+<p align="center">
+    <em>Professional stock footage and asset management system for VFX pipelines</em>
+</p>
 
-**Professional stock footage and asset management system for VFX pipelines**
 
 StaX is an advanced media browser and asset management tool designed specifically for integration with Foundry Nuke. It provides powerful features for organizing, searching, and deploying visual effects assets with intelligent sequence detection, automated preview generation, and extensible pipeline hooks.
 
@@ -60,6 +64,7 @@ StaX helps VFX artists and studios manage large collections of stock footage, 3D
 - **Smart Ingestion**: Automatic image sequence detection, frame range discovery, and metadata extraction
 - **Dual-Path Storage**: Choose between hard copies (physical repository) or soft copies (reference links)
 - **Rich Previews**: Automatic thumbnail, GIF, and video preview generation for quick asset review
+- **Interactive 3D Preview**: Inspect geometry assets directly inside StaX with the built-in Scene Viewer powered by pyrender, complete with orbit and zoom controls
 - **Nuke Integration**: Drag and drop assets directly into Nuke's Node Graph with automatic Read/ReadGeo node creation
 - **Network-Ready**: SQLite database with file locking for multi-user workstation access
 - **Extensible**: Custom Python processors for pre-ingest validation, post-ingest hooks, and post-import node configuration
@@ -174,8 +179,8 @@ python -m venv .venv
 # Linux/macOS:
 source .venv/bin/activate
 
-# Install dependencies
-pip install PySide2 ffpyplayer
+# Install dependencies (includes PySide2, ffpyplayer, trimesh/pyrender stack)
+pip install -r tools/requirements.txt
 ```
 
 **Run Standalone:**
@@ -444,7 +449,7 @@ Edit `config/config.json`:
 Open with `Ctrl+3` to configure:
 
 - **General**: Database location, user preferences
-- **Ingestion**: Copy policy, sequence detection settings
+- **Ingestion**: Copy policy, sequence detection settings, Blender executable override for geometry conversion
 - **Preview & Media**: Thumbnail size, GIF settings, video preview options
 - **Network & Performance**: Database retries/timeout, cache settings, pagination
 - **Custom Processors**: Pre-ingest, post-ingest, and post-import hook scripts
@@ -492,6 +497,7 @@ StaX generates three types of previews:
 - **Static Thumbnail**: PNG image for quick display
 - **Animated GIF**: 3-second loop for hover preview
 - **Video Preview**: Low-res MP4 for playback in preview pane (standalone mode)
+- **3D Scene Preview**: Embedded pyrender viewport for GLB assets with orbit and zoom controls
 
 Hover over elements in gallery view to play GIF previews automatically.
 

@@ -4,6 +4,7 @@ Settings Panel Widget
 """
 
 import os
+import sys
 from PySide2 import QtWidgets, QtCore, QtGui
 
 from src.icon_loader import get_icon, get_pixmap
@@ -222,16 +223,77 @@ class SettingsPanel(QtWidgets.QWidget):
         policy_group.setLayout(policy_layout)
         layout.addWidget(policy_group)
         
-        # Sequence detection
+    # Sequence detection
         seq_group = QtWidgets.QGroupBox("Sequence Detection")
         seq_layout = QtWidgets.QFormLayout()
         
         self.auto_detect = QtWidgets.QCheckBox("Auto-detect image sequences")
         self.auto_detect.setChecked(self.config.get('auto_detect_sequences'))
+        self.auto_detect.toggled.connect(self.on_auto_detect_sequences_toggled)
         seq_layout.addRow("", self.auto_detect)
+
+        # Sequence pattern selection
+        pattern_label = QtWidgets.QLabel("Sequence Pattern:")
+        pattern_help = QtWidgets.QLabel(
+            "Determines how image sequences are detected. '####' represents any number of digits (e.g. 1, 1001, 000034). Files matching the active pattern are grouped into a single sequence."
+        )
+        pattern_help.setStyleSheet("color: #888; font-size: 10px; font-style: italic;")
+
+        self.sequence_pattern_combo = QtWidgets.QComboBox()
+        pattern_options = ['.####.ext', '_####.ext', ' ####.ext', '-####.ext']
+        self.sequence_pattern_combo.addItems(pattern_options)
+        current_pattern = self.config.get('sequence_pattern', '.####.ext')
+        if current_pattern not in pattern_options:
+            current_pattern = '.####.ext'
+        self.sequence_pattern_combo.setCurrentText(current_pattern)
+        self.sequence_pattern_combo.setEnabled(self.auto_detect.isChecked())
+        self.sequence_pattern_combo.currentTextChanged.connect(self.update_sequence_pattern_hint)
+
+        self.sequence_pattern_hint = QtWidgets.QLabel()
+        self.sequence_pattern_hint.setStyleSheet("color: #aaa; font-size: 10px;")
+        self.sequence_pattern_hint.setWordWrap(True)
+        self.update_sequence_pattern_hint(current_pattern)
+        self.sequence_pattern_hint.setEnabled(self.auto_detect.isChecked())
+
+        seq_layout.addRow(pattern_label, self.sequence_pattern_combo)
+        seq_layout.addRow("", pattern_help)
+        seq_layout.addRow("", self.sequence_pattern_hint)
         
         seq_group.setLayout(seq_layout)
         layout.addWidget(seq_group)
+
+        # Geometry conversion
+        geometry_group = QtWidgets.QGroupBox("3D Geometry Conversion")
+        geometry_layout = QtWidgets.QFormLayout()
+
+        blender_row = QtWidgets.QHBoxLayout()
+        self.blender_path_edit = QtWidgets.QLineEdit(self.config.get('blender_path') or '')
+        self.blender_path_edit.setPlaceholderText("Optional: full path to blender executable")
+        blender_row.addWidget(self.blender_path_edit)
+
+        self.browse_blender_btn = QtWidgets.QPushButton("Browse...")
+        self.browse_blender_btn.setObjectName('small')
+        self.browse_blender_btn.setProperty('class', 'small')
+        self.browse_blender_btn.clicked.connect(self.browse_blender_path)
+        blender_row.addWidget(self.browse_blender_btn)
+
+        self.clear_blender_btn = QtWidgets.QPushButton("Clear")
+        self.clear_blender_btn.setObjectName('small')
+        self.clear_blender_btn.setProperty('class', 'small')
+        self.clear_blender_btn.clicked.connect(self.clear_blender_path)
+        blender_row.addWidget(self.clear_blender_btn)
+
+        geometry_layout.addRow("Blender Executable:", blender_row)
+
+        blender_help = QtWidgets.QLabel(
+            "StaX uses Blender for FBX/Alembic conversions. Set this to the Blender executable when it is not on PATH."
+        )
+        blender_help.setWordWrap(True)
+        blender_help.setStyleSheet("color: #888; font-size: 10px;")
+        geometry_layout.addRow("", blender_help)
+
+        geometry_group.setLayout(geometry_layout)
+        layout.addWidget(geometry_group)
         
         layout.addStretch()
         self.tab_widget.addTab(tab, "Ingestion")
@@ -628,6 +690,39 @@ class SettingsPanel(QtWidgets.QWidget):
         if directory:
             self.previews_path_edit.setText(directory)
     
+    def browse_blender_path(self):
+        """Browse for Blender executable."""
+        if not hasattr(self, 'blender_path_edit'):
+            return
+
+        caption = "Locate Blender executable"
+        current_value = (self.blender_path_edit.text() or '').strip()
+        start_dir = ''
+        if current_value:
+            if os.path.isdir(current_value):
+                start_dir = current_value
+            else:
+                start_dir = os.path.dirname(current_value)
+
+        if sys.platform.startswith('win'):
+            filters = "Blender Executable (blender.exe);;Executable (*.exe);;All files (*.*)"
+        else:
+            filters = "All files (*)"
+
+        filename, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            caption,
+            start_dir,
+            filters
+        )
+        if filename:
+            self.blender_path_edit.setText(filename)
+
+    def clear_blender_path(self):
+        """Clear the Blender executable override."""
+        if hasattr(self, 'blender_path_edit'):
+            self.blender_path_edit.clear()
+
     def browse_file(self, line_edit):
         """Browse for processor script file."""
         filename, _ = QtWidgets.QFileDialog.getOpenFileName(
@@ -752,6 +847,33 @@ class SettingsPanel(QtWidgets.QWidget):
     def on_gif_full_duration_toggled(self, checked):
         """Handle Full Duration checkbox toggle."""
         self.gif_duration.setEnabled(not checked)
+
+    def on_auto_detect_sequences_toggled(self, checked):
+        """Enable/disable sequence pattern selection based on auto-detect toggle."""
+        if hasattr(self, 'sequence_pattern_combo') and self.sequence_pattern_combo:
+            self.sequence_pattern_combo.setEnabled(checked)
+        if hasattr(self, 'sequence_pattern_hint') and self.sequence_pattern_hint:
+            self.sequence_pattern_hint.setEnabled(checked)
+            if checked:
+                self.update_sequence_pattern_hint(self.sequence_pattern_combo.currentText())
+            else:
+                self.sequence_pattern_hint.setText(
+                    "Sequence detection disabled. Files will ingest individually even if their names share a pattern."
+                )
+
+    def update_sequence_pattern_hint(self, pattern):
+        """Update the helper text under the pattern combo box."""
+        if not hasattr(self, 'sequence_pattern_hint') or not self.sequence_pattern_hint:
+            return
+
+        examples = {
+            '.####.ext': "Example: plate.1001.exr, plate.1002.exr",
+            '_####.ext': "Example: plate_0001.dpx, plate_0002.dpx",
+            ' ####.ext': "Example: render 1.png, render 2.png",
+            '-####.ext': "Example: shot-10.jpg, shot-11.jpg"
+        }
+        sample = examples.get(pattern, "Example: image.####.exr")
+        self.sequence_pattern_hint.setText(sample)
     
     def save_all_settings(self):
         """Save all settings to config and database."""
@@ -760,12 +882,13 @@ class SettingsPanel(QtWidgets.QWidget):
         self.config.set('previews_path', self.previews_path_edit.text())
         self.config.set('user_name', self.user_name_edit.text())
         
-        # Save previews_path to database as well
-        self.config.save_to_database(self.db)
-        
         # Ingestion settings
         self.config.set('default_copy_policy', self.copy_policy.currentText())
         self.config.set('auto_detect_sequences', self.auto_detect.isChecked())
+        self.config.set('sequence_pattern', self.sequence_pattern_combo.currentText())
+        if hasattr(self, 'blender_path_edit'):
+            blender_override = (self.blender_path_edit.text() or '').strip()
+            self.config.set('blender_path', blender_override or None)
         
         # Preview settings
         self.config.set('generate_previews', self.gen_previews.isChecked())
@@ -791,6 +914,9 @@ class SettingsPanel(QtWidgets.QWidget):
         self.config.set('pre_ingest_processor', self.pre_ingest.text() or None)
         self.config.set('post_ingest_processor', self.post_ingest.text() or None)
         self.config.set('post_import_processor', self.post_import.text() or None)
+
+        # Persist database-aware settings
+        self.config.save_to_database(self.db)
         
         QtWidgets.QMessageBox.information(
             self,
@@ -815,8 +941,11 @@ class SettingsPanel(QtWidgets.QWidget):
             # Clear layout
             while self.layout().count():
                 child = self.layout().takeAt(0)
-                if child.widget():
-                    child.widget().deleteLater()
+                if not child:
+                    continue
+                widget = child.widget()
+                if widget:
+                    widget.deleteLater()
             
             # Rebuild UI
             self.setup_ui()
