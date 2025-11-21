@@ -6,6 +6,14 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
 
 ## [Unreleased]
 
+### ✨ Scene Viewer & Blender Configuration (Nov 21, 2025)
+
+- Added an interactive in-app Scene Viewer for geometry assets. GLB previews now render directly inside the preview panel using pyrender off-screen rendering with simple orbit controls and scroll-to-zoom support.
+- Replaced the temporary geometry placeholder and external viewer buttons with the embedded Scene Viewer experience; preview status messaging now surfaces conversion results inline.
+- Settings → Ingestion tab now includes a "Blender Executable" picker so studios can point StaX at a local Blender installation when it is not already on `PATH`.
+- Extended dependency list (`tools/requirements.txt`) to include `numpy`, `trimesh`, `pygltflib`, `pyrender`, `PyOpenGL`, and `pyglet` required for geometry conversion and rendering workflows.
+- Updated documentation (README) to highlight the Blender override and the new 3D preview workflow.
+
 ### 🔧 Session 10 - Ingest Library Sequence Detection Fix (Nov 19, 2025)
 
 #### Duplicate GIF Prevention

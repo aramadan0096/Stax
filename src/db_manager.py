@@ -228,6 +228,7 @@ class DatabaseManager(object):
                     preview_path TEXT,
                     gif_preview_path TEXT,
                     video_preview_path TEXT,
+                    geometry_preview_path TEXT,
                     is_deprecated BOOLEAN DEFAULT 0,
                     file_size INTEGER,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -390,6 +391,15 @@ class DatabaseManager(object):
                 self._log("Migration 2.5: Adding video_preview_path column to elements table")
                 cursor.execute("ALTER TABLE elements ADD COLUMN video_preview_path TEXT")
                 self._log("Migration 2.5: Complete")
+
+            # Migration 3.1: Add geometry_preview_path column for 3D assets
+            try:
+                cursor.execute("SELECT geometry_preview_path FROM elements LIMIT 1")
+                self._log("Migration 3.1: geometry_preview_path already exists")
+            except sqlite3.OperationalError:
+                self._log("Migration 3.1: Adding geometry_preview_path column to elements table")
+                cursor.execute("ALTER TABLE elements ADD COLUMN geometry_preview_path TEXT")
+                self._log("Migration 3.1: Complete")
             
             # Migration 3: Create users table if it doesn't exist
             cursor.execute("""
@@ -704,7 +714,7 @@ class DatabaseManager(object):
             for key, value in kwargs.items():
                 if key in ['filepath_soft', 'filepath_hard', 'is_hard_copy', 
                           'frame_range', 'format', 'comment', 'tags', 
-                          'preview_path', 'gif_preview_path', 'video_preview_path', 'is_deprecated', 'file_size']:
+                          'preview_path', 'gif_preview_path', 'video_preview_path', 'geometry_preview_path', 'is_deprecated', 'file_size']:
                     fields.append(key)
                     values.append(value)
             

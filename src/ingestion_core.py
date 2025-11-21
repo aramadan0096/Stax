@@ -10,6 +10,7 @@ import re
 import shutil
 import hashlib
 from src.ffmpeg_wrapper import get_ffmpeg
+from src.glb_converter import convert_to_glb, SUPPORTED_GEOMETRY_EXTS
 
 
 class SequenceDetector(object):
@@ -160,7 +161,7 @@ class MetadataExtractor(object):
     
     IMAGE_FORMATS = ['.exr', '.dpx', '.tif', '.tiff', '.jpg', '.jpeg', '.png', '.tga']
     VIDEO_FORMATS = ['.mov', '.mp4', '.avi', '.mxf']
-    GEO_FORMATS = ['.abc', '.obj', '.fbx', '.usd', '.usda', '.usdc']
+    GEO_FORMATS = ['.abc', '.obj', '.fbx', '.usd', '.usda', '.usdc', '.glb', '.gltf']
     
     @staticmethod
     def get_asset_type(filepath):
@@ -514,11 +515,64 @@ class IngestionCore(object):
                 if filepath_hard:
                     filepath_hard = os.path.normpath(filepath_hard)
             
+            element_hash = hashlib.md5(name.encode('utf-8')).hexdigest()[:8]
+
+            geometry_preview_path = None
+            geometry_conversion_notes = []
+            if asset_type == '3D':
+                ext_lower = os.path.splitext(source_path)[1].lower()
+                if ext_lower in SUPPORTED_GEOMETRY_EXTS:
+                    geometry_dir = os.path.join(self.preview_dir, 'geometry')
+                    if not os.path.exists(geometry_dir):
+                        try:
+                            os.makedirs(geometry_dir)
+                        except OSError as create_err:
+                            print("[GLB] Failed to create geometry preview directory: {}".format(create_err))
+                    geometry_filename = "{}_{}.glb".format(target_list_id, element_hash)
+                    geometry_preview_path = os.path.normpath(os.path.join(geometry_dir, geometry_filename))
+
+                    conversion_source = None
+                    candidates = [filepath_hard, filepath_soft, source_path]
+                    for candidate in candidates:
+                        if candidate and os.path.exists(candidate):
+                            conversion_source = candidate
+                            break
+                    if not conversion_source:
+                        conversion_source = source_path
+
+                    blender_override = self.config.get('blender_path')
+
+                    def _glb_report(message):
+                        geometry_conversion_notes.append(message)
+                        print("[GLB] {}".format(message))
+
+                    success, message = convert_to_glb(
+                        conversion_source,
+                        geometry_preview_path,
+                        blender_path=blender_override,
+                        reporter=_glb_report
+                    )
+
+                    if not success:
+                        if os.path.exists(geometry_preview_path):
+                            try:
+                                os.remove(geometry_preview_path)
+                            except OSError:
+                                pass
+                        details = message
+                        if geometry_conversion_notes:
+                            details = "{} | {}".format(message, ' | '.join(geometry_conversion_notes))
+                        return {'success': False, 'message': '3D conversion failed: {}'.format(details)}
+
+                    print("[GLB] ✓ {}".format(message))
+                else:
+                    print("[GLB] Skipping conversion for unsupported extension: {}".format(ext_lower))
+
             preview_path = None
             if self.config.get('generate_previews', True):
                 preview_filename = "{}_{}.png".format(
                     target_list_id,
-                    hashlib.md5(name.encode('utf-8')).hexdigest()[:8]
+                    element_hash
                 )
                 preview_path = os.path.normpath(os.path.join(self.preview_dir, preview_filename))
                 try:
@@ -584,7 +638,7 @@ class IngestionCore(object):
                     name, asset_type, is_video, is_sequence))
                 gif_filename = "{}_{}.gif".format(
                     target_list_id,
-                    hashlib.md5(name.encode('utf-8')).hexdigest()[:8]
+                    element_hash
                 )
                 gif_preview_path = os.path.normpath(os.path.join(self.preview_dir, gif_filename))
                 print("[GIF] Output path: {}".format(gif_preview_path))
@@ -636,7 +690,7 @@ class IngestionCore(object):
                 print("[VIDEO] Generating video preview for sequence: {}".format(name))
                 video_filename = "{}_{}.mp4".format(
                     target_list_id,
-                    hashlib.md5(name.encode('utf-8')).hexdigest()[:8]
+                    element_hash
                 )
                 video_preview_path = os.path.normpath(os.path.join(self.preview_dir, video_filename))
                 print("[VIDEO] Output path: {}".format(video_preview_path))
@@ -672,6 +726,7 @@ class IngestionCore(object):
                 preview_path=preview_db_path,
                 gif_preview_path=gif_preview_path,
                 video_preview_path=video_preview_path,
+                geometry_preview_path=geometry_preview_path,
                 file_size=file_size
             )
             
@@ -701,7 +756,8 @@ class IngestionCore(object):
                 'message': 'Successfully ingested {}'.format(name),
                 'is_sequence': is_sequence,
                 'frame_range': frame_range,
-                'sequence_files': files_to_process if is_sequence else None
+                'sequence_files': files_to_process if is_sequence else None,
+                'geometry_preview_path': geometry_preview_path
             }
             
         except Exception as e:

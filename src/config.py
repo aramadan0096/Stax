@@ -54,6 +54,7 @@ class Config(object):
         'auto_detect_sequences': True,
         'sequence_pattern': '.####.ext',
         'generate_previews': True,
+    'blender_path': None,
         
         # Processor hooks
         'pre_ingest_processor': None,
@@ -197,6 +198,10 @@ class Config(object):
                     self.config['previews_path'] = previews_path
                     self.config['preview_dir'] = previews_path  # Backward compatibility
                     print("[Config] Loaded previews_path from database: {}".format(previews_path))
+
+            blender_setting = db_manager.get_setting('blender_path')
+            if blender_setting is not None and blender_setting != '':
+                self.config['blender_path'] = blender_setting
         except Exception as e:
             print("[Config] Warning: Could not load settings from database: {}".format(e))
     
@@ -214,6 +219,11 @@ class Config(object):
                 if previews_path:
                     db_manager.set_setting('previews_path', previews_path)
                     print("[Config] Saved previews_path to database: {}".format(previews_path))
+
+            blender_setting = self.config.get('blender_path')
+            if blender_setting is not None:
+                db_manager.set_setting('blender_path', blender_setting or '')
+                print("[Config] Saved blender_path to database")
         except Exception as e:
             print("[Config] Warning: Could not save settings to database: {}".format(e))
     
@@ -223,15 +233,20 @@ class Config(object):
         script_dir = os.path.dirname(os.path.abspath(__file__))
         root_dir = os.path.dirname(script_dir)  # Go up one level from src/
         
-        directories = [
-            os.path.dirname(self.get('database_path')),
+        directories = []
+        db_path = self.get('database_path')
+        if db_path:
+            directories.append(os.path.dirname(db_path))
+
+        directories.extend([
             self.get('default_repository_path'),
             self.get('preview_dir'),
             os.path.join(root_dir, 'logs')  # Add logs directory
-        ]
+        ])
         
         for directory in directories:
             if directory and not os.path.exists(directory):
+                abs_directory = directory
                 try:
                     # Convert relative paths to absolute paths
                     if not os.path.isabs(directory):

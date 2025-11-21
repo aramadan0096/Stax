@@ -21,7 +21,13 @@ dependency_bootstrap.bootstrap()
 from PySide2 import QtWidgets, QtCore, QtGui
 import subprocess
 import json
-import ctypes
+import math
+try:
+    import numpy as np
+except ImportError:  # pragma: no cover
+    np = None
+from src.icon_loader import get_pixmap
+from src.glb_converter import trimesh, pyrender
 
 _FFPY_IMPORT_ERROR = None
 
@@ -302,6 +308,312 @@ class PlayerController(QtCore.QObject):
             self._timer.start(10)
 
 
+class SceneViewerWidget(QtWidgets.QWidget):
+    """Embedded GLB scene viewer using pyrender off-screen rendering."""
+
+    def __init__(self, parent=None):
+        super(SceneViewerWidget, self).__init__(parent)
+        self.setMinimumHeight(240)
+        self.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        self.image_label = QtWidgets.QLabel()
+        self.image_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.image_label.setMinimumHeight(240)
+        self.image_label.setStyleSheet(
+            "background-color: #111; border: 2px solid #16c6b0; border-radius: 6px;"
+        )
+        layout.addWidget(self.image_label, 1)
+
+        self.message_label = QtWidgets.QLabel()
+        self.message_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.message_label.setWordWrap(True)
+        self.message_label.setStyleSheet("color: #888; font-size: 11px;")
+        layout.addWidget(self.message_label)
+
+        self._placeholder_pixmap = None
+        self._renderer = None
+        self._scene = None
+        self._camera_node = None
+        self._light_node = None
+        self._scene_center = np.zeros(3) if np is not None else None
+        self._scene_radius = 1.0
+        self._distance = 3.0
+        self._yaw = math.pi / 4.0
+        self._pitch = math.pi / 6.0
+        self._last_mouse_pos = None
+        self._current_path = None
+        self._has_scene = False
+
+        self._availability_errors = []
+        if np is None:
+            self._availability_errors.append('numpy')
+        if trimesh is None:
+            self._availability_errors.append('trimesh')
+        if pyrender is None:
+            self._availability_errors.append('pyrender')
+
+        if self._availability_errors:
+            self.show_message(
+                "3D viewer unavailable. Install missing packages: {}.".format(', '.join(self._availability_errors))
+            )
+        else:
+            self.show_placeholder()
+
+    def set_placeholder_pixmap(self, pixmap):
+        self._placeholder_pixmap = pixmap
+        if not self._has_scene:
+            self.show_placeholder()
+
+    def show_placeholder(self):
+        if self._placeholder_pixmap is not None:
+            self.image_label.setPixmap(self._placeholder_pixmap)
+        else:
+            self.image_label.clear()
+        if not self._availability_errors:
+            self.message_label.setText("Drop or ingest geometry to generate an embedded preview.")
+
+    def show_message(self, text):
+        self.message_label.setText(text or "")
+        if text and not self._has_scene:
+            self.image_label.clear()
+
+    def load_geometry(self, glb_path):
+        """Load a GLB file into the embedded viewer."""
+        if self._availability_errors:
+            return False, "Missing dependencies: {}".format(', '.join(self._availability_errors))
+
+        if not glb_path or not os.path.exists(glb_path):
+            self.show_message("GLB preview not found on disk.")
+            self.show_placeholder()
+            return False, "GLB preview missing"
+
+        try:
+            mesh_or_scene = trimesh.load(glb_path, force='scene')  # type: ignore[attr-defined]
+        except Exception as exc:
+            self._has_scene = False
+            self.show_message("Failed to load GLB: {}".format(exc))
+            self.show_placeholder()
+            return False, str(exc)
+
+        self.clear_geometry()
+
+        try:
+            try:
+                scene = pyrender.Scene.from_trimesh_scene(mesh_or_scene)  # type: ignore[attr-defined]
+            except Exception:
+                scene = pyrender.Scene(bg_color=[0.0, 0.0, 0.0, 0.0])
+                geometry_items = getattr(mesh_or_scene, 'geometry', {})
+                if hasattr(geometry_items, 'values'):
+                    geometries = geometry_items.values()
+                else:
+                    geometries = geometry_items
+                for geometry in geometries:
+                    try:
+                        mesh = pyrender.Mesh.from_trimesh(geometry, smooth=False)  # type: ignore[attr-defined]
+                        scene.add(mesh)
+                    except Exception:
+                        continue
+
+            bounds = getattr(mesh_or_scene, 'bounds', None)
+            if bounds is None and hasattr(scene, 'bounds'):
+                bounds = scene.bounds
+            if bounds is None and np is not None:
+                bounds = np.array([[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]])
+            if np is not None:
+                bounds = np.array(bounds)
+                center = (bounds[0] + bounds[1]) * 0.5
+                extents = bounds[1] - bounds[0]
+                radius = float(np.linalg.norm(extents)) * 0.5
+                if radius <= 0.0 or not np.isfinite(radius):
+                    radius = 1.0
+                self._scene_center = center
+                self._scene_radius = radius
+                self._distance = max(radius * 3.0, 1.0)
+            else:
+                self._scene_center = np.zeros(3) if np is not None else None
+                self._scene_radius = 1.0
+                self._distance = 3.0
+
+            self._yaw = math.pi / 4.0
+            self._pitch = math.pi / 6.0
+
+            self._scene = scene
+            self._has_scene = True
+            self._current_path = glb_path
+            self.show_message("")
+            self._render_scene()
+            return True, "GLB preview ready"
+        except Exception as exc:
+            self._has_scene = False
+            self.show_message("Failed to initialize scene: {}".format(exc))
+            self.show_placeholder()
+            return False, str(exc)
+
+    def clear_geometry(self):
+        """Reset the viewer and free resources."""
+        if self._scene is not None:
+            try:
+                if self._camera_node is not None:
+                    self._scene.remove_node(self._camera_node)
+                if self._light_node is not None:
+                    self._scene.remove_node(self._light_node)
+            except Exception:
+                pass
+        self._scene = None
+        self._camera_node = None
+        self._light_node = None
+        self._current_path = None
+        self._has_scene = False
+        self._release_renderer()
+        self.show_placeholder()
+
+    def _release_renderer(self):
+        if self._renderer is not None:
+            try:
+                self._renderer.delete()
+            except Exception:
+                pass
+            self._renderer = None
+
+    def _ensure_renderer(self):
+        if not self._has_scene or pyrender is None:
+            return None
+        width = max(64, self.image_label.width())
+        height = max(64, self.image_label.height())
+        if self._renderer is not None:
+            viewport = getattr(self._renderer, 'viewport_width', None), getattr(self._renderer, 'viewport_height', None)
+            if viewport[0] != width or viewport[1] != height:
+                self._release_renderer()
+        if self._renderer is None:
+            try:
+                self._renderer = pyrender.OffscreenRenderer(width, height)  # type: ignore[attr-defined]
+            except Exception as exc:
+                self.show_message("Unable to start renderer: {}".format(exc))
+                self._renderer = None
+        return self._renderer
+
+    def _camera_pose(self):
+        if np is None or self._scene_center is None:
+            return None
+        distance = max(self._distance, 0.1)
+        cx, cy, cz = self._scene_center
+        x = cx + distance * math.cos(self._pitch) * math.cos(self._yaw)
+        y = cy + distance * math.sin(self._pitch)
+        z = cz + distance * math.cos(self._pitch) * math.sin(self._yaw)
+
+        eye = np.array([x, y, z])
+        target = np.array([cx, cy, cz])
+        forward = target - eye
+        norm_forward = np.linalg.norm(forward)
+        if norm_forward < 1e-6:
+            forward = np.array([0.0, 0.0, -1.0])
+        else:
+            forward /= norm_forward
+        up = np.array([0.0, 1.0, 0.0])
+        right = np.cross(forward, up)
+        if np.linalg.norm(right) < 1e-6:
+            right = np.array([1.0, 0.0, 0.0])
+        else:
+            right /= np.linalg.norm(right)
+        up = np.cross(right, forward)
+
+        pose = np.eye(4)
+        pose[0, :3] = right
+        pose[1, :3] = up
+        pose[2, :3] = -forward
+        pose[:3, 3] = eye
+        return pose
+
+    def _render_scene(self):
+        if not self._has_scene or self._scene is None or pyrender is None or np is None:
+            return
+
+        renderer = self._ensure_renderer()
+        if renderer is None:
+            return
+
+        pose = self._camera_pose()
+        if pose is None:
+            return
+
+        if self._camera_node is None:
+            camera = pyrender.PerspectiveCamera(yfov=np.pi / 3.0)  # type: ignore[attr-defined]
+            self._camera_node = self._scene.add(camera, pose=pose)
+        else:
+            self._scene.set_pose(self._camera_node, pose)
+
+        if self._light_node is None:
+            light = pyrender.DirectionalLight(color=np.ones(3), intensity=3.0)  # type: ignore[attr-defined]
+            self._light_node = self._scene.add(light, pose=pose)
+        else:
+            self._scene.set_pose(self._light_node, pose)
+
+        try:
+            color, _ = renderer.render(self._scene)
+            if np is None:
+                return
+            if not isinstance(color, np.ndarray):
+                color = np.array(color)
+            if color.dtype != np.uint8:
+                color = np.clip(color, 0, 255).astype(np.uint8)
+            color = np.ascontiguousarray(color)
+            height, width = color.shape[0], color.shape[1]
+            channels = color.shape[2] if color.ndim == 3 else 3
+            bytes_per_line = width * channels
+            if channels == 4:
+                image = QtGui.QImage(color.data, width, height, bytes_per_line, QtGui.QImage.Format_RGBA8888)
+            else:
+                image = QtGui.QImage(color.data, width, height, bytes_per_line, QtGui.QImage.Format_RGB888)
+            self.image_label.setPixmap(QtGui.QPixmap.fromImage(image.copy()))
+        except Exception as exc:
+            self.show_message("Render failed: {}".format(exc))
+
+    def resizeEvent(self, event):  # pylint: disable=invalid-name
+        super(SceneViewerWidget, self).resizeEvent(event)
+        if self._has_scene:
+            self._render_scene()
+
+    def mousePressEvent(self, event):  # pylint: disable=invalid-name
+        if event.button() == QtCore.Qt.LeftButton and self._has_scene:
+            self._last_mouse_pos = event.pos()
+            event.accept()
+        else:
+            super(SceneViewerWidget, self).mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):  # pylint: disable=invalid-name
+        if self._has_scene and event.buttons() & QtCore.Qt.LeftButton and self._last_mouse_pos is not None:
+            delta = event.pos() - self._last_mouse_pos
+            self._yaw += delta.x() * 0.01
+            self._pitch += delta.y() * 0.01
+            self._pitch = max(-math.pi / 2 + 0.1, min(math.pi / 2 - 0.1, self._pitch))
+            self._last_mouse_pos = event.pos()
+            self._render_scene()
+            event.accept()
+        else:
+            super(SceneViewerWidget, self).mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):  # pylint: disable=invalid-name
+        self._last_mouse_pos = None
+        super(SceneViewerWidget, self).mouseReleaseEvent(event)
+
+    def wheelEvent(self, event):  # pylint: disable=invalid-name
+        if self._has_scene and np is not None:
+            delta = event.angleDelta().y() / 120.0
+            factor = math.pow(0.9, delta)
+            self._distance = max(self._scene_radius * 0.3, min(self._scene_radius * 20.0, self._distance * factor))
+            self._render_scene()
+            event.accept()
+        else:
+            super(SceneViewerWidget, self).wheelEvent(event)
+
+    def closeEvent(self, event):  # pylint: disable=invalid-name
+        self.clear_geometry()
+        super(SceneViewerWidget, self).closeEvent(event)
+
 class VideoPlayerWidget(QtWidgets.QWidget):
     """
     Video player widget with embedded video playback using ffpyplayer.
@@ -320,6 +632,8 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         self._duration_known = False
         self._project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
         self._current_playback_path = None
+        self.is_geometry_mode = False
+        self._current_geometry_path = None
         
         # Create player controller
         self.player_controller = PlayerController(self)
@@ -374,17 +688,47 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         separator.setFrameShadow(QtWidgets.QFrame.Sunken)
         layout.addWidget(separator)
         
-        # Video widget for embedded playback (using FFpyVideoWidget)
+        # Preview area (video or geometry)
+        self.preview_stack = QtWidgets.QStackedWidget()
+        self.preview_stack.setContentsMargins(0, 0, 0, 0)
+        self.preview_stack.setMinimumHeight(300)
+
         self.video_widget.setMinimumHeight(300)
-        layout.addWidget(self.video_widget)
-        
-        # Timeline slider
-        timeline_layout = QtWidgets.QHBoxLayout()
-        
+        self.preview_stack.addWidget(self.video_widget)
+
+        self.geometry_container = QtWidgets.QWidget()
+        geometry_layout = QtWidgets.QVBoxLayout(self.geometry_container)
+        geometry_layout.setContentsMargins(0, 0, 0, 0)
+        geometry_layout.setSpacing(10)
+
+        self.geometry_viewer = SceneViewerWidget()
+        cube_pixmap = get_pixmap('cube', size=180)
+        if cube_pixmap and not cube_pixmap.isNull():
+            self.geometry_viewer.set_placeholder_pixmap(
+                cube_pixmap.scaled(180, 180, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+            )
+        geometry_layout.addWidget(self.geometry_viewer)
+
+        self.geometry_status_label = QtWidgets.QLabel()
+        self.geometry_status_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.geometry_status_label.setWordWrap(True)
+        self.geometry_status_label.setStyleSheet("color: #888; font-size: 11px;")
+        geometry_layout.addWidget(self.geometry_status_label)
+
+        geometry_layout.addStretch()
+        self.preview_stack.addWidget(self.geometry_container)
+        self.preview_stack.setCurrentIndex(0)
+        layout.addWidget(self.preview_stack)
+
+        # Timeline slider container
+        self.timeline_container = QtWidgets.QWidget()
+        timeline_layout = QtWidgets.QHBoxLayout(self.timeline_container)
+        timeline_layout.setContentsMargins(0, 0, 0, 0)
+
         self.current_time_label = QtWidgets.QLabel("00:00:00")
         self.current_time_label.setStyleSheet("color: #16c6b0; font-family: monospace;")
         timeline_layout.addWidget(self.current_time_label)
-        
+
         self.timeline_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self.timeline_slider.setMinimum(0)
         self.timeline_slider.setMaximum(0)
@@ -412,17 +756,19 @@ class VideoPlayerWidget(QtWidgets.QWidget):
             }
         """)
         timeline_layout.addWidget(self.timeline_slider, 1)
-        
+
         self.total_time_label = QtWidgets.QLabel("00:00:00")
         self.total_time_label.setStyleSheet("color: #888; font-family: monospace;")
         timeline_layout.addWidget(self.total_time_label)
-        
-        layout.addLayout(timeline_layout)
-        
-        # Playback controls
-        controls_layout = QtWidgets.QHBoxLayout()
+
+        layout.addWidget(self.timeline_container)
+
+        # Playback controls container
+        self.controls_container = QtWidgets.QWidget()
+        controls_layout = QtWidgets.QHBoxLayout(self.controls_container)
         controls_layout.setSpacing(10)
-        
+        controls_layout.setContentsMargins(0, 0, 0, 0)
+
         # Play/Pause button (SVG)
         self.play_pause_btn = QtWidgets.QPushButton()
         play_icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icons', 'play.svg')
@@ -443,7 +789,7 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         self.play_pause_btn.clicked.connect(self.toggle_playback)
         self.play_pause_btn.setEnabled(False)
         controls_layout.addWidget(self.play_pause_btn)
-        
+
         # Stop button (SVG)
         self.stop_btn = QtWidgets.QPushButton()
         stop_icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icons', 'stop_filled.svg')
@@ -457,7 +803,7 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         """)
         self.stop_btn.clicked.connect(self.stop_playback)
         controls_layout.addWidget(self.stop_btn)
-        
+
         # External player / Fullscreen button
         self.external_btn = QtWidgets.QPushButton()
         ext_icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icons', 'external_player.svg')
@@ -468,9 +814,8 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         self.external_btn.clicked.connect(self.open_in_external_player)
         self.external_btn.setEnabled(False)
         controls_layout.addWidget(self.external_btn)
-        
+
         # Frame navigation
-        # Previous frame button (SVG)
         self.prev_frame_btn = QtWidgets.QPushButton()
         prev_icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icons', 'previous.svg')
         if os.path.exists(prev_icon_path):
@@ -482,7 +827,6 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         self.prev_frame_btn.setEnabled(False)
         controls_layout.addWidget(self.prev_frame_btn)
 
-        # Next frame button (SVG)
         self.next_frame_btn = QtWidgets.QPushButton()
         next_icon_path = os.path.join(os.path.dirname(__file__), '..', 'resources', 'icons', 'next.svg')
         if os.path.exists(next_icon_path):
@@ -493,15 +837,14 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         self.next_frame_btn.clicked.connect(lambda: self.step_frame(1))
         self.next_frame_btn.setEnabled(False)
         controls_layout.addWidget(self.next_frame_btn)
-        
+
         controls_layout.addStretch()
-        
-        # Frame counter
+
         self.frame_label = QtWidgets.QLabel("Frame: 0 / 0")
         self.frame_label.setStyleSheet("color: #888; font-family: monospace;")
         controls_layout.addWidget(self.frame_label)
-        
-        layout.addLayout(controls_layout)
+
+        layout.addWidget(self.controls_container)
         
         # Metadata section
         metadata_group = QtWidgets.QGroupBox("Metadata")
@@ -549,6 +892,31 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         self.timeline_slider.setEnabled(enabled)
         self.prev_frame_btn.setEnabled(enabled)
         self.next_frame_btn.setEnabled(enabled)
+
+    def _set_geometry_mode(self, enabled):
+        """Toggle geometry preview mode."""
+        if enabled:
+            if self.is_geometry_mode:
+                return
+            self.preview_stack.setCurrentWidget(self.geometry_container)
+            self.timeline_container.hide()
+            self.controls_container.hide()
+            self.video_widget.clear_frame("3D asset preview")
+            self.geometry_viewer.show_placeholder()
+            self.geometry_status_label.setText("")
+            self.is_geometry_mode = True
+            return
+
+        if not self.is_geometry_mode:
+            return
+
+        self.preview_stack.setCurrentWidget(self.video_widget)
+        self.timeline_container.show()
+        self.controls_container.show()
+        self.geometry_viewer.clear_geometry()
+        self.geometry_status_label.setText("")
+        self.is_geometry_mode = False
+        self._current_geometry_path = None
 
     def _set_play_button_state(self, is_playing):
         """Update the play button's icon and tooltip based on state."""
@@ -603,6 +971,40 @@ class VideoPlayerWidget(QtWidgets.QWidget):
 
         return primary_source, False, primary_source
 
+    def _prepare_geometry_preview(self, element):
+        """Configure the widget for geometry preview usage."""
+        self._set_geometry_mode(True)
+
+        geometry_path = self._resolve_path(element.get('geometry_preview_path'))
+        self._current_geometry_path = geometry_path
+
+        if geometry_path and os.path.exists(geometry_path):
+            display_name = os.path.basename(geometry_path)
+            try:
+                size_bytes = os.path.getsize(geometry_path)
+            except Exception:
+                size_bytes = 0
+            size_mb = size_bytes / (1024.0 * 1024.0) if size_bytes else 0.0
+            ok, load_message = self.geometry_viewer.load_geometry(geometry_path)
+            if not ok:
+                status = load_message or "Unable to load GLB preview."
+                self.geometry_status_label.setText(status)
+            else:
+                status = "GLB preview ready: {}".format(display_name)
+                if size_mb:
+                    status += " ({:.2f} MB)".format(size_mb)
+                self.geometry_status_label.setText(status)
+        else:
+            self.geometry_viewer.clear_geometry()
+            self.geometry_viewer.show_message(
+                "GLB preview not available. Set Blender Path in Settings -> Ingestion and re-ingest the asset."
+            )
+            self.geometry_status_label.setText(
+                "GLB preview not available. Set Blender Path in Settings -> Ingestion and re-ingest the asset."
+            )
+
+        self.update_metadata_display()
+
     def _shutdown_player(self, clear_element_state=False):
         """Completely stop playback and reset the UI state."""
         self.player_controller.stop()
@@ -615,7 +1017,10 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         self.current_time_label.setText("00:00:00")
         self.total_time_label.setText("00:00:00")
         self.frame_label.setText("Frame: 0 / 0")
-        self.video_widget.clear_frame("No media loaded")
+        if self.is_geometry_mode:
+            self._set_geometry_mode(False)
+        else:
+            self.video_widget.clear_frame("No media loaded")
         self._current_playback_path = None
         if hasattr(self, 'external_btn'):
             self.external_btn.setEnabled(False)
@@ -705,9 +1110,26 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         self._duration_known = False
         self.timeline_slider.setMaximum(0)
 
+        asset_type = (self.current_element.get('type') or '').strip().lower()
+        element_format = (self.current_element.get('format') or '').strip().lower()
+        if element_format.startswith('.'):
+            element_format = element_format[1:]
+
+        is_geometry = bool(self.current_element.get('geometry_preview_path'))
+        if '3d' in asset_type:
+            is_geometry = True
+        if element_format in ('fbx', 'abc', 'obj', 'glb', 'gltf'):
+            is_geometry = True
+
+        if is_geometry:
+            self._prepare_geometry_preview(self.current_element)
+            return
+
+        self._set_geometry_mode(False)
+
         # Update metadata display with the newly selected element
         self.update_metadata_display()
-        
+
         playback_path, from_sequence_preview, original_source = self._determine_playback_source()
 
         if from_sequence_preview and playback_path is None:
@@ -816,6 +1238,14 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         filepath = self.current_element.get('filepath_hard') or self.current_element.get('filepath_soft')
         if filepath:
             metadata_lines.append("<b>Path:</b> {}".format(filepath))
+
+        geometry_preview = self.current_element.get('geometry_preview_path')
+        if geometry_preview:
+            resolved_geometry = self._resolve_path(geometry_preview)
+            status_text = "missing"
+            if resolved_geometry and os.path.exists(resolved_geometry):
+                status_text = "available"
+            metadata_lines.append("<b>GLB Preview:</b> {} ({})".format(geometry_preview, status_text))
         
         # Tags
         tags = self.current_element.get('tags', '')

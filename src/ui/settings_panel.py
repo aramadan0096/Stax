@@ -4,6 +4,7 @@ Settings Panel Widget
 """
 
 import os
+import sys
 from PySide2 import QtWidgets, QtCore, QtGui
 
 from src.icon_loader import get_icon, get_pixmap
@@ -222,7 +223,7 @@ class SettingsPanel(QtWidgets.QWidget):
         policy_group.setLayout(policy_layout)
         layout.addWidget(policy_group)
         
-        # Sequence detection
+    # Sequence detection
         seq_group = QtWidgets.QGroupBox("Sequence Detection")
         seq_layout = QtWidgets.QFormLayout()
         
@@ -260,6 +261,39 @@ class SettingsPanel(QtWidgets.QWidget):
         
         seq_group.setLayout(seq_layout)
         layout.addWidget(seq_group)
+
+        # Geometry conversion
+        geometry_group = QtWidgets.QGroupBox("3D Geometry Conversion")
+        geometry_layout = QtWidgets.QFormLayout()
+
+        blender_row = QtWidgets.QHBoxLayout()
+        self.blender_path_edit = QtWidgets.QLineEdit(self.config.get('blender_path') or '')
+        self.blender_path_edit.setPlaceholderText("Optional: full path to blender executable")
+        blender_row.addWidget(self.blender_path_edit)
+
+        self.browse_blender_btn = QtWidgets.QPushButton("Browse...")
+        self.browse_blender_btn.setObjectName('small')
+        self.browse_blender_btn.setProperty('class', 'small')
+        self.browse_blender_btn.clicked.connect(self.browse_blender_path)
+        blender_row.addWidget(self.browse_blender_btn)
+
+        self.clear_blender_btn = QtWidgets.QPushButton("Clear")
+        self.clear_blender_btn.setObjectName('small')
+        self.clear_blender_btn.setProperty('class', 'small')
+        self.clear_blender_btn.clicked.connect(self.clear_blender_path)
+        blender_row.addWidget(self.clear_blender_btn)
+
+        geometry_layout.addRow("Blender Executable:", blender_row)
+
+        blender_help = QtWidgets.QLabel(
+            "StaX uses Blender for FBX/Alembic conversions. Set this to the Blender executable when it is not on PATH."
+        )
+        blender_help.setWordWrap(True)
+        blender_help.setStyleSheet("color: #888; font-size: 10px;")
+        geometry_layout.addRow("", blender_help)
+
+        geometry_group.setLayout(geometry_layout)
+        layout.addWidget(geometry_group)
         
         layout.addStretch()
         self.tab_widget.addTab(tab, "Ingestion")
@@ -656,6 +690,39 @@ class SettingsPanel(QtWidgets.QWidget):
         if directory:
             self.previews_path_edit.setText(directory)
     
+    def browse_blender_path(self):
+        """Browse for Blender executable."""
+        if not hasattr(self, 'blender_path_edit'):
+            return
+
+        caption = "Locate Blender executable"
+        current_value = (self.blender_path_edit.text() or '').strip()
+        start_dir = ''
+        if current_value:
+            if os.path.isdir(current_value):
+                start_dir = current_value
+            else:
+                start_dir = os.path.dirname(current_value)
+
+        if sys.platform.startswith('win'):
+            filters = "Blender Executable (blender.exe);;Executable (*.exe);;All files (*.*)"
+        else:
+            filters = "All files (*)"
+
+        filename, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            caption,
+            start_dir,
+            filters
+        )
+        if filename:
+            self.blender_path_edit.setText(filename)
+
+    def clear_blender_path(self):
+        """Clear the Blender executable override."""
+        if hasattr(self, 'blender_path_edit'):
+            self.blender_path_edit.clear()
+
     def browse_file(self, line_edit):
         """Browse for processor script file."""
         filename, _ = QtWidgets.QFileDialog.getOpenFileName(
@@ -815,13 +882,13 @@ class SettingsPanel(QtWidgets.QWidget):
         self.config.set('previews_path', self.previews_path_edit.text())
         self.config.set('user_name', self.user_name_edit.text())
         
-        # Save previews_path to database as well
-        self.config.save_to_database(self.db)
-        
         # Ingestion settings
         self.config.set('default_copy_policy', self.copy_policy.currentText())
         self.config.set('auto_detect_sequences', self.auto_detect.isChecked())
         self.config.set('sequence_pattern', self.sequence_pattern_combo.currentText())
+        if hasattr(self, 'blender_path_edit'):
+            blender_override = (self.blender_path_edit.text() or '').strip()
+            self.config.set('blender_path', blender_override or None)
         
         # Preview settings
         self.config.set('generate_previews', self.gen_previews.isChecked())
@@ -847,6 +914,9 @@ class SettingsPanel(QtWidgets.QWidget):
         self.config.set('pre_ingest_processor', self.pre_ingest.text() or None)
         self.config.set('post_ingest_processor', self.post_ingest.text() or None)
         self.config.set('post_import_processor', self.post_import.text() or None)
+
+        # Persist database-aware settings
+        self.config.save_to_database(self.db)
         
         QtWidgets.QMessageBox.information(
             self,

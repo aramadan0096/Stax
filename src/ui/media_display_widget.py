@@ -753,6 +753,9 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         if element_type == '2D':
             return self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon)
         if element_type == '3D':
+            cube_icon = get_icon('cube', size=64)
+            if cube_icon and not cube_icon.isNull():
+                return cube_icon
             return self.style().standardIcon(QtWidgets.QStyle.SP_DriveFDIcon)
         return self.style().standardIcon(QtWidgets.QStyle.SP_FileDialogDetailedView)
 
@@ -1030,7 +1033,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
     def _prepare_element_for_popup(self, element_data):
         """Return a copy of element data with absolute filesystem paths."""
         element_copy = dict(element_data)
-        for key in ('preview_path', 'gif_preview_path', 'filepath_soft', 'filepath_hard'):
+        for key in ('preview_path', 'gif_preview_path', 'filepath_soft', 'filepath_hard', 'geometry_preview_path'):
             original = element_copy.get(key)
             resolved = self._resolve_path(original)
             if resolved:
@@ -1226,7 +1229,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             
             if reply == QtWidgets.QMessageBox.Yes:
                 removal_errors = []
-                preview_keys = ('preview_path', 'gif_preview_path', 'video_preview_path')
+                preview_keys = ('preview_path', 'gif_preview_path', 'video_preview_path', 'geometry_preview_path')
                 for key in preview_keys:
                     resolved_path = self._resolve_path(element.get(key))
                     if resolved_path and os.path.exists(resolved_path):
