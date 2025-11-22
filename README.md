@@ -34,7 +34,7 @@ StaX helps VFX artists and studios manage large collections of stock footage, 3D
 
 ## Documentation
 
-- **[documentation.md](docs/documentation.md)**: An internal reference describing StaX features, installation, and usage.
+- **[documentation](https://aramadan0096.github.io/stax-docs/)**: An internal reference describing StaX features, installation, and usage.
 - **[instructions.md](instructions.md)**: Complete technical specification and architecture
 - **[Roadmap.md](Roadmap.md)**: Development phases, milestones, and feature roadmap
 - **[changelog.md](changelog.md)**: Version history and release notes

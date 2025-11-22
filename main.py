@@ -383,6 +383,12 @@ class MainWindow(QtWidgets.QMainWindow):
         # Help menu
         help_menu = menubar.addMenu("Help")
         
+        # Documentation action
+        doc_action = QtWidgets.QAction("Documentation", self)
+        doc_action.setToolTip("Open the online documentation")
+        doc_action.triggered.connect(lambda checked=False: QtGui.QDesktopServices.openUrl(QtCore.QUrl("https://aramadan0096.github.io/stax-docs/")))
+        help_menu.addAction(doc_action)
+        
         about_action = QtWidgets.QAction("About", self)
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
