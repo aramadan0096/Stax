@@ -811,6 +811,106 @@ class RegisterToolsetDialog(QtWidgets.QDialog):
             )
 
 
+
+class NukeInstallerDialog(QtWidgets.QDialog):
+    """Dialog to install StaX into a Nuke user directory by appending a pluginAddPath line to `init.py`."""
+
+    def __init__(self, parent=None):
+        super(NukeInstallerDialog, self).__init__(parent)
+        self.setWindowTitle("Install StaX into Nuke")
+        self.setMinimumWidth(560)
+        self.setup_ui()
+
+    def setup_ui(self):
+        layout = QtWidgets.QVBoxLayout(self)
+
+        info = QtWidgets.QLabel(
+            "Select your Nuke user directory (the folder that contains `init.py`) and click Install.\n"
+            "StaX will append a `nuke.pluginAddPath(...)` line to that `init.py` so Nuke can find the plugin."
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        form = QtWidgets.QHBoxLayout()
+        self.path_edit = QtWidgets.QLineEdit()
+        self.path_edit.setPlaceholderText(r"C:\Users\<username>\.nuke")
+        form.addWidget(self.path_edit)
+
+        browse_btn = QtWidgets.QPushButton("Browse...")
+        browse_btn.setObjectName('small')
+        browse_btn.clicked.connect(self.browse)
+        form.addWidget(browse_btn)
+
+        layout.addLayout(form)
+
+        self.status_label = QtWidgets.QLabel("")
+        self.status_label.setStyleSheet("color: #888888; font-size: 11px;")
+        layout.addWidget(self.status_label)
+
+        btn_layout = QtWidgets.QHBoxLayout()
+        btn_layout.addStretch()
+        self.install_btn = QtWidgets.QPushButton("Install")
+        self.install_btn.setObjectName('primary')
+        self.install_btn.clicked.connect(self.install)
+        btn_layout.addWidget(self.install_btn)
+
+        cancel_btn = QtWidgets.QPushButton("Cancel")
+        cancel_btn.setObjectName('small')
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(cancel_btn)
+
+        layout.addLayout(btn_layout)
+
+    def browse(self):
+        path = QtWidgets.QFileDialog.getExistingDirectory(self, "Select Nuke user directory")
+        if path:
+            self.path_edit.setText(path)
+
+    def install(self):
+        import os
+        import codecs
+
+        dir_path = self.path_edit.text().strip()
+        if not dir_path:
+            QtWidgets.QMessageBox.warning(self, "No Directory", "Please select a Nuke user directory.")
+            return
+
+        init_path = os.path.join(dir_path, 'init.py')
+        if not os.path.exists(init_path):
+            QtWidgets.QMessageBox.warning(self, "init.py Not Found", "No `init.py` file was found in the selected directory.")
+            return
+
+        # Determine application root (two levels up from src/ui)
+        app_root = os.path.normpath(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+
+        add_line = "nuke.pluginAddPath(r'{}')\n".format(app_root)
+
+        try:
+            # Read existing content
+            with codecs.open(init_path, 'r', encoding='utf-8') as fh:
+                content = fh.read()
+
+            # Check for existing similar entry
+            if "nuke.pluginAddPath" in content and app_root in content:
+                QtWidgets.QMessageBox.information(self, "Already Installed", "StaX is already added to this init.py.")
+                return
+
+            # Append the line
+            if not content.endswith('\n'):
+                content += '\n'
+            content += "# StaX plugin path added by installer\n" + add_line
+
+            # Write back
+            with codecs.open(init_path, 'w', encoding='utf-8') as fh:
+                fh.write(content)
+
+            QtWidgets.QMessageBox.information(self, "Installed", "StaX plugin path appended to init.py successfully.")
+            self.accept()
+
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(self, "Error", "Failed to update init.py: {}".format(exc))
+
+
 class SelectListDialog(QtWidgets.QDialog):
     """Dialog for selecting a target list for ingestion."""
     

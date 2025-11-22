@@ -41,6 +41,7 @@ from src.ui import (
     RegisterToolsetDialog,
     SelectListDialog,
     IngestLibraryDialog,
+    NukeInstallerDialog,
     MediaInfoPopup,
     StacksListsPanel,
     MediaDisplayWidget,
@@ -385,6 +386,12 @@ class MainWindow(QtWidgets.QMainWindow):
         about_action = QtWidgets.QAction("About", self)
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
+        
+        install_nuke_action = QtWidgets.QAction("Install to Nuke...", self)
+        install_nuke_action.setToolTip("Add StaX plugin path to a Nuke user's init.py")
+        install_nuke_action.triggered.connect(self.show_nuke_installer)
+        help_menu.addAction(install_nuke_action)
+
     
     def setup_shortcuts(self):
         """Setup keyboard shortcuts."""
@@ -393,6 +400,14 @@ class MainWindow(QtWidgets.QMainWindow):
         
         # Ctrl+3 for settings
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+3"), self, self.toggle_settings)
+
+    def show_nuke_installer(self):
+        """Show the Nuke installer dialog to append pluginAddPath to a user's init.py."""
+        try:
+            dlg = NukeInstallerDialog(self)
+            dlg.exec_()
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(self, "Error", "Failed to open Nuke installer: {}".format(exc))
     
     def show_login(self, required=False):
         """Show login dialog.
@@ -749,11 +764,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self,
             "About Stax",
             "<h3>Stax</h3>"
-            "<p>Version 0.1.0 (nightly)</p>"
+            "<p>Version 0.9.2 (nightly)</p>"
             "<p>Advanced Stock Management for VFX Studios</p>"
             "<p>Author: Ahmed Ramadan</p>"
             "<p>Website: <a href='https://www.linkedin.com/in/a-ramadan0096/'>LinkedIn</a></p>"
-            "<p>License: MIT</p>"
         )
 
 
