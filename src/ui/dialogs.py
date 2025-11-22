@@ -743,12 +743,6 @@ class RegisterToolsetDialog(QtWidgets.QDialog):
         self.comment_edit.setMaximumHeight(80)
         form.addRow("Comment:", self.comment_edit)
         
-        # Generate preview option
-        self.gen_preview_check = QtWidgets.QCheckBox("Generate preview image")
-        self.gen_preview_check.setChecked(True)
-        self.gen_preview_check.setToolTip("Capture a preview of the node graph")
-        form.addRow("", self.gen_preview_check)
-        
         layout.addLayout(form)
         
         # Button box
@@ -785,14 +779,12 @@ class RegisterToolsetDialog(QtWidgets.QDialog):
         
         try:
             comment_text = self.comment_edit.toPlainText().strip() or None
-            generate_preview = self.gen_preview_check.isChecked()
 
             element_id = self.nuke_integration.register_selection_as_toolset(
                 name,
                 list_id,
                 comment=comment_text,
-                preview_path=None,
-                generate_preview=generate_preview
+                preview_path=None
             )
 
             QtWidgets.QMessageBox.information(

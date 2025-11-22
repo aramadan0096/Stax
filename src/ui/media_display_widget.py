@@ -653,13 +653,9 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                     movie.jumpToFrame(0)
                     pixmap = movie.currentPixmap()
                     if not pixmap.isNull():
-                        scaled_pixmap = pixmap.scaled(
-                            icon_size,
-                            QtCore.Qt.KeepAspectRatio,
-                            QtCore.Qt.SmoothTransformation
-                        )
-                        scaled_pixmap = self._apply_status_badges(scaled_pixmap, element_id)
-                        item.setIcon(QtGui.QIcon(scaled_pixmap))
+                        thumbnail = self._build_fixed_thumbnail(pixmap, icon_size)
+                        thumbnail = self._apply_status_badges(thumbnail, element_id)
+                        item.setIcon(QtGui.QIcon(thumbnail))
                 else:
                     has_gif = False
 
@@ -668,7 +664,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 if static_pixmap:
                     item.setIcon(QtGui.QIcon(static_pixmap))
                 else:
-                    item.setIcon(self._get_default_icon_for_type(element.get('type')))
+                    item.setIcon(self._get_default_icon_for_type(element.get('type'), icon_size))
 
             self.gallery_view.addItem(item)
 
@@ -737,27 +733,63 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 self.preview_cache.put(preview_path, cached_pixmap)
 
         if cached_pixmap and not cached_pixmap.isNull():
-            scaled_pixmap = cached_pixmap.scaled(
-                icon_size,
-                QtCore.Qt.KeepAspectRatio,
-                QtCore.Qt.SmoothTransformation
-            )
             element_id = element.get('element_id')
+            thumbnail = self._build_fixed_thumbnail(cached_pixmap, icon_size)
             if element_id:
-                scaled_pixmap = self._apply_status_badges(scaled_pixmap, element_id)
-            return scaled_pixmap
+                thumbnail = self._apply_status_badges(thumbnail, element_id)
+            return thumbnail
         return None
 
-    def _get_default_icon_for_type(self, element_type):
+    def _build_fixed_thumbnail(self, pixmap, size):
+        """Center a preview inside a square background for consistent thumbnails."""
+        if pixmap is None or pixmap.isNull():
+            return QtGui.QPixmap()
+        if isinstance(size, QtCore.QSize):
+            icon_size = max(size.width(), size.height())
+        else:
+            icon_size = int(size)
+        icon_size = max(1, icon_size)
+        canvas = QtGui.QPixmap(icon_size, icon_size)
+        canvas.fill(QtGui.QColor('#121212'))
+        scaled = pixmap.scaled(
+            icon_size,
+            icon_size,
+            QtCore.Qt.KeepAspectRatio,
+            QtCore.Qt.SmoothTransformation
+        )
+        painter = QtGui.QPainter(canvas)
+        dx = (icon_size - scaled.width()) // 2
+        dy = (icon_size - scaled.height()) // 2
+        painter.drawPixmap(dx, dy, scaled)
+        painter.end()
+        return canvas
+
+    def _get_default_icon_for_type(self, element_type, icon_size):
         """Return a fallback icon when no preview is available."""
-        if element_type == '2D':
-            return self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon)
-        if element_type == '3D':
-            cube_icon = get_icon('cube', size=64)
-            if cube_icon and not cube_icon.isNull():
+        normalized_type = (element_type or '').strip().lower()
+        if normalized_type == '2d':
+            return self._icon_to_square(self.style().standardIcon(QtWidgets.QStyle.SP_FileIcon), icon_size)
+        if normalized_type == '3d':
+            cube_icon = self._icon_to_square(get_icon('cube', size=64), icon_size)
+            if not cube_icon.isNull():
                 return cube_icon
-            return self.style().standardIcon(QtWidgets.QStyle.SP_DriveFDIcon)
-        return self.style().standardIcon(QtWidgets.QStyle.SP_FileDialogDetailedView)
+            return self._icon_to_square(self.style().standardIcon(QtWidgets.QStyle.SP_DriveFDIcon), icon_size)
+        if normalized_type == 'toolset':
+            nuke_icon = self._icon_to_square(get_icon('nuke', size=64), icon_size)
+            if not nuke_icon.isNull():
+                return nuke_icon
+            return self._icon_to_square(self.style().standardIcon(QtWidgets.QStyle.SP_FileDialogDetailedView), icon_size)
+        return self._icon_to_square(self.style().standardIcon(QtWidgets.QStyle.SP_FileDialogDetailedView), icon_size)
+
+    def _icon_to_square(self, icon, size):
+        """Render an icon as a square thumbnail using the existing helper."""
+        if not icon or icon.isNull():
+            return QtGui.QIcon()
+        pixmap = icon.pixmap(size)
+        if pixmap.isNull():
+            pixmap = icon.pixmap(size.width(), size.height())
+        thumbnail = self._build_fixed_thumbnail(pixmap, size)
+        return QtGui.QIcon(thumbnail)
 
     def _apply_status_badges(self, pixmap, element_id):
         """Overlay favorite/deprecated badges onto a pixmap."""
@@ -927,15 +959,11 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             return
 
         icon_size = self.gallery_view.iconSize()
-        scaled_pixmap = pixmap.scaled(
-            icon_size,
-            QtCore.Qt.KeepAspectRatio,
-            QtCore.Qt.SmoothTransformation
-        )
-        scaled_pixmap = self._apply_status_badges(scaled_pixmap, element_id)
+        thumbnail = self._build_fixed_thumbnail(pixmap, icon_size)
+        thumbnail = self._apply_status_badges(thumbnail, element_id)
 
         try:
-            item.setIcon(QtGui.QIcon(scaled_pixmap))
+            item.setIcon(QtGui.QIcon(thumbnail))
         except RuntimeError:
             movie.stop()
     
