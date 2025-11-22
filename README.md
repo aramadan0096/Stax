@@ -64,7 +64,7 @@ StaX helps VFX artists and studios manage large collections of stock footage, 3D
 - **Smart Ingestion**: Automatic image sequence detection, frame range discovery, and metadata extraction
 - **Dual-Path Storage**: Choose between hard copies (physical repository) or soft copies (reference links)
 - **Rich Previews**: Automatic thumbnail, GIF, and video preview generation for quick asset review
-- **Interactive 3D Preview**: Inspect geometry assets directly inside StaX with the built-in Scene Viewer powered by pyrender, complete with orbit and zoom controls
+ - **Interactive 3D Preview**: Inspect geometry assets directly inside StaX with the built-in Scene Viewer. The viewer embeds a lightweight WebGL frontend (the bundled `js-3d-model-viewer`) to render `glb`/`gltf` payloads inside the preview pane. For non-GLB geometry sources StaX can convert assets to GLB using Blender (via the tracked `src/convert_to_glb.py` script) or attempt Python-library fallbacks so they can be inspected in the viewer.
 - **Nuke Integration**: Drag and drop assets directly into Nuke's Node Graph with automatic Read/ReadGeo node creation
 - **Network-Ready**: SQLite database with file locking for multi-user workstation access
 - **Extensible**: Custom Python processors for pre-ingest validation, post-ingest hooks, and post-import node configuration
@@ -167,7 +167,7 @@ Stacks (Primary Categories)
 
 ```bash
 # Clone repository
-git clone https://github.com/aramadan0096/Stax.git
+git clone --recurse-submodules https://github.com/aramadan0096/Stax.git
 cd Stax
 
 # Create virtual environment (Python 3 recommended)
@@ -188,6 +188,11 @@ pip install -r tools/requirements.txt
 ```bash
 python main.py
 ```
+
+**3D Viewer & Blender:**
+- The embedded geometry viewer uses the bundled WebGL player `js-3d-model-viewer` (a CGwire-derived Javascript 3D Model Viewer) to render `glb`/`gltf` files inside the preview pane. That package is included under `dependencies/js-3d-model-viewer` in the project.
+- Converting non-GLB geometry (FBX, OBJ, Alembic, etc.) into GLB for preview and ingestion is handled by a small Blender conversion script tracked at `src/convert_to_glb.py`. For reliable results install Blender or point StaX at a local Blender executable in Settings → Ingestion.
+- If Blender is not available, StaX will attempt Python-library fallbacks such as `trimesh` where supported, but Blender is the recommended conversion path for studio workflows.
 
 On first launch, StaX will:
 1. Create the database in `./data/stax.db`
@@ -497,7 +502,7 @@ StaX generates three types of previews:
 - **Static Thumbnail**: PNG image for quick display
 - **Animated GIF**: 3-second loop for hover preview
 - **Video Preview**: Low-res MP4 for playback in preview pane (standalone mode)
-- **3D Scene Preview**: Embedded pyrender viewport for GLB assets with orbit and zoom controls
+- **3D Scene Preview**: Embedded WebGL viewport for GLB/GLTF assets with orbit and zoom controls. StaX uses the bundled `js-3d-model-viewer` (a lightweight CGwire-derived Javascript 3D Model Viewer) for the in-app WebGL experience. When assets are provided in other formats (FBX, OBJ, Alembic, etc.), StaX will attempt to convert them to GLB — the preferred conversion path is a Blender CLI script (tracked as `src/convert_to_glb.py`), with fallbacks to Python libraries such as `trimesh` where available.
 
 Hover over elements in gallery view to play GIF previews automatically.
 

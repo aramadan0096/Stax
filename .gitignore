@@ -43,7 +43,7 @@ bin/
 
 examples/
 installers/
-dependencies/
+# dependencies/
 config.json
 *.spec
 

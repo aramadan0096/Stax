@@ -422,7 +422,7 @@ class IngestionCore(object):
         if candidate:
             return candidate
         root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        fallback = os.path.join(root_dir, 'dependencies', 'blender', 'convert_to_glb.py')
+        fallback = os.path.join(root_dir, 'src', 'convert_to_glb.py')
         fallback = os.path.normpath(fallback)
         if os.path.exists(fallback):
             return fallback
@@ -437,7 +437,7 @@ class IngestionCore(object):
 
         script_path = self._resolve_blender_script_path()
         if not script_path:
-            message = 'Blender conversion script missing; reinstall dependencies/blender/convert_to_glb.py.'
+            message = 'Blender conversion script missing; reinstall src/convert_to_glb.py.'
             self._log_geometry_progress(notes, message)
             return False, message
 

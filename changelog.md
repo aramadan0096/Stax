@@ -11,7 +11,7 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
 - Replaced the pyrender-based Scene Viewer with an embedded WebGL experience powered by QtWebEngine and the bundled `js-3d-model-viewer`, removing the heavyweight OpenGL dependency stack.
 - Added a shared threaded HTTP server (`src/geometry_viewer.py`) that serves viewer assets and GLB payloads, enabling geometry previews to load inside the preview panel with live status messaging.
 - Updated `VideoPlayerWidget` to host the new `GeometryViewerWidget`, ensuring geometry elements share the same preview workflow as video assets while keeping playback controls hidden automatically.
-- Migrated the Blender conversion helper into `dependencies/blender/convert_to_glb.py` and updated `glb_converter` to execute that script, providing consistent results between production and the reference tests.
+- Migrated the Blender conversion helper into `src/convert_to_glb.py` and updated `glb_converter` to execute that script, providing consistent results between production and the reference tests.
 - Improved the Blender conversion fallback chain so Alembic, FBX, OBJ, PLY, STL, and DAE assets prefer the scripted Blender export while still falling back to `trimesh` where possible.
 - Refactored the ingestion pipeline so Blender CLI conversion streams its stdout to the UI progress log, avoiding stalled ingests when processing non-GLB sources.
 

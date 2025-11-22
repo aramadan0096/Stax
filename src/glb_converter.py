@@ -13,7 +13,7 @@ BLENDER_ONLY_EXTS = set(['.abc'])
 SUPPORTED_GEOMETRY_EXTS = set(['.obj', '.fbx', '.abc', '.gltf', '.glb', '.ply', '.stl', '.dae'])
 
 BLENDER_SCRIPT_PATH = os.path.normpath(
-    os.path.join(os.path.dirname(os.path.dirname(__file__)), 'dependencies', 'blender', 'convert_to_glb.py')
+    os.path.join(os.path.dirname(os.path.dirname(__file__)), 'src', 'convert_to_glb.py')
 )
 
 try:
