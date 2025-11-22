@@ -3,7 +3,6 @@
 
 import os
 import sys
-import json
 import shutil
 import subprocess
 import traceback
@@ -12,6 +11,10 @@ import time
 MAX_BLENDER_TIMEOUT = 300
 BLENDER_ONLY_EXTS = set(['.abc'])
 SUPPORTED_GEOMETRY_EXTS = set(['.obj', '.fbx', '.abc', '.gltf', '.glb', '.ply', '.stl', '.dae'])
+
+BLENDER_SCRIPT_PATH = os.path.normpath(
+    os.path.join(os.path.dirname(os.path.dirname(__file__)), 'dependencies', 'blender', 'convert_to_glb.py')
+)
 
 try:
     import numpy as _np  # pylint: disable=import-error
@@ -151,38 +154,25 @@ def _communicate_with_timeout(proc, timeout):
 
 
 def convert_with_blender(in_path, out_path, blender_path=None):
-    """Run Blender headless to import and export to GLB."""
-    ext = os.path.splitext(in_path)[1].lower()
+    """Run Blender headless using the bundled conversion script."""
     blender_exec = blender_path or find_blender_executable()
     if not blender_exec:
         return False, 'Blender not found on PATH; install Blender or set Blender Path in settings.'
 
+    if not BLENDER_SCRIPT_PATH or not os.path.exists(BLENDER_SCRIPT_PATH):
+        return False, 'Blender conversion script missing: {0}'.format(BLENDER_SCRIPT_PATH)
+
     ensure_directory(out_path)
 
-    in_literal = json.dumps(os.path.abspath(in_path))
-    out_literal = json.dumps(os.path.abspath(out_path))
+    cmd = [
+        blender_exec,
+        '--background',
+        '--python', BLENDER_SCRIPT_PATH,
+        '--',
+        os.path.abspath(in_path),
+        os.path.abspath(out_path)
+    ]
 
-    if ext == '.fbx':
-        import_cmd = "bpy.ops.import_scene.fbx(filepath={0})".format(in_literal)
-    elif ext == '.abc':
-        import_cmd = "bpy.ops.wm.alembic_import(filepath={0})".format(in_literal)
-    elif ext == '.obj':
-        import_cmd = "bpy.ops.import_scene.obj(filepath={0})".format(in_literal)
-    else:
-        import_cmd = "# unsupported extension for automatic import"
-
-    export_cmd = "bpy.ops.export_scene.gltf(filepath={0}, export_format='GLB')".format(out_literal)
-
-    python_expr = (
-        "import bpy,sys,time;" +
-        "bpy.ops.wm.read_homefile(use_empty=True);" +
-        "{0};".format(import_cmd) +
-        "time.sleep(0.1);" +
-        "{0};".format(export_cmd) +
-        "print('EXPORT_DONE')"
-    )
-
-    cmd = [blender_exec, '-b', '--python-expr', python_expr]
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     except Exception as exc:
@@ -194,10 +184,8 @@ def convert_with_blender(in_path, out_path, blender_path=None):
 
     if retcode is None:
         return False, 'Blender timed out after {0} seconds.'.format(MAX_BLENDER_TIMEOUT)
-    if retcode == 0:
-        if 'EXPORT_DONE' in stdout or os.path.exists(out_path):
-            return True, 'Converted with Blender ({0}).'.format(blender_exec)
-        return False, 'Blender finished but export not detected. stdout:\n{0}\nstderr:\n{1}'.format(stdout, stderr)
+    if retcode == 0 and os.path.exists(out_path):
+        return True, 'Converted with Blender script ({0}).'.format(blender_exec)
     return False, 'Blender returned code {0}. stdout:\n{1}\nstderr:\n{2}'.format(retcode, stdout, stderr)
 
 
@@ -249,45 +237,30 @@ def convert_to_glb(in_path, out_path, blender_path=None, reporter=None):
         success = True
         message = 'Copied .glb'
 
-    elif ext in ['.obj', '.ply', '.stl', '.dae']:
-        if trimesh is None:
-            return False, 'trimesh is required for {0} conversion ({1}).'.format(ext, TRIMESH_IMPORT_ERROR)
-        reporter('Attempting trimesh export for {0}.'.format(ext))
-        success, message = convert_obj_with_trimesh(in_path, out_path)
-        reporter('trimesh: {0}'.format(message))
+    elif ext in ['.obj', '.ply', '.stl', '.dae', '.fbx']:
+        reporter('Delegating geometry conversion to Blender script for {0}.'.format(ext))
+        success, message = convert_with_blender(in_path, out_path, blender_path)
+        reporter('blender: {0}'.format(message))
 
-    elif ext == '.fbx':
-        if trimesh is not None:
-            reporter('Trying trimesh fast-path for FBX before Blender fallback.')
+        if not success and trimesh is not None and ext in ['.obj', '.ply', '.stl', '.dae']:
+            reporter('Blender conversion failed; attempting trimesh fallback.')
             success, message = convert_obj_with_trimesh(in_path, out_path)
             reporter('trimesh: {0}'.format(message))
-        else:
-            success = False
-            message = 'trimesh unavailable for FBX fast-path'
-
-        if not success:
-            reporter('Falling back to Blender import/export for FBX.')
-            success, message = convert_with_blender(in_path, out_path, blender_path)
-            reporter('blender: {0}'.format(message))
 
     elif ext in BLENDER_ONLY_EXTS:
-        reporter('Alembic detected; delegating to Blender headless pipeline.')
+        reporter('Alembic detected; using Blender conversion script.')
         success, message = convert_with_blender(in_path, out_path, blender_path)
         reporter('blender: {0}'.format(message))
 
     else:
-        reporter('Extension {0} not explicitly supported; attempting trimesh then Blender.'.format(ext))
-        if trimesh is not None:
+        reporter('Extension {0} not explicitly supported; attempting Blender first.'.format(ext))
+        success, message = convert_with_blender(in_path, out_path, blender_path)
+        reporter('blender: {0}'.format(message))
+
+        if not success and trimesh is not None:
+            reporter('Blender conversion failed; attempting trimesh fallback.')
             success, message = convert_obj_with_trimesh(in_path, out_path)
             reporter('trimesh: {0}'.format(message))
-        else:
-            success = False
-            message = 'trimesh unavailable for format {0}'.format(ext)
-
-        if not success:
-            reporter('Attempting Blender fallback.')
-            success, message = convert_with_blender(in_path, out_path, blender_path)
-            reporter('blender: {0}'.format(message))
 
     if not success:
         return False, message
