@@ -75,7 +75,7 @@ Copyright (c) 2025 Ahmed Ramadan
 This project is provided for non-commercial use under the following terms:
 
 - You are free to use, modify, and distribute the software for personal, educational, or non-commercial research and development purposes.
-- Commercial use (including distribution, sale, or incorporation into a commercial product or service) is NOT permitted without prior written permission from the copyright holder.
+- Commercial use (including distribution, sale, or incorporation into a commercial product or service) is NOT permitted without prior written permission from the copyright holder. To request permission, please send an email to <a href="mailto:ahmedramadan347@gmail.com">ahmedramadan347@gmail.com</a>.
 
 To request commercial licensing or permission, contact the author at the address listed in the project metadata or open an issue on the repository describing your intended commercial use.
 
