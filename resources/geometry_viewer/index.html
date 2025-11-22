@@ -6,55 +6,27 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
     html, body { height: 100%; margin: 0; font-family: Arial, sans-serif; background: #2b2b2b; color: #e8e8e8; }
-    #viewer { width: 100%; height: calc(100% - 48px); background: #333; display: block; }
-    #topbar { height: 48px; padding: 8px 12px; box-sizing: border-box; background: #222; display: flex; align-items: center; gap: 12px; }
-    #status { font-size: 13px; color: #ddd; }
-    #log { font-family: monospace; font-size: 12px; color: #ddd; padding: 8px; max-height: 120px; overflow: auto; background: #1e1e1e; }
+    #viewer { width: 100%; height: 100%; background: #333; display: block; }
     button { padding: 6px 10px; border-radius: 6px; border: none; background: #3a7bd5; color: #fff; cursor: pointer; }
     button:disabled { background: #555; cursor: default; }
   </style>
 </head>
 <body>
-  <div id="topbar">
-    <div id="status">Initializing viewer...</div>
-    <div style="flex: 1"></div>
-    <button id="reload">Reload model</button>
-  </div>
   <div id="viewer"></div>
-  <div id="log" aria-live="polite"></div>
+  
 
   <script src="/dependencies/js-3d-model-viewer/dist/js-3d-model-viewer.min.js"></script>
   <script>
   (function() {
-    var statusNode = document.getElementById('status');
-    var logNode = document.getElementById('log');
-    var reloadBtn = document.getElementById('reload');
     var viewerEl = document.getElementById('viewer');
 
     function log() {
-      var parts = [];
-      for (var i = 0; i < arguments.length; i++) {
-        var value = arguments[i];
-        if (typeof value === 'object') {
-          try {
-            parts.push(JSON.stringify(value));
-          } catch (err) {
-            parts.push(String(value));
-          }
-        } else {
-          parts.push(String(value));
-        }
-      }
-      var message = parts.join(' ');
-      logNode.textContent += message + '\n';
-      logNode.scrollTop = logNode.scrollHeight;
       if (window.console && window.console.log) {
         console.log.apply(console, arguments);
       }
     }
 
     function setStatus(text) {
-      statusNode.textContent = text;
       log('[status]', text);
     }
 
@@ -81,14 +53,13 @@
     if (!player || typeof player.prepareScene !== 'function') {
       setStatus('3D viewer library unavailable. Serve /dependencies/js-3d-model-viewer.');
       log('Js3dModelViewer global not found.');
-      reloadBtn.disabled = true;
       return;
     }
 
     setStatus('Preparing 3D viewer...');
 
     var scene = player.prepareScene(viewerEl, {
-      grid: true,
+      grid: false,
       background: 'rgb(52, 52, 52)'
     });
 
@@ -124,7 +95,7 @@
         var finalUrl = cacheBusted(url);
         player.clearScene(scene);
         player.resetCamera(scene);
-        player.showGrid(scene);
+        // player.showGrid(scene);
         player.loadGlb(scene, finalUrl, function(result) {
           if (!result || !result.scene) {
             if (result) {
@@ -137,10 +108,6 @@
         log('Exception raised during loadGlb:', err);
       }
     }
-
-    reloadBtn.addEventListener('click', function() {
-      loadModel(parseModelParam());
-    });
 
     loadModel(parseModelParam());
   })();
