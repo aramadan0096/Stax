@@ -874,8 +874,9 @@ class NukeInstallerDialog(QtWidgets.QDialog):
 
         # Determine application root (two levels up from src/ui)
         app_root = os.path.normpath(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+        plugin_path = os.path.join(app_root, 'plugins', 'dccs', 'nuke')
 
-        add_line = "nuke.pluginAddPath(r'{}')\n".format(app_root)
+        add_line = "nuke.pluginAddPath(r'{}')\n".format(plugin_path)
 
         try:
             # Read existing content

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-StaX Nuke Launcher
+StaX Nuke Panel
 Nuke-specific panel launcher for StaX asset management system
 Python 2.7 compatible
 """
@@ -73,7 +73,15 @@ if current_dir not in sys.path:
         logger.info("Added to sys.path: {}".format(current_dir))
     print("[nuke_launcher]   [OK] Added: {}".format(current_dir))
 
-ffpyplayer_pkg = os.path.join(current_dir, 'dependencies', 'ffpyplayer')
+# Add root to sys.path
+stax_root = os.path.abspath(os.path.join(current_dir, '..', '..', '..'))
+if stax_root not in sys.path:
+    sys.path.insert(0, stax_root)
+    if logger:
+        logger.info("Added root to sys.path: {}".format(stax_root))
+    print("[nuke_launcher]   [OK] Added root: {}".format(stax_root))
+
+ffpyplayer_pkg = os.path.join(stax_root, 'dependencies', 'ffpyplayer')
 if os.path.isdir(ffpyplayer_pkg):
     print("[nuke_launcher]   [OK] ffpyplayer directory detected: {}".format(ffpyplayer_pkg))
     if logger:
@@ -120,9 +128,9 @@ except Exception as e:
     raise
 
 try:
-    from src.nuke_bridge import NukeBridge, NukeIntegration
+    from bridge import NukeBridge, NukeIntegration
     if logger:
-        logger.info("Imported: src.nuke_bridge")
+        logger.info("Imported: plugins.dccs.nuke.bridge")
     print("[nuke_launcher]   [OK] NukeBridge, NukeIntegration")
 except Exception as e:
     print("[nuke_launcher]   [ERROR] CRITICAL: Failed to import NukeBridge: {}".format(e))
@@ -353,7 +361,7 @@ class StaXPanel(QtWidgets.QWidget):
         
         # Set application icon
         try:
-            icon_path = os.path.join(os.path.dirname(__file__), 'resources', 'logo.png')
+            icon_path = os.path.join(stax_root, 'resources', 'logo.png')
             if os.path.exists(icon_path):
                 self.setWindowIcon(QtGui.QIcon(icon_path))
                 print("[StaXPanel.__init__]   [OK] Window icon set")
@@ -899,7 +907,7 @@ def show_stax_panel():
         # Only apply stylesheet in standalone mode
         # Skip in Nuke to avoid Qt compatibility issues
         print("[show_stax_panel] Loading stylesheet (standalone mode)...")
-        stylesheet_path = os.path.join(os.path.dirname(__file__), 'resources', 'style.qss')
+        stylesheet_path = os.path.join(stax_root, 'resources', 'style.qss')
         print("[show_stax_panel] Stylesheet path: {}".format(stylesheet_path))
         
         if os.path.exists(stylesheet_path):
@@ -908,7 +916,7 @@ def show_stax_panel():
                 with open(stylesheet_path, 'r') as f:
                     stylesheet = f.read()
                     # Replace icon paths with absolute paths
-                    resources_dir = os.path.join(os.path.dirname(__file__), 'resources', 'icons')
+                    resources_dir = os.path.join(stax_root, 'resources', 'icons')
                     unchecked_path = os.path.join(resources_dir, 'unchecked.svg').replace('\\', '/')
                     checked_path = os.path.join(resources_dir, 'checked.svg').replace('\\', '/')
                     stylesheet = stylesheet.replace('url(:/icons/unchecked.svg)', 'url({})'.format(unchecked_path))
@@ -939,15 +947,15 @@ def show_stax_panel():
         print("[show_stax_panel] Using nukescripts.panels.registerWidgetAsPanel...")
         # Use nukescripts.panels for proper Nuke integration
         try:
-            print("[show_stax_panel] Calling registerWidgetAsPanel('nuke_launcher.StaXPanel', 'StaX Asset Manager', 'uk.co.thefoundry.StaXPanel')...")
+            print("[show_stax_panel] Calling registerWidgetAsPanel('panel.StaXPanel', 'StaX Asset Manager', 'uk.co.thefoundry.StaXPanel')...")
             panel = nukescripts.panels.registerWidgetAsPanel(
-                'nuke_launcher.StaXPanel',
+                'panel.StaXPanel',
                 'StaX Asset Manager',
                 'uk.co.thefoundry.StaXPanel'
             )
             print("[show_stax_panel]   [OK] Panel registered")
             if logger:
-                logger.info("Panel registered: nuke_launcher.StaXPanel")
+                logger.info("Panel registered: panel.StaXPanel")
             
             print("[show_stax_panel] Adding panel to pane...")
             panel.addToPane()

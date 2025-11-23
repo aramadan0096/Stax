@@ -23,7 +23,7 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 from src.config import Config
 from src.db_manager import DatabaseManager
 from src.ingestion_core import IngestionCore
-from src.nuke_bridge import NukeBridge, NukeIntegration
+from plugins.dccs.nuke.bridge import NukeBridge, NukeIntegration
 from src.extensibility_hooks import ProcessorManager
 from src.icon_loader import get_icon
 from src.video_player_widget import VideoPlayerWidget

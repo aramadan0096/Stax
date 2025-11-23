@@ -31,8 +31,8 @@ try:
     
     # Add StaX root to plugin path so Nuke can find our modules
     print("[StaX init.py] Adding plugin paths...")
-    nuke.pluginAddPath(stax_root)
-    print("[StaX init.py]   [OK] Added: {}".format(stax_root))
+    nuke.pluginAddPath(os.path.join(stax_root, 'plugins', 'dccs', 'nuke'))
+    print("[StaX init.py]   [OK] Added: {}".format(os.path.join(stax_root, 'plugins', 'dccs', 'nuke')))
     
     # Add subdirectories to plugin path
     subdirs = ['./tools', './src/ui', './src', './resources', './dependencies/ffpyplayer']

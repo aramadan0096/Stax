@@ -19,7 +19,7 @@ if sys.version_info[0] >= 3:  # Python 3 fallback for compatibility
     unicode = str
 
 # Ensure bundled FFmpeg binaries are available when bridge runs outside standalone launcher
-_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 _FFMPEG_BIN_DIR = os.path.join(_PROJECT_ROOT, 'bin', 'ffmpeg', 'bin')
 if os.path.isdir(_FFMPEG_BIN_DIR):
     _existing_path = os.environ.get('PATH', '')
@@ -364,7 +364,7 @@ class NukeIntegration(object):
         self.ingestion = ingestion_core
         self.processor_manager = processor_manager
         self._toolset_subdir = 'toolsets'
-        self._project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self._project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 
     def _sanitize_toolset_filename(self, name):
         """Return a filesystem-safe filename stem for the toolset."""
@@ -393,7 +393,7 @@ class NukeIntegration(object):
             if preset:
                 preview_root = self.config.resolve_path(preset, ensure_dir=True, treat_as_dir=True)
         if not preview_root:
-            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            project_root = self._project_root
             preview_root = os.path.join(project_root, 'previews')
             self._ensure_directory(preview_root)
         return preview_root

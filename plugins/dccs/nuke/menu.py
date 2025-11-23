@@ -36,7 +36,11 @@ except ImportError as e:
 try:
     # Initialize logger
     print("[StaX menu.py] Initializing logger...")
-    stax_root = os.path.dirname(__file__)
+    current_dir = os.path.dirname(__file__)
+    if current_dir not in sys.path:
+        sys.path.insert(0, current_dir)
+
+    stax_root = os.path.abspath(os.path.join(current_dir, '..', '..', '..'))
     if stax_root not in sys.path:
         sys.path.insert(0, stax_root)
     
@@ -74,7 +78,7 @@ try:
     try:
         stax_menu.addCommand(
             'Open StaX Panel',
-            'import nuke_launcher; nuke_launcher.show_stax_panel()',
+            'import panel; panel.show_stax_panel()',
             'Ctrl+Alt+S',
             icon='folder.png'
         )
@@ -97,7 +101,7 @@ try:
     try:
         stax_menu.addCommand(
             'Quick Ingest...',
-            'import nuke_launcher; panel = nuke_launcher.show_stax_panel(); panel.ingest_files()',
+            'import panel; p = panel.show_stax_panel(); p.ingest_files()',
             'Ctrl+Shift+I'
         )
         if logger:
@@ -112,7 +116,7 @@ try:
     try:
         stax_menu.addCommand(
             'Register Toolset...',
-            'import nuke_launcher; panel = nuke_launcher.show_stax_panel(); panel.register_toolset()',
+            'import panel; p = panel.show_stax_panel(); p.register_toolset()',
             'Ctrl+Shift+T'
         )
         if logger:
@@ -127,7 +131,7 @@ try:
     try:
         stax_menu.addCommand(
             'Advanced Search...',
-            'import nuke_launcher; panel = nuke_launcher.show_stax_panel(); panel.show_advanced_search()',
+            'import panel; p = panel.show_stax_panel(); p.show_advanced_search()',
             'Ctrl+F'
         )
         if logger:
@@ -148,7 +152,7 @@ try:
             def makeUI(self):
                 print("[StaX menu.py]   [Pane] Creating StaXPanel widget...")
                 try:
-                    from nuke_launcher import StaXPanel as _StaXPanelWidget
+                    from panel import StaXPanel as _StaXPanelWidget
                     self._widget = _StaXPanelWidget()
                     if logger:
                         logger.info("StaXPanel widget created via Pane knob")
