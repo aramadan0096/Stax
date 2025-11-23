@@ -31,7 +31,14 @@ StaX helps VFX artists and studios manage large collections of stock footage, 3D
 ![StaX graph](assets/StaX-mian-standalone.png)
 
 ---
+**Quick Setup:**
 
+```bash
+# Clone repository
+git clone --recurse-submodules https://github.com/aramadan0096/Stax.git
+cd Stax
+```
+---
 ## Documentation
 
 - **[documentation](https://aramadan0096.github.io/stax-docs/)**: An internal reference describing StaX features, installation, and usage.
