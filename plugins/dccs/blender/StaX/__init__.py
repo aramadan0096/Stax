@@ -42,8 +42,8 @@ def get_stax_root():
     
     # Fallback: Try relative path (for dev environment)
     current_dir = os.path.dirname(__file__)
-    # Assuming structure: plugins/dccs/blender/__init__.py -> root is 3 levels up
-    dev_root = os.path.abspath(os.path.join(current_dir, '..', '..', '..'))
+    # Assuming structure: plugins/dccs/blender/StaX/__init__.py -> root is 4 levels up
+    dev_root = os.path.abspath(os.path.join(current_dir, '..', '..', '..', '..'))
     if os.path.exists(os.path.join(dev_root, 'dependency_bootstrap.py')):
         return dev_root
     
@@ -67,14 +67,9 @@ class STAX_OT_OpenPanel(bpy.types.Operator):
             return {'CANCELLED'}
             
         try:
-            # When installed as an addon, the package name is the folder name (e.g. 'blender' or 'StaX_Addon')
-            # We need to import from the subpackage 'StaX'
-            from .StaX import panel
+            from . import panel
             panel.show_stax_panel()
         except ImportError as e:
-            # Fallback: if 'StaX' is not found, maybe we are running flat?
-            # Or maybe the subpackage import failed.
-            # Let's try to debug the import path
             import traceback
             traceback.print_exc()
             self.report({'ERROR'}, f"Failed to load StaX panel: {e}")
@@ -99,7 +94,7 @@ class STAX_OT_AddToLibrary(bpy.types.Operator):
             return {'CANCELLED'}
 
         try:
-            from .StaX import panel
+            from . import panel
             panel.add_to_library()
         except Exception as e:
             self.report({'ERROR'}, f"Error: {e}")

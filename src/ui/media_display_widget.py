@@ -12,6 +12,7 @@ from src.ui.media_info_popup import MediaInfoPopup
 from src.ui.drag_gallery_view import DragGalleryView
 from src.ui.pagination_widget import PaginationWidget
 from src.ui.dialogs import AddToPlaylistDialog, EditElementDialog
+from src.geometry_viewer import GeometryViewerWidget
 
 
 class MediaDisplayWidget(QtWidgets.QWidget):
@@ -47,6 +48,9 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.element_flags = {}  # Map element_id -> status flags (favorite/deprecated)
         self._project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
         self.setup_ui()
+        
+        # Connect selection to preview panel
+        self.element_selected.connect(self.update_preview_panel)
         
         # Enable mouse tracking for hover events
         self.setMouseTracking(True)
@@ -199,7 +203,26 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         # Show empty state by default
         self.content_stack.setCurrentIndex(0)
         
-        layout.addWidget(self.content_stack)
+        # Create splitter for content and preview
+        self.main_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        self.main_splitter.addWidget(self.content_stack)
+        
+        # Preview Panel
+        self.preview_panel = QtWidgets.QWidget()
+        self.preview_panel.setMinimumWidth(300)
+        self.preview_panel.hide() # Hidden by default
+        preview_layout = QtWidgets.QVBoxLayout(self.preview_panel)
+        preview_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # 3D Viewer
+        self.geometry_viewer = GeometryViewerWidget(self._project_root)
+        preview_layout.addWidget(self.geometry_viewer)
+        
+        self.main_splitter.addWidget(self.preview_panel)
+        self.main_splitter.setStretchFactor(0, 3)
+        self.main_splitter.setStretchFactor(1, 1)
+        
+        layout.addWidget(self.main_splitter)
         
         # Focus mode button (floating in bottom-right corner)
         self.focus_mode_button = None
@@ -1499,5 +1522,27 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             if item:
                 element_id = self.table_view.item(item.row(), 0).data(QtCore.Qt.UserRole)
                 self.show_context_menu(event.globalPos(), element_id)
+
+    def update_preview_panel(self, element_id):
+        """Update the preview panel based on selected element."""
+        element = self.db.get_element_by_id(element_id)
+        if not element:
+            self.preview_panel.hide()
+            return
+            
+        # Check if 3D
+        if element.get('type') == '3d':
+            self.preview_panel.show()
+            # Try to load GLB
+            glb_path = self._resolve_path(element.get('geometry_preview_path'))
+            if glb_path and os.path.exists(glb_path):
+                self.geometry_viewer.load_geometry(glb_path)
+            else:
+                self.geometry_viewer.show_placeholder()
+                self.geometry_viewer.show_message("No 3D preview available")
+        else:
+            # Hide for non-3D elements as per requirement
+            self.preview_panel.hide()
+            self.geometry_viewer.clear_geometry()
 
 
