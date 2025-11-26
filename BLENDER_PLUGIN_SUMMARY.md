@@ -1,39 +1,41 @@
 # Blender Plugin Implementation Summary
 
 ## Overview
-A new Blender plugin has been implemented for StaX, mirroring the functionality of the Nuke integration.
+A new Blender plugin has been implemented for StaX, using native Blender UI (`bpy.types.Panel`) instead of PySide2. This removes the dependency on PySide2/Qt inside Blender.
 
 ## Components
 
-### 1. Plugin Structure (`plugins/dccs/blender/`)
-- **`__init__.py`**: Registers the "Stax" menu in Blender's top bar and defines operators.
-- **`panel.py`**: Main entry point for the Qt interface. Initializes `StaXBlenderPanel` and handles `sys.path` setup.
-- **`bridge.py`**: `BlenderBridge` class that abstracts `bpy` operations. Implements `import_object`, `export_abc`, `export_glb`, and Nuke-compatible aliases (`create_read_geo_node`).
-- **`ingest_dialog.py`**: `RegisterMeshDialog` for the "Add to Library" workflow.
+### 1. Plugin Structure (`plugins/dccs/blender/StaX/`)
+- **`__init__.py`**: Registers the addon, preferences, and initializes the UI.
+- **`ui.py`**: Implements the native Blender UI (Panel, Operators, Properties).
+- **`bridge.py`**: `BlenderBridge` class that abstracts `bpy` operations.
 
 ### 2. Features
-- **Drag & Drop 3D Support**: 
-  - `BlenderBridge.import_object` handles `.abc`, `.obj`, `.fbx`, `.glb`.
-  - `MediaDisplayWidget` uses `bridge.create_read_geo_node` (aliased to `import_object`) for drag & drop actions.
-- **3D Preview Panel**:
-  - Integrated `GeometryViewerWidget` (WebGL-based) into `MediaDisplayWidget`.
-  - Added a collapsible `QSplitter` to show the 3D viewer when a 3D asset is selected.
-  - Loads `.glb` proxies from `geometry_preview_path`.
+- **Native Blender UI**:
+  - **StaX Browser Panel**: Located in the 3D View Sidebar (N-panel) under "StaX".
+  - **Search**: Filter assets by name.
+  - **Stacks & Lists**: Dropdowns to navigate the library.
+  - **Asset Grid**: Displays thumbnails using `template_icon_view`.
+- **Import**:
+  - "Import Selected" button imports the selected asset into the scene.
+  - Supports `.abc`, `.obj`, `.fbx`, `.glb`.
 - **Add to Library**:
-  - New "Add to Library" button in the toolbar.
+  - "Add Selection to Library" button opens a native dialog.
   - Exports selected objects as Alembic (`.abc`) for the "mesh" (hard copy).
-  - Exports selected objects as GLB (`.glb`) for the "proxy" (preview).
-  - Registers the asset in the SQLite database with `geometry_preview_path`.
+  - Registers the asset in the SQLite database.
+  - Automatically generates GLB preview (via background process if configured).
 
 ## Usage
-1. **Install**: Copy the `plugins/dccs/blender` folder to Blender's addons directory or install as a zip.
-2. **Open**: Use "Window > StaX > Open Browser" or the "Stax" menu in the top bar.
-3. **Ingest**: Select objects in Blender, click "Add to Library", fill in details, and click OK.
-4. **Import**: Drag and drop assets from the StaX panel into the 3D Viewport.
+1. **Install**: Install the `StaXBlenderAddon.zip` via Preferences > Add-ons.
+2. **Configure**: In Add-on Preferences, set the "StaX Root Directory" if not auto-detected.
+3. **Open**: Press `N` in the 3D Viewport to open the Sidebar, click the "StaX" tab.
+4. **Browse**: Select a Stack and List to view assets.
+5. **Import**: Select an asset thumbnail and click "Import Selected".
+6. **Ingest**: Select objects in the scene, click "Add Selection to Library", fill in details, and click OK.
 
 ## Dependencies
-- **PySide2**: Must be installed in Blender's Python environment (optional/recommended only if running the Qt UI inside Blender).
 - **StaX Core**: The plugin relies on the `src` directory of the main StaX installation.
+- **No PySide2 required**: The plugin uses standard Blender API.
 
 ---
 
@@ -46,36 +48,16 @@ This section provides concrete steps and recommendations to package, distribute 
 ```
 StaX/                    # The folder inside plugins/dccs/blender/
   __init__.py            # bl_info + register/unregister
-  panel.py               # Blender operator wrappers + Qt launcher
+  ui.py                  # Native Blender UI implementation
   bridge.py              # BlenderBridge (bpy usage)
-  ingest_dialog.py       # Dialogs used from inside Blender (optional)
-  resources/             # icons, viewer html, static assets
-  libs/                  # vendored pure-Python dependencies (optional)
 ```
 
 **`__init__.py` requirements**
-- Provide a `bl_info` dict with keys: `name`, `author`, `version`, `blender` (tuple), `location`, `description`, `category`.
-- Implement `register()` and `unregister()` that call `bpy.utils.register_class()` / `bpy.utils.unregister_class()` for all addon classes, and append/remove menu entries.
-- Use `if __name__ == "__main__": register()` for quick local tests.
-
-Example `bl_info` snippet:
-
-```python
-bl_info = {
-    "name": "StaX Asset Manager",
-    "author": "Ahmed Ramadan",
-    "version": (1, 0, 0),
-    "blender": (3, 0, 0),
-    "location": "Window > StaX",
-    "description": "Asset management system for VFX pipelines",
-    "category": "Pipeline",
-}
-```
+- Provide a `bl_info` dict.
+- Register/Unregister `ui` module.
 
 **Create a distributable ZIP**
-- Blender expects the zip file to contain a single folder (e.g., `StaX/`) which contains the `__init__.py`.
-- Do NOT zip the files directly at the root of the archive.
-- Do NOT zip the `blender` folder if it contains other things. Zip the `StaX` folder specifically.
+- Zip the `StaX` folder.
 
 PowerShell example (from repo root):
 

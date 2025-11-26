@@ -9,15 +9,8 @@ import os
 import re
 import shutil
 import hashlib
-import subprocess
-import time
 from src.ffmpeg_wrapper import get_ffmpeg
-from src.glb_converter import (
-    convert_to_glb,
-    SUPPORTED_GEOMETRY_EXTS,
-    find_blender_executable,
-    BLENDER_SCRIPT_PATH,
-)
+from src.glb_converter import convert_to_glb, SUPPORTED_GEOMETRY_EXTS
 
 
 class SequenceDetector(object):
@@ -411,143 +404,6 @@ class IngestionCore(object):
             pattern_choice = SequenceDetector.DEFAULT_PATTERN
         self.sequence_pattern = pattern_choice
         return self.auto_detect_sequences, self.sequence_pattern
-
-    def _log_geometry_progress(self, notes, message):
-        if message:
-            notes.append(message)
-            print("[GLB] {}".format(message))
-
-    def _resolve_blender_script_path(self):
-        candidate = BLENDER_SCRIPT_PATH if os.path.exists(BLENDER_SCRIPT_PATH) else None
-        if candidate:
-            return candidate
-        root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        fallback = os.path.join(root_dir, 'src', 'convert_to_glb.py')
-        fallback = os.path.normpath(fallback)
-        if os.path.exists(fallback):
-            return fallback
-        return None
-
-    def _run_blender_cli_conversion(self, source_path, output_path, blender_override, notes):
-        blender_exec = find_blender_executable(blender_override)
-        if not blender_exec:
-            message = 'Blender executable not found. Set Blender Path in Settings -> Ingestion.'
-            self._log_geometry_progress(notes, message)
-            return False, message
-
-        script_path = self._resolve_blender_script_path()
-        if not script_path:
-            message = 'Blender conversion script missing; reinstall src/convert_to_glb.py.'
-            self._log_geometry_progress(notes, message)
-            return False, message
-
-        dest_dir = os.path.dirname(output_path)
-        if dest_dir and not os.path.exists(dest_dir):
-            try:
-                os.makedirs(dest_dir)
-            except OSError:
-                pass
-
-        cmd = [
-            blender_exec,
-            '--background',
-            '--python', script_path,
-            '--',
-            os.path.abspath(source_path),
-            os.path.abspath(output_path)
-        ]
-
-        self._log_geometry_progress(notes, 'Launching Blender conversion...')
-        try:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                universal_newlines=True
-            )
-        except Exception as exc:
-            message = 'Failed to launch Blender: {0}'.format(exc)
-            self._log_geometry_progress(notes, message)
-            return False, message
-
-        idle_limit = int(self.config.get('blender_idle_timeout', 900))  # seconds
-        last_output = time.time()
-
-        try:
-            while True:
-                line = proc.stdout.readline()
-                if line:
-                    last_output = time.time()
-                    line = line.strip()
-                    if line:
-                        self._log_geometry_progress(notes, line)
-                elif proc.poll() is not None:
-                    break
-                else:
-                    time.sleep(0.5)
-                    if idle_limit and (time.time() - last_output) > idle_limit:
-                        try:
-                            proc.terminate()
-                        except Exception:
-                            pass
-                        message = 'Blender conversion idle timeout after {0} seconds.'.format(idle_limit)
-                        self._log_geometry_progress(notes, message)
-                        return False, message
-
-            remaining = proc.stdout.read()
-            if remaining:
-                for chunk in remaining.splitlines():
-                    chunk = chunk.strip()
-                    if chunk:
-                        self._log_geometry_progress(notes, chunk)
-        finally:
-            try:
-                proc.stdout.close()
-            except Exception:
-                pass
-
-        retcode = proc.poll()
-        if retcode != 0:
-            message = 'Blender exited with code {0}.'.format(retcode)
-            self._log_geometry_progress(notes, message)
-            return False, message
-
-        if not os.path.exists(output_path):
-            message = 'Blender finished but GLB output not found: {0}'.format(output_path)
-            self._log_geometry_progress(notes, message)
-            return False, message
-
-        message = 'Blender conversion complete.'
-        self._log_geometry_progress(notes, message)
-        return True, message
-
-    def _convert_geometry_asset(self, source_path, output_path, blender_override, notes):
-        ext_lower = os.path.splitext(source_path)[1].lower()
-
-        if ext_lower in ('.glb', '.gltf'):
-            try:
-                shutil.copy2(source_path, output_path)
-                message = 'Source already {0}; copied into geometry cache.'.format(ext_lower)
-                self._log_geometry_progress(notes, message)
-                return True, message
-            except Exception as exc:
-                message = 'Failed to copy existing {0}: {1}'.format(ext_lower, exc)
-                self._log_geometry_progress(notes, message)
-                return False, message
-
-        script_supported = ext_lower in ('.fbx', '.obj', '.abc')
-        if script_supported:
-            return self._run_blender_cli_conversion(source_path, output_path, blender_override, notes)
-
-        def _report(message):
-            self._log_geometry_progress(notes, message)
-
-        return convert_to_glb(
-            source_path,
-            output_path,
-            blender_path=blender_override,
-            reporter=_report
-        )
     
     def ingest_file(self, source_path, target_list_id, copy_policy='soft', 
                     comment=None, tags=None, pre_hook=None, post_hook=None):
@@ -685,11 +541,16 @@ class IngestionCore(object):
                         conversion_source = source_path
 
                     blender_override = self.config.get('blender_path')
-                    success, message = self._convert_geometry_asset(
+
+                    def _glb_report(message):
+                        geometry_conversion_notes.append(message)
+                        print("[GLB] {}".format(message))
+
+                    success, message = convert_to_glb(
                         conversion_source,
                         geometry_preview_path,
-                        blender_override,
-                        geometry_conversion_notes
+                        blender_path=blender_override,
+                        reporter=_glb_report
                     )
 
                     if not success:
