@@ -48,3 +48,5 @@ config.json
 *.spec
 
 tests/
+
+lib/

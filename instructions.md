@@ -15,7 +15,7 @@ This prompt instructs an AI coding agent to develop a clone of the Cragl smartEl
 | Component | Specification | Rationale |
 |---|---|---|
 | **Programming Language** | Python 2.7 | Industry standard for VFX pipeline tools and Nuke interaction. |
-| **GUI Framework** | PySide2 | Required for cross-platform GUI and Nuke's embedded Qt environment. |
+| **GUI Framework** | PySide2 (bundled in `lib/`) | Required for cross-platform GUI and Nuke's embedded Qt environment; prefer bundled Qt unless `STAX_USE_SYSTEM_QT=1` or force via `STAX_FORCE_BUNDLED_QT=1`. |
 | **Database** | SQLite (File-based, network shared) | Simple, file-based database for managing centralized metadata across networked machines. |
 | **Asset Storage** | Network File System (Simulated via config) | Must read/write to a configurable base repository path to simulate shared stacks. |
 | **Host Application** | Foundry Nuke (Simulated via Python API calls) | Requires a dedicated *Nuke Bridge* module to handle DAG operations. |

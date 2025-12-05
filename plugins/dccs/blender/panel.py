@@ -7,6 +7,9 @@ Implements window re-parenting, event loop, and IPC server
 
 import os
 import sys
+import re
+import tempfile
+import shutil
 
 # Bootstrap dependencies first
 import dependency_bootstrap
@@ -129,6 +132,9 @@ class StaXBlenderPanel(QtWidgets.QWidget):
             self.app = None
             print("[StaXBlenderPanel] ERROR: Cannot proceed without PySide")
             return
+
+        # Apply shared stylesheet (inherits main app look)
+        self._apply_stylesheet()
         
         # Initialize core components
         try:
@@ -195,6 +201,62 @@ class StaXBlenderPanel(QtWidgets.QWidget):
         ReferenceManager.register_widget(self)
         
         print("[StaXBlenderPanel.__init__] [OK] Initialization complete!\n")
+
+    def _apply_stylesheet(self):
+        """Load and apply the shared StaX stylesheet if available (addon-local first)."""
+        try:
+            if not self.app:
+                return
+            self.app.setStyle('Fusion')
+
+            addon_dir = os.path.dirname(__file__)
+            stax_root = os.path.abspath(os.path.join(addon_dir, '..', '..', '..'))
+
+            # Prefer a style.qss packaged alongside the addon (for installed copies)
+            candidates = [
+                os.path.join(addon_dir, 'style.qss'),
+                os.path.join(stax_root, 'resources', 'style.qss'),
+            ]
+
+            stylesheet_path = None
+            for cand in candidates:
+                if os.path.isfile(cand):
+                    stylesheet_path = cand
+                    break
+
+            if not stylesheet_path:
+                print("[StaXBlenderPanel] Stylesheet not found in addon or resources")
+                return
+
+            with open(stylesheet_path, 'r') as f:
+                stylesheet = f.read()
+
+            # Resolve icon paths (try addon icons first, then project resources)
+            icon_candidates = [
+                os.path.join(addon_dir, 'icons'),
+                os.path.join(stax_root, 'resources', 'icons'),
+            ]
+            unchecked_path = None
+            checked_path = None
+            for icon_dir in icon_candidates:
+                if os.path.isdir(icon_dir):
+                    up = os.path.join(icon_dir, 'unchecked.svg')
+                    cp = os.path.join(icon_dir, 'checked.svg')
+                    if os.path.isfile(up) and os.path.isfile(cp):
+                        unchecked_path = up.replace('\\', '/')
+                        checked_path = cp.replace('\\', '/')
+                        break
+
+            if unchecked_path and checked_path:
+                stylesheet = stylesheet.replace('url(:/icons/unchecked.svg)', 'url({})'.format(unchecked_path))
+                stylesheet = stylesheet.replace('url(:/icons/checked.svg)', 'url({})'.format(checked_path))
+            else:
+                print("[StaXBlenderPanel] Icon svgs not found; applying stylesheet without icon replacements")
+
+            self.app.setStyleSheet(stylesheet)
+            print("[StaXBlenderPanel] Applied stylesheet: {}".format(stylesheet_path))
+        except Exception as e:
+            print("[StaXBlenderPanel] WARNING: Failed to apply stylesheet: {}".format(e))
     
     def setup_ui(self):
         """Setup the panel UI."""
@@ -248,6 +310,12 @@ class StaXBlenderPanel(QtWidgets.QWidget):
         ingest_action.setToolTip("Ingest files into StaX (Ctrl+I)")
         ingest_action.triggered.connect(self.ingest_files)
         toolbar.addAction(ingest_action)
+
+        # Add Selected action (export selection then ingest)
+        ingest_selected_action = QtWidgets.QAction(get_icon('add', size=20), "Add Selected to Library", self)
+        ingest_selected_action.setToolTip("Export selected Blender objects and ingest into StaX")
+        ingest_selected_action.triggered.connect(self.ingest_selected_objects)
+        toolbar.addAction(ingest_selected_action)
         
         # Ingest Library action
         ingest_lib_action = QtWidgets.QAction(get_icon('folder', size=20), "Ingest Library", self)
@@ -308,6 +376,50 @@ class StaXBlenderPanel(QtWidgets.QWidget):
             print("[StaXBlenderPanel] Successfully re-parented to Blender window")
         else:
             print("[StaXBlenderPanel] WARNING: Failed to re-parent window")
+
+    def _build_operator_override(self):
+        """Create an override context so Blender operators run without file prompts."""
+        if not BLENDER_MODE:
+            return None
+
+        try:
+            import bpy  # noqa: WPS433
+
+            window = bpy.context.window_manager.windows[0]
+            screen = window.screen
+            area = None
+            region = None
+            space = None
+
+            for candidate in screen.areas:
+                if candidate.type == 'VIEW_3D':
+                    area = candidate
+                    break
+            if not area and screen.areas:
+                area = screen.areas[0]
+
+            if area:
+                for reg in area.regions:
+                    if reg.type == 'WINDOW':
+                        region = reg
+                        break
+                space = area.spaces.active if area.spaces else None
+
+            override = {
+                'window': window,
+                'screen': screen,
+                'area': area,
+                'region': region,
+                'scene': bpy.context.scene,
+                'blend_data': bpy.data,
+                'space_data': space,
+                'view_layer': bpy.context.view_layer,
+                'depsgraph': bpy.context.evaluated_depsgraph_get(),
+            }
+            return override
+        except Exception as exc:
+            print("[StaXBlenderPanel] WARNING: Failed to build operator override: {}".format(exc))
+            return None
     
     def _execute_ipc_command(self, command, args=None, kwargs=None):
         """Execute IPC command (called from IPC server).
@@ -450,6 +562,152 @@ class StaXBlenderPanel(QtWidgets.QWidget):
         dialog = IngestLibraryDialog(self.db, self.ingestion, self.config, self)
         if dialog.exec_():
             self.stacks_panel.load_data()
+
+    def ingest_selected_objects(self):
+        """Export selected Blender objects and ingest them into a chosen list."""
+        if not BLENDER_MODE:
+            QtWidgets.QMessageBox.warning(self, "Blender Required", "This action requires Blender to be running.")
+            return
+
+        try:
+            import bpy  # noqa: WPS433 - Blender environment import
+        except ImportError:
+            QtWidgets.QMessageBox.critical(self, "Error", "bpy module not available.")
+            return
+
+        selected = list(getattr(bpy.context, 'selected_objects', []) or [])
+        if not selected:
+            QtWidgets.QMessageBox.information(self, "No Selection", "Select one or more objects in the Outliner first.")
+            return
+
+        # Ask for target list (reuse existing dialog)
+        dialog = SelectListDialog(self.db, self)
+        if not dialog.exec_():
+            return
+        target_list_id = dialog.get_selected_list()
+        if not target_list_id:
+            return
+
+        progress = QtWidgets.QProgressDialog("Exporting and ingesting...", "Cancel", 0, len(selected), self)
+        progress.setWindowModality(QtCore.Qt.WindowModal)
+
+        temp_dir = tempfile.mkdtemp(prefix="stax_blender_ingest_")
+        success_count = 0
+        error_count = 0
+        errors = []
+
+        # Preserve current selection to restore later
+        original_selection = list(selected)
+        original_active = bpy.context.view_layer.objects.active if bpy.context.view_layer.objects.active else None
+        previous_mode = None
+        try:
+            current_obj = bpy.context.object
+            if current_obj and current_obj.mode != 'OBJECT':
+                previous_mode = current_obj.mode
+                bpy.ops.object.mode_set(mode='OBJECT')
+        except Exception:
+            previous_mode = None
+
+        operator_override = self._build_operator_override()
+        try:
+            used_names = set()
+            for idx, obj in enumerate(selected):
+                if progress.wasCanceled():
+                    break
+
+                progress.setValue(idx)
+                progress.setLabelText("Exporting: {}".format(obj.name))
+
+                safe_name = re.sub(r'[^A-Za-z0-9_\-]+', '_', obj.name).strip('_') or 'Object'
+                base = safe_name
+                suffix = 1
+                while safe_name.lower() in used_names:
+                    safe_name = "{}_{}".format(base, suffix)
+                    suffix += 1
+                used_names.add(safe_name.lower())
+
+                export_path = os.path.join(temp_dir, "{}.fbx".format(safe_name))
+
+                try:
+                    bpy.ops.object.select_all(action='DESELECT')
+                    obj.select_set(True)
+                    bpy.context.view_layer.objects.active = obj
+
+                    override = operator_override.copy() if operator_override else None
+                    if override is not None:
+                        override['selected_objects'] = [obj]
+                        override['active_object'] = obj
+                        override['object'] = obj
+
+                    export_kwargs = dict(
+                        filepath=export_path,
+                        use_selection=True,
+                        apply_unit_scale=True,
+                        apply_scale_options='FBX_SCALE_ALL',
+                        axis_forward='-Z',
+                        axis_up='Y',
+                        use_mesh_modifiers=True,
+                        add_leaf_bones=False,
+                        bake_space_transform=False
+                    )
+
+                    if override is not None:
+                        bpy.ops.export_scene.fbx(override, 'EXEC_DEFAULT', **export_kwargs)
+                    else:
+                        bpy.ops.export_scene.fbx('EXEC_DEFAULT', **export_kwargs)
+
+                    result = self.ingestion.ingest_file(
+                        export_path,
+                        target_list_id,
+                        copy_policy='hard'
+                    )
+
+                    if result.get('success'):
+                        success_count += 1
+                    else:
+                        error_count += 1
+                        errors.append(result.get('message', 'Unknown error'))
+                except Exception as exc:
+                    error_count += 1
+                    errors.append(str(exc))
+
+            progress.setValue(len(selected))
+        finally:
+            # Restore original selection
+            try:
+                bpy.ops.object.select_all(action='DESELECT')
+                for obj in original_selection:
+                    obj.select_set(True)
+                if original_active:
+                    bpy.context.view_layer.objects.active = original_active
+                elif original_selection:
+                    bpy.context.view_layer.objects.active = original_selection[0]
+                if previous_mode and bpy.context.object:
+                    try:
+                        bpy.ops.object.mode_set(mode=previous_mode)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+            # Remove temporary exports (hard copy ingest already moved data)
+            try:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            except Exception:
+                pass
+
+        QtWidgets.QMessageBox.information(
+            self,
+            "Add Selected to Library",
+            "Ingested {} object(s).\nErrors: {}{}".format(
+                success_count,
+                error_count,
+                "\n" + "\n".join(errors) if errors else ""
+            )
+        )
+
+        if self.media_display.current_list_id:
+            self.media_display.load_elements(self.media_display.current_list_id)
     
     def show_history(self):
         """Show history dialog."""

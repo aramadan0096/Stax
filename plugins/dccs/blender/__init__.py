@@ -20,22 +20,47 @@ import bpy
 import sys
 import os
 
+# Resolve StaX root robustly when installed into Blender addons.
+current_dir = os.path.dirname(__file__)
+_stax_root = None
+
+# 1) Env override
+_env_root = os.environ.get('STAX_ROOT')
+if _env_root and os.path.isdir(_env_root):
+    _stax_root = os.path.abspath(_env_root)
+
+# 2) Installer-written hint file
+if _stax_root is None:
+    hint_path = os.path.join(current_dir, '_stax_paths.py')
+    if os.path.isfile(hint_path):
+        try:
+            hint_mod = {}
+            with open(hint_path, 'r') as fh:
+                code = fh.read()
+            exec(code, hint_mod, hint_mod)
+            hinted = hint_mod.get('STAX_ROOT')
+            if hinted and os.path.isdir(hinted):
+                _stax_root = os.path.abspath(hinted)
+        except Exception:
+            pass
+
+# 3) Fallback to relative (dev mode)
+if _stax_root is None:
+    _stax_root = os.path.abspath(os.path.join(current_dir, '..', '..', '..'))
+
+# Put root/lib on sys.path before importing bootstrap
+if _stax_root not in sys.path:
+    sys.path.insert(0, _stax_root)
+lib_dir = os.path.join(_stax_root, 'lib')
+if os.path.exists(lib_dir) and lib_dir not in sys.path:
+    sys.path.insert(0, lib_dir)
+
+# Ensure StaX bootstrap runs first (sets sys.path, PATH, Qt plugin paths)
+import dependency_bootstrap
+dependency_bootstrap.bootstrap(base_dir=_stax_root)
+
 # Stage 1: Minimal initialization - setup paths and environment
 print("\n[StaX Blender Addon] Stage 1: Initialization started...")
-
-# Ensure project root is in sys.path
-current_dir = os.path.dirname(__file__)
-stax_root = os.path.abspath(os.path.join(current_dir, '..', '..', '..'))
-if stax_root not in sys.path:
-    sys.path.insert(0, stax_root)
-
-# Setup dependency paths (PySide2, etc.)
-dependencies_dir = os.path.join(stax_root, 'dependencies')
-if os.path.exists(dependencies_dir):
-    # Add PySide2 dependencies if bundled
-    pyside_dir = os.path.join(dependencies_dir, 'pyside2')
-    if os.path.exists(pyside_dir) and pyside_dir not in sys.path:
-        sys.path.insert(0, pyside_dir)
 
 # Stage 1: Initialize IPC server (minimal, no heavy imports)
 _ipc_server = None
@@ -195,6 +220,11 @@ classes = (
 def register():
     """Register Blender addon (Stage 1 only)."""
     print("[StaX Blender Addon] Registering addon...")
+
+    # Skip UI setup in background mode
+    if getattr(bpy.app, "background", False):
+        print("[StaX Blender Addon] Running in background mode; skipping UI registration")
+        return
     
     # Register Blender classes
     for cls in classes:

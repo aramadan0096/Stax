@@ -2,8 +2,12 @@
 """Centralized dependency bootstrap for StaX.
 
 Adds project directories, bundled dependencies, and FFmpeg binaries to both
-``sys.path`` and the process ``PATH`` so modules like ``ffpyplayer`` can load
-inside standalone and Nuke-hosted environments.
+``sys.path`` and the process ``PATH`` so modules like ``ffpyplayer`` and
+PySide2 can load inside standalone and DCC-hosted environments.
+
+Env toggles:
+- ``STAX_USE_SYSTEM_QT=1`` → skip bundled Qt/PySide2 even if present.
+- ``STAX_FORCE_BUNDLED_QT=1`` → force using bundled Qt/PySide2 when available.
 """
 
 from __future__ import absolute_import
@@ -36,6 +40,17 @@ def _add_env_path(path):
         os.environ["PATH"] = norm + (os.pathsep + current if current else "")
 
 
+def _prepend_env_list(var_name, path):
+    """Prepend a directory to an env list variable if it exists on disk."""
+    if not path or not os.path.isdir(path):
+        return
+    norm = _normalize(path)
+    current = os.environ.get(var_name, "")
+    entries = current.split(os.pathsep) if current else []
+    if norm not in entries:
+        os.environ[var_name] = norm + (os.pathsep + current if current else "")
+
+
 def _ffpyplayer_available():
     """Return True if ffpyplayer can be imported from current environment."""
     try:
@@ -63,6 +78,14 @@ def bootstrap(base_dir=None):
     ffpyplayer_player_dir = os.path.join(ffpyplayer_dir, "player")
     ffmpeg_bin_dir = os.path.join(project_root, "bin", "ffmpeg", "bin")
 
+    # Bundled Qt/PySide2 inside lib/ (installed via pip --target . in lib)
+    lib_root = os.path.join(project_root, "lib")
+    lib_pyside2 = os.path.join(lib_root, "PySide2")
+    lib_shiboken2 = os.path.join(lib_root, "shiboken2")
+    lib_bin = os.path.join(lib_root, "bin")  # Qt DLLs on Windows
+    lib_plugins = os.path.join(lib_root, "plugins")
+    lib_pyside_plugins = os.path.join(lib_pyside2, "plugins")
+
     for path in [project_root, src_dir, repository_dir]:
         _add_sys_path(path)
 
@@ -75,6 +98,28 @@ def bootstrap(base_dir=None):
             _add_sys_path(path)
         for path in [ffpyplayer_dir, ffpyplayer_player_dir]:
             _add_env_path(path)
+
+    # Prefer bundled Qt unless the user explicitly opts out.
+    use_system_qt = os.environ.get("STAX_USE_SYSTEM_QT", "0") == "1"
+    force_bundled_qt = os.environ.get("STAX_FORCE_BUNDLED_QT", "0") == "1"
+    bundled_qt_exists = os.path.isdir(lib_pyside2)
+
+    qt_source = "system"
+    if bundled_qt_exists and (force_bundled_qt or not use_system_qt):
+        for path in [lib_root, lib_pyside2, lib_shiboken2]:
+            _add_sys_path(path)
+        for path in [lib_bin]:
+            _add_env_path(path)
+        # Ensure Qt plugin path is discoverable (platform plugins, etc.).
+        for plugin_path in [lib_plugins, lib_pyside_plugins]:
+            _prepend_env_list("QT_PLUGIN_PATH", plugin_path)
+        qt_source = "bundled"
+
+    if os.environ.get("STAX_LOG_QT_SOURCE", "1") == "1":
+        try:
+            print("[bootstrap] Qt source: {}".format(qt_source))
+        except Exception:
+            pass
 
     _add_env_path(ffmpeg_bin_dir)
 

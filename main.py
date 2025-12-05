@@ -42,6 +42,7 @@ from src.ui import (
     SelectListDialog,
     IngestLibraryDialog,
     NukeInstallerDialog,
+    BlenderInstallerDialog,
     MediaInfoPopup,
     StacksListsPanel,
     MediaDisplayWidget,
@@ -398,6 +399,11 @@ class MainWindow(QtWidgets.QMainWindow):
         install_nuke_action.triggered.connect(self.show_nuke_installer)
         help_menu.addAction(install_nuke_action)
 
+        install_blender_action = QtWidgets.QAction("Install to Blender...", self)
+        install_blender_action.setToolTip("Copy StaX Blender addon into a Blender addons folder")
+        install_blender_action.triggered.connect(self.show_blender_installer)
+        help_menu.addAction(install_blender_action)
+
     
     def setup_shortcuts(self):
         """Setup keyboard shortcuts."""
@@ -414,6 +420,14 @@ class MainWindow(QtWidgets.QMainWindow):
             dlg.exec_()
         except Exception as exc:
             QtWidgets.QMessageBox.critical(self, "Error", "Failed to open Nuke installer: {}".format(exc))
+
+    def show_blender_installer(self):
+        """Show the Blender installer dialog to copy the StaX addon into an addons directory."""
+        try:
+            dlg = BlenderInstallerDialog(self)
+            dlg.exec_()
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(self, "Error", "Failed to open Blender installer: {}".format(exc))
     
     def show_login(self, required=False):
         """Show login dialog.

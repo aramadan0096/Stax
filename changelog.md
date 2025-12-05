@@ -6,6 +6,17 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
 
 ## [Unreleased]
 
+### Added
+- Blender installer dialog and Help menu action to copy the StaX Blender addon into a selected Blender addons directory (overwrites existing `StaX` folder if confirmed).
+- Blender installer now writes a `_stax_paths.py` hint with the absolute StaX root so the addon can import bundled dependencies without relying on the addons path.
+- Blender panel now applies the shared `style.qss` theme (copied into the addon) for UI consistency when launched inside Blender.
+- Blender panel adds "Add Selected to Library" to export selected Outliner objects to FBX and ingest them directly into a chosen stack/list (hard copy into repository with previews/DB entries).
+- Target-list picker now includes inline "New Stack" / "New List" shortcuts so users can create destinations on the fly without leaving ingestion dialogs (used across Nuke/Blender flows).
+
+### 🔧 Qt Bundling Bootstrap
+
+- Bootstrap now prefers bundled PySide2/Qt from `lib/` and logs the selected Qt source; override with `STAX_USE_SYSTEM_QT=1` or force bundled via `STAX_FORCE_BUNDLED_QT=1`.
+
 ### ✨ WebGL Geometry Preview & Blender Pipeline (Nov 22, 2025)
 
 - Replaced the pyrender-based Scene Viewer with an embedded WebGL experience powered by QtWebEngine and the bundled `js-3d-model-viewer`, removing the heavyweight OpenGL dependency stack.

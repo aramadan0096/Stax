@@ -26,6 +26,7 @@ from src.ui.dialogs import (
     RegisterToolsetDialog,
     SelectListDialog,
     NukeInstallerDialog,
+    BlenderInstallerDialog,
 )
 
 from src.ui.ingest_library_dialog import IngestLibraryDialog
@@ -52,4 +53,5 @@ __all__ = [
     'SelectListDialog',
     'IngestLibraryDialog',
     'NukeInstallerDialog',
+    'BlenderInstallerDialog',
 ]

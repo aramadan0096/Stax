@@ -135,6 +135,7 @@ class AddStackDialog(QtWidgets.QDialog):
     def __init__(self, db_manager, parent=None):
         super(AddStackDialog, self).__init__(parent)
         self.db = db_manager
+        self.created_stack_id = None
         self.setWindowTitle("Add Stack")
         self.setup_ui()
     
@@ -181,7 +182,7 @@ class AddStackDialog(QtWidgets.QDialog):
             return
         
         try:
-            self.db.create_stack(name, path)
+            self.created_stack_id = self.db.create_stack(name, path)
             super(AddStackDialog, self).accept()
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", "Failed to create stack: {}".format(str(e)))
@@ -196,6 +197,7 @@ class AddListDialog(QtWidgets.QDialog):
         super(AddListDialog, self).__init__(parent)
         self.db = db_manager
         self.default_stack_id = default_stack_id
+        self.created_list_id = None
         self.setWindowTitle("Add List")
         self.setup_ui()
     
@@ -237,7 +239,7 @@ class AddListDialog(QtWidgets.QDialog):
             return
         
         try:
-            self.db.create_list(stack_id, name)
+            self.created_list_id = self.db.create_list(stack_id, name)
             super(AddListDialog, self).accept()
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", "Failed to create list: {}".format(str(e)))
@@ -904,12 +906,145 @@ class NukeInstallerDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.critical(self, "Error", "Failed to update init.py: {}".format(exc))
 
 
+
+class BlenderInstallerDialog(QtWidgets.QDialog):
+    """Dialog to copy StaX Blender addon into a user-selected addons folder."""
+
+    def __init__(self, parent=None):
+        super(BlenderInstallerDialog, self).__init__(parent)
+        self.setWindowTitle("Install StaX into Blender")
+        self.setMinimumWidth(560)
+        self.setup_ui()
+
+    def setup_ui(self):
+        layout = QtWidgets.QVBoxLayout(self)
+
+        info = QtWidgets.QLabel(
+            "Select your Blender addons directory and click Install.\n"
+            "StaX will create or replace a 'StaX' folder there with the bundled Blender plugin files."
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        form = QtWidgets.QHBoxLayout()
+        self.path_edit = QtWidgets.QLineEdit()
+        self.path_edit.setPlaceholderText(r"C:\\Users\\<username>\\AppData\\Roaming\\Blender Foundation\\Blender\\3.6\\scripts\\addons")
+        form.addWidget(self.path_edit)
+
+        browse_btn = QtWidgets.QPushButton("Browse...")
+        browse_btn.setObjectName('small')
+        browse_btn.clicked.connect(self.browse)
+        form.addWidget(browse_btn)
+
+        layout.addLayout(form)
+
+        self.status_label = QtWidgets.QLabel("")
+        self.status_label.setStyleSheet("color: #888888; font-size: 11px;")
+        layout.addWidget(self.status_label)
+
+        btn_layout = QtWidgets.QHBoxLayout()
+        btn_layout.addStretch()
+        self.install_btn = QtWidgets.QPushButton("Install")
+        self.install_btn.setObjectName('primary')
+        self.install_btn.clicked.connect(self.install)
+        btn_layout.addWidget(self.install_btn)
+
+        cancel_btn = QtWidgets.QPushButton("Cancel")
+        cancel_btn.setObjectName('small')
+        cancel_btn.clicked.connect(self.reject)
+        btn_layout.addWidget(cancel_btn)
+
+        layout.addLayout(btn_layout)
+
+    def browse(self):
+        path = QtWidgets.QFileDialog.getExistingDirectory(self, "Select Blender addons directory")
+        if path:
+            self.path_edit.setText(path)
+
+    def install(self):
+        import os
+        import shutil
+
+        addons_dir = self.path_edit.text().strip()
+        if not addons_dir:
+            QtWidgets.QMessageBox.warning(self, "No Directory", "Please select a Blender addons directory.")
+            return
+
+        if not os.path.isdir(addons_dir):
+            QtWidgets.QMessageBox.warning(self, "Invalid Directory", "The selected path is not a directory.")
+            return
+
+        dest_dir = os.path.join(addons_dir, 'StaX')
+
+        # Determine source addon folder
+        app_root = os.path.normpath(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
+        src_dir = os.path.join(app_root, 'plugins', 'dccs', 'blender')
+        if not os.path.isdir(src_dir):
+            QtWidgets.QMessageBox.critical(self, "Missing Files", "Blender plugin folder not found: {}".format(src_dir))
+            return
+
+        if os.path.exists(dest_dir):
+            reply = QtWidgets.QMessageBox.question(
+                self,
+                "Replace Existing?",
+                "A StaX addon already exists here. Replace it?",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                QtWidgets.QMessageBox.No
+            )
+            if reply != QtWidgets.QMessageBox.Yes:
+                return
+            try:
+                shutil.rmtree(dest_dir)
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "Error", "Failed to remove existing addon: {}".format(e))
+                return
+
+        try:
+            shutil.copytree(src_dir, dest_dir)
+
+            # Write installer hint file with absolute StaX root so addon can import dependency_bootstrap
+            hint_path = os.path.join(dest_dir, '_stax_paths.py')
+            try:
+                with open(hint_path, 'w') as fh:
+                    fh.write("STAX_ROOT = r'{}'\n".format(app_root))
+            except Exception as hint_err:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    "Warning",
+                    "Addon copied but failed to write path hint: {}".format(hint_err)
+                )
+
+            # Copy shared stylesheet into addon folder for local loading
+            src_stylesheet = os.path.join(app_root, 'resources', 'style.qss')
+            if os.path.isfile(src_stylesheet):
+                try:
+                    shutil.copy2(src_stylesheet, os.path.join(dest_dir, 'style.qss'))
+                except Exception as style_err:
+                    QtWidgets.QMessageBox.warning(
+                        self,
+                        "Warning",
+                        "Addon copied but failed to copy style.qss: {}".format(style_err)
+                    )
+
+            QtWidgets.QMessageBox.information(
+                self,
+                "Installed",
+                "StaX Blender addon copied to:\n{}".format(dest_dir)
+            )
+            self.accept()
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", "Failed to copy addon: {}".format(e))
+            return
+
 class SelectListDialog(QtWidgets.QDialog):
     """Dialog for selecting a target list for ingestion."""
     
     def __init__(self, db_manager, parent=None):
         super(SelectListDialog, self).__init__(parent)
         self.db = db_manager
+        self.selected_stack_id = None
+        self._stack_items = {}
+        self._list_items = {}
         self.setWindowTitle("Select Target List")
         self.setup_ui()
     
@@ -923,23 +1058,26 @@ class SelectListDialog(QtWidgets.QDialog):
         # Tree widget showing stacks and lists
         self.tree = QtWidgets.QTreeWidget()
         self.tree.setHeaderHidden(True)
+        self.tree.currentItemChanged.connect(self.on_item_changed)
         layout.addWidget(self.tree)
         
-        # Load data
-        stacks = self.db.get_all_stacks()
-        for stack in stacks:
-            stack_item = QtWidgets.QTreeWidgetItem([stack['name']])
-            stack_item.setData(0, QtCore.Qt.UserRole, ('stack', stack['stack_id']))
-            stack_item.setFlags(stack_item.flags() & ~QtCore.Qt.ItemIsSelectable)
-            self.tree.addTopLevelItem(stack_item)
-            
-            lists = self.db.get_lists_by_stack(stack['stack_id'])
-            for lst in lists:
-                list_item = QtWidgets.QTreeWidgetItem([lst['name']])
-                list_item.setData(0, QtCore.Qt.UserRole, ('list', lst['list_id']))
-                stack_item.addChild(list_item)
-            
-            stack_item.setExpanded(True)
+        # Shortcut buttons for quick creation
+        button_row = QtWidgets.QHBoxLayout()
+        button_row.addStretch()
+        self.add_stack_btn = QtWidgets.QPushButton("New Stack...")
+        self.add_stack_btn.setProperty('class', 'small')
+        self.add_stack_btn.clicked.connect(self.create_stack)
+        button_row.addWidget(self.add_stack_btn)
+        
+        self.add_list_btn = QtWidgets.QPushButton("New List...")
+        self.add_list_btn.setProperty('class', 'small')
+        self.add_list_btn.clicked.connect(self.create_list)
+        self.add_list_btn.setEnabled(False)
+        button_row.addWidget(self.add_list_btn)
+        layout.addLayout(button_row)
+        
+        # Load initial data
+        self.load_tree()
         
         # Buttons
         button_box = QtWidgets.QDialogButtonBox(
@@ -949,13 +1087,86 @@ class SelectListDialog(QtWidgets.QDialog):
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
     
+    def load_tree(self, select_stack_id=None, select_list_id=None):
+        """Populate tree with latest stacks/lists and optionally select entries."""
+        self.tree.clear()
+        self._stack_items = {}
+        self._list_items = {}
+        stacks = self.db.get_all_stacks()
+        for stack in stacks:
+            stack_item = QtWidgets.QTreeWidgetItem([stack['name']])
+            stack_item.setData(0, QtCore.Qt.UserRole, {
+                'type': 'stack',
+                'stack_id': stack['stack_id']
+            })
+            self.tree.addTopLevelItem(stack_item)
+            self._stack_items[stack['stack_id']] = stack_item
+            
+            lists = self.db.get_lists_by_stack(stack['stack_id'])
+            for lst in lists:
+                list_item = QtWidgets.QTreeWidgetItem([lst['name']])
+                list_item.setData(0, QtCore.Qt.UserRole, {
+                    'type': 'list',
+                    'list_id': lst['list_id'],
+                    'stack_id': stack['stack_id']
+                })
+                stack_item.addChild(list_item)
+                self._list_items[lst['list_id']] = list_item
+            
+            stack_item.setExpanded(True)
+        
+        target_item = None
+        if select_list_id and select_list_id in self._list_items:
+            target_item = self._list_items[select_list_id]
+        elif select_stack_id and select_stack_id in self._stack_items:
+            target_item = self._stack_items[select_stack_id]
+        
+        if target_item:
+            self.tree.setCurrentItem(target_item)
+            parent = target_item.parent()
+            while parent:
+                parent.setExpanded(True)
+                parent = parent.parent()
+    
+    def on_item_changed(self, current, _previous):
+        """Update selected stack context when tree selection changes."""
+        data = current.data(0, QtCore.Qt.UserRole) if current else None
+        stack_id = None
+        if data:
+            if data.get('type') == 'stack':
+                stack_id = data.get('stack_id')
+            elif data.get('type') == 'list':
+                stack_id = data.get('stack_id')
+        self.selected_stack_id = stack_id
+        self.add_list_btn.setEnabled(self.selected_stack_id is not None)
+    
+    def create_stack(self):
+        """Launch AddStackDialog and refresh tree on success."""
+        dialog = AddStackDialog(self.db, self)
+        if dialog.exec_():
+            new_stack_id = getattr(dialog, 'created_stack_id', None)
+            self.selected_stack_id = new_stack_id
+            self.load_tree(select_stack_id=new_stack_id)
+            self.add_list_btn.setEnabled(self.selected_stack_id is not None)
+    
+    def create_list(self):
+        """Launch AddListDialog scoped to the selected/current stack."""
+        if not self.selected_stack_id:
+            QtWidgets.QMessageBox.warning(self, "Select Stack", "Please select or create a stack before adding a list.")
+            return
+        dialog = AddListDialog(self.db, default_stack_id=self.selected_stack_id, parent=self)
+        if dialog.exec_():
+            new_list_id = getattr(dialog, 'created_list_id', None)
+            self.load_tree(select_stack_id=self.selected_stack_id, select_list_id=new_list_id)
+            self.add_list_btn.setEnabled(True)
+    
     def get_selected_list(self):
         """Get selected list ID."""
         current = self.tree.currentItem()
         if current:
             data = current.data(0, QtCore.Qt.UserRole)
-            if data and data[0] == 'list':
-                return data[1]
+            if data and data.get('type') == 'list':
+                return data.get('list_id')
         return None
 
 

@@ -10,7 +10,7 @@ StaX is a Advanced solution for mass production stock footage management clone t
 
 ### Technology Stack Rationale
 - **Python 2.7**: Hard requirement for VFX pipeline compatibility and Nuke integration (not Python 3)
-- **PySide2**: Required for Qt-based GUI that embeds in Nuke's environment
+- **PySide2**: Required for Qt-based GUI that embeds in Nuke's environment; bundled in `lib/` and preferred by bootstrap unless `STAX_USE_SYSTEM_QT=1` (or forced via `STAX_FORCE_BUNDLED_QT=1`)
 - **SQLite**: File-based database designed for network sharing across workstations
 - **No external asset management systems**: Self-contained solution with extensibility hooks
 

@@ -40,6 +40,16 @@ class BlenderBridge(object):
         """Check if Blender API is available (not in mock mode)."""
         return not self.mock_mode and self.bpy is not None
     
+    def _get_scene_scale(self):
+        """Return Blender scene unit scale (defaults to 1.0 when unavailable)."""
+        if self.mock_mode:
+            return 1.0
+        try:
+            scale = self.bpy.context.scene.unit_settings.scale_length
+            return scale if scale else 1.0
+        except Exception:
+            return 1.0
+
     def import_mesh(self, filepath, node_name=None):
         """
         Import a mesh file into Blender scene.
@@ -56,14 +66,37 @@ class BlenderBridge(object):
             return {'name': node_name or 'MockMesh'}
         
         try:
-            # Determine file type and import accordingly
             ext = os.path.splitext(filepath)[1].lower()
-            
+            scene_scale = self._get_scene_scale()
+
             if ext == '.obj':
-                self.bpy.ops.wm.obj_import(filepath=filepath)
+                # Use importer with explicit axes; scale is typically embedded, keep 1.0
+                self.bpy.ops.wm.obj_import(
+                    filepath=filepath,
+                    forward_axis='-Z',
+                    up_axis='Y',
+                    clamp_size=0.0
+                )
             elif ext == '.fbx':
-                self.bpy.ops.import_scene.fbx(filepath=filepath)
-            elif ext == '.glb' or ext == '.gltf':
+                self.bpy.ops.import_scene.fbx(
+                    filepath=filepath,
+                    global_scale=scene_scale,
+                    automatic_bone_orientation=True
+                )
+            elif ext == '.abc':
+                self.bpy.ops.wm.alembic_import(
+                    filepath=filepath,
+                    set_frame_range=True,
+                    validate_meshes=True,
+                    scale=scene_scale
+                )
+            elif ext in ('.usd', '.usda', '.usdc'):
+                self.bpy.ops.wm.usd_import(
+                    filepath=filepath,
+                    scale=scene_scale,
+                    relative_path=False
+                )
+            elif ext in ('.glb', '.gltf'):
                 self.bpy.ops.import_scene.gltf(filepath=filepath)
             elif ext == '.dae':
                 self.bpy.ops.wm.collada_import(filepath=filepath)
