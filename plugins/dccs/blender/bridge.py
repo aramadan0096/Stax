@@ -198,7 +198,26 @@ class BlenderBridge(object):
             return []
         
         try:
-            return list(self.bpy.context.selected_objects)
+            context = self.bpy.context
+            selected = list(getattr(context, 'selected_objects', []) or [])
+
+            if not selected:
+                view_layer = getattr(context, 'view_layer', None)
+                layer_objects = getattr(view_layer, 'objects', None) if view_layer else None
+                active_obj = getattr(layer_objects, 'active', None) if layer_objects else None
+                if active_obj is None:
+                    active_obj = getattr(context, 'active_object', None)
+                if active_obj:
+                    selected.append(active_obj)
+
+            outliner_ids = getattr(context, 'selected_ids', None)
+            object_type = getattr(getattr(self.bpy, 'types', None), 'Object', None)
+            if outliner_ids and object_type is not None:
+                for datablock in outliner_ids:
+                    if isinstance(datablock, object_type) and datablock not in selected:
+                        selected.append(datablock)
+
+            return selected
         except Exception as e:
             print("[BlenderBridge] ERROR: Failed to get selected objects: {}".format(e))
             return []

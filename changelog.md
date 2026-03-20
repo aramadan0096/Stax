@@ -10,7 +10,8 @@ The format is based on "Keep a Changelog" and this project adheres to Semantic V
 - Blender installer dialog and Help menu action to copy the StaX Blender addon into a selected Blender addons directory (overwrites existing `StaX` folder if confirmed).
 - Blender installer now writes a `_stax_paths.py` hint with the absolute StaX root so the addon can import bundled dependencies without relying on the addons path.
 - Blender panel now applies the shared `style.qss` theme (copied into the addon) for UI consistency when launched inside Blender.
-- Blender panel adds "Add Selected to Library" to export selected Outliner objects to FBX and ingest them directly into a chosen stack/list (hard copy into repository with previews/DB entries).
+- Blender panel adds "Add Selected to Library" to export selected Outliner objects as Alembic caches using the same logic as the `examples/blender_selection.py` reference, piping those `.abc` files directly into StaX ingestion (which now handles preview proxy generation and hard-copy storage automatically).
+- Blender panel now embeds the Qt WebGL geometry viewer so selecting any 3D element immediately streams its GLB proxy inside Blender without launching the standalone app, and the StaX window now uses `resources/logo.ico` for consistent branding.
 - Target-list picker now includes inline "New Stack" / "New List" shortcuts so users can create destinations on the fly without leaving ingestion dialogs (used across Nuke/Blender flows).
 
 ### 🔧 Qt Bundling Bootstrap

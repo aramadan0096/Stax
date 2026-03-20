@@ -79,6 +79,13 @@ try:
         HistoryPanel,
         SettingsPanel,
     )
+    try:
+        from src.geometry_viewer import GeometryViewerWidget
+        GEOMETRY_VIEWER_AVAILABLE = True
+    except Exception as geometry_import_error:  # pylint: disable=broad-except
+        GeometryViewerWidget = None  # type: ignore
+        GEOMETRY_VIEWER_AVAILABLE = False
+        print("[blender_panel] [WARN] Geometry viewer unavailable: {}".format(geometry_import_error))
     print("[blender_panel] [OK] Core modules imported")
 except Exception as e:
     print("[blender_panel] [ERROR] Failed to import core modules: {}".format(e))
@@ -94,6 +101,37 @@ from .dcc_base import ReferenceManager
 
 print("[blender_panel] [OK] All imports successful")
 print("="*80 + "\n")
+
+
+def _collect_selected_objects(bpy_module):
+    """Return selected objects or fall back to the active object (mirrors blender_selection)."""
+    if bpy_module is None:
+        return []
+
+    collected = []
+    primary = getattr(bpy_module.context, 'selected_objects', None)
+    if primary:
+        for obj in primary:
+            if obj and obj not in collected:
+                collected.append(obj)
+
+    if not collected:
+        view_layer = getattr(bpy_module.context, 'view_layer', None)
+        layer_objects = getattr(view_layer, 'objects', None) if view_layer else None
+        active_obj = getattr(layer_objects, 'active', None) if layer_objects else None
+        if active_obj is None:
+            active_obj = getattr(bpy_module.context, 'active_object', None)
+        if active_obj:
+            collected.append(active_obj)
+
+    outliner_ids = getattr(bpy_module.context, 'selected_ids', None)
+    object_type = getattr(getattr(bpy_module, 'types', None), 'Object', None)
+    if outliner_ids and object_type is not None:
+        for datablock in outliner_ids:
+            if isinstance(datablock, object_type) and datablock not in collected:
+                collected.append(datablock)
+
+    return collected
 
 
 class StaXBlenderPanel(QtWidgets.QWidget):
@@ -121,6 +159,9 @@ class StaXBlenderPanel(QtWidgets.QWidget):
             import traceback
             traceback.print_exc()
             raise
+        logo_path = os.path.join(stax_root, 'resources', 'logo.ico')
+        if os.path.exists(logo_path):
+            self.setWindowIcon(QtGui.QIcon(logo_path))
         
         # Initialize Blender integration
         self.blender_integration = BlenderIntegration()
@@ -165,6 +206,8 @@ class StaXBlenderPanel(QtWidgets.QWidget):
             ingestion_core=self.ingestion,
             processor_manager=self.processor_manager
         )
+        self.geometry_viewer = None
+
         
         # User authentication
         self.current_user = None
@@ -278,14 +321,26 @@ class StaXBlenderPanel(QtWidgets.QWidget):
         self.stacks_panel.playlist_selected.connect(self.on_playlist_selected)
         self.stacks_panel.tags_filter_changed.connect(self.on_tags_filter_changed)
         self.main_splitter.addWidget(self.stacks_panel)
-        
+
+        # Right-hand splitter hosts media browser + geometry viewer
+        self.right_splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
+
         # Center: Media display
         # Use mock NukeBridge for media display (it doesn't need real Nuke)
         from plugins.dccs.nuke.bridge import NukeBridge
         mock_nuke_bridge = NukeBridge(mock_mode=True)
         self.media_display = MediaDisplayWidget(self.db, self.config, mock_nuke_bridge, main_window=self)
         self.media_display.element_double_clicked.connect(self.on_element_double_clicked)
-        self.main_splitter.addWidget(self.media_display)
+        self.media_display.element_selected.connect(self.on_element_selected)
+        self.right_splitter.addWidget(self.media_display)
+
+        # Bottom: Qt Web geometry viewer panel
+        geometry_panel = self._build_geometry_panel()
+        self.right_splitter.addWidget(geometry_panel)
+        self.right_splitter.setStretchFactor(0, 4)
+        self.right_splitter.setStretchFactor(1, 1)
+
+        self.main_splitter.addWidget(self.right_splitter)
         
         # Set splitter sizes
         self.main_splitter.setSizes([260, 900])
@@ -299,6 +354,40 @@ class StaXBlenderPanel(QtWidgets.QWidget):
         # Store toolbar reference
         self.toolbar = toolbar
     
+    def _build_geometry_panel(self):
+        """Create the container used to host the embedded geometry viewer."""
+        container = QtWidgets.QGroupBox("3D Web Preview")
+        container.setStyleSheet("QGroupBox { font-weight: bold; color: #16c6b0; }")
+        layout = QtWidgets.QVBoxLayout(container)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
+
+        if GEOMETRY_VIEWER_AVAILABLE:
+            try:
+                self.geometry_viewer = GeometryViewerWidget(stax_root, parent=container)
+                self.geometry_viewer.setMinimumHeight(220)
+                layout.addWidget(self.geometry_viewer, 1)
+            except Exception as exc:  # pylint: disable=broad-except
+                self.geometry_viewer = None
+                fallback = QtWidgets.QLabel(
+                    "Failed to initialize WebGL preview: {}".format(exc)
+                )
+                fallback.setWordWrap(True)
+                fallback.setAlignment(QtCore.Qt.AlignCenter)
+                fallback.setStyleSheet("color: #ff9a3c;")
+                layout.addWidget(fallback)
+        else:
+            self.geometry_viewer = None
+            fallback = QtWidgets.QLabel(
+                "QtWebEngine is not available. Install PySide2 with QtWebEngine to enable 3D previews."
+            )
+            fallback.setWordWrap(True)
+            fallback.setAlignment(QtCore.Qt.AlignCenter)
+            fallback.setStyleSheet("color: #ff9a3c;")
+            layout.addWidget(fallback)
+
+        return container
+
     def create_toolbar(self):
         """Create toolbar with actions."""
         toolbar = QtWidgets.QToolBar("Main Toolbar")
@@ -506,6 +595,26 @@ class StaXBlenderPanel(QtWidgets.QWidget):
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", "Failed to insert element: {}".format(str(e)))
     
+    def on_element_selected(self, element_id):
+        """Load GLB previews into the embedded geometry viewer when available."""
+        if not self.geometry_viewer:
+            return
+
+        element = self.db.get_element_by_id(element_id)
+        if not element:
+            self.geometry_viewer.clear_geometry()
+            self.geometry_viewer.show_message("Select an element to preview geometry")
+            return
+
+        geometry_path = element.get('geometry_preview_path')
+        if geometry_path and os.path.exists(geometry_path):
+            ok, message = self.geometry_viewer.load_geometry(geometry_path)
+            if not ok and message:
+                self.geometry_viewer.show_message(message)
+        else:
+            self.geometry_viewer.clear_geometry()
+            self.geometry_viewer.show_message("No GLB proxy generated for this element yet")
+    
     def ingest_files(self):
         """Open file dialog to ingest files."""
         files, _ = QtWidgets.QFileDialog.getOpenFileNames(
@@ -564,7 +673,7 @@ class StaXBlenderPanel(QtWidgets.QWidget):
             self.stacks_panel.load_data()
 
     def ingest_selected_objects(self):
-        """Export selected Blender objects and ingest them into a chosen list."""
+        """Export selected Blender objects as Alembic caches and ingest them via StaX."""
         if not BLENDER_MODE:
             QtWidgets.QMessageBox.warning(self, "Blender Required", "This action requires Blender to be running.")
             return
@@ -575,12 +684,23 @@ class StaXBlenderPanel(QtWidgets.QWidget):
             QtWidgets.QMessageBox.critical(self, "Error", "bpy module not available.")
             return
 
-        selected = list(getattr(bpy.context, 'selected_objects', []) or [])
-        if not selected:
-            QtWidgets.QMessageBox.information(self, "No Selection", "Select one or more objects in the Outliner first.")
+        if not hasattr(bpy.ops.wm, 'alembic_export'):
+            QtWidgets.QMessageBox.critical(
+                self,
+                "Alembic Export Missing",
+                "Enable Blender's Alembic exporter (bpy.ops.wm.alembic_export)."
+            )
             return
 
-        # Ask for target list (reuse existing dialog)
+        selected = _collect_selected_objects(bpy)
+        if not selected:
+            QtWidgets.QMessageBox.information(
+                self,
+                "No Selection",
+                "Select one or more objects in the Outliner or 3D Viewport first."
+            )
+            return
+
         dialog = SelectListDialog(self.db, self)
         if not dialog.exec_():
             return
@@ -588,7 +708,7 @@ class StaXBlenderPanel(QtWidgets.QWidget):
         if not target_list_id:
             return
 
-        progress = QtWidgets.QProgressDialog("Exporting and ingesting...", "Cancel", 0, len(selected), self)
+        progress = QtWidgets.QProgressDialog("Exporting Alembic caches...", "Cancel", 0, len(selected), self)
         progress.setWindowModality(QtCore.Qt.WindowModal)
 
         temp_dir = tempfile.mkdtemp(prefix="stax_blender_ingest_")
@@ -596,9 +716,14 @@ class StaXBlenderPanel(QtWidgets.QWidget):
         error_count = 0
         errors = []
 
-        # Preserve current selection to restore later
+        scene = getattr(bpy.context, 'scene', None)
+        start_frame = getattr(scene, 'frame_start', 1) if scene else 1
+        end_frame = getattr(scene, 'frame_end', start_frame) if scene else start_frame
+
         original_selection = list(selected)
-        original_active = bpy.context.view_layer.objects.active if bpy.context.view_layer.objects.active else None
+        view_layer = getattr(bpy.context, 'view_layer', None)
+        layer_objects = getattr(view_layer, 'objects', None) if view_layer else None
+        original_active = getattr(layer_objects, 'active', None) if layer_objects else None
         previous_mode = None
         try:
             current_obj = bpy.context.object
@@ -609,8 +734,9 @@ class StaXBlenderPanel(QtWidgets.QWidget):
             previous_mode = None
 
         operator_override = self._build_operator_override()
+        used_names = set()
+
         try:
-            used_names = set()
             for idx, obj in enumerate(selected):
                 if progress.wasCanceled():
                     break
@@ -626,7 +752,7 @@ class StaXBlenderPanel(QtWidgets.QWidget):
                     suffix += 1
                 used_names.add(safe_name.lower())
 
-                export_path = os.path.join(temp_dir, "{}.fbx".format(safe_name))
+                alembic_export_path = os.path.join(temp_dir, "{}.abc".format(safe_name))
 
                 try:
                     bpy.ops.object.select_all(action='DESELECT')
@@ -639,25 +765,37 @@ class StaXBlenderPanel(QtWidgets.QWidget):
                         override['active_object'] = obj
                         override['object'] = obj
 
-                    export_kwargs = dict(
-                        filepath=export_path,
-                        use_selection=True,
-                        apply_unit_scale=True,
-                        apply_scale_options='FBX_SCALE_ALL',
-                        axis_forward='-Z',
-                        axis_up='Y',
-                        use_mesh_modifiers=True,
-                        add_leaf_bones=False,
-                        bake_space_transform=False
-                    )
-
+                    alembic_kwargs = {
+                        'filepath': alembic_export_path,
+                        'start': start_frame,
+                        'end': end_frame,
+                        'selected': True,
+                        'flatten': False,
+                        'uvs': True,
+                        'packuv': True,
+                        'normals': True,
+                        'vcolors': False,
+                        'orcos': True,
+                        'face_sets': False,
+                        'subdiv_schema': False,
+                        'apply_subdiv': False,
+                        'curves_as_mesh': False,
+                        'use_instancing': True,
+                        'global_scale': 1.0,
+                        'export_hair': True,
+                        'export_particles': True,
+                        'export_custom_properties': True,
+                        'as_background_job': False,
+                        'evaluation_mode': 'RENDER',
+                        'init_scene_frame_range': True,
+                    }
                     if override is not None:
-                        bpy.ops.export_scene.fbx(override, 'EXEC_DEFAULT', **export_kwargs)
+                        bpy.ops.wm.alembic_export(override, **alembic_kwargs)
                     else:
-                        bpy.ops.export_scene.fbx('EXEC_DEFAULT', **export_kwargs)
+                        bpy.ops.wm.alembic_export(**alembic_kwargs)
 
                     result = self.ingestion.ingest_file(
-                        export_path,
+                        alembic_export_path,
                         target_list_id,
                         copy_policy='hard'
                     )
@@ -669,11 +807,10 @@ class StaXBlenderPanel(QtWidgets.QWidget):
                         errors.append(result.get('message', 'Unknown error'))
                 except Exception as exc:
                     error_count += 1
-                    errors.append(str(exc))
+                    errors.append("{}: {}".format(obj.name, exc))
 
             progress.setValue(len(selected))
         finally:
-            # Restore original selection
             try:
                 bpy.ops.object.select_all(action='DESELECT')
                 for obj in original_selection:
@@ -690,7 +827,6 @@ class StaXBlenderPanel(QtWidgets.QWidget):
             except Exception:
                 pass
 
-            # Remove temporary exports (hard copy ingest already moved data)
             try:
                 shutil.rmtree(temp_dir, ignore_errors=True)
             except Exception:
@@ -699,7 +835,7 @@ class StaXBlenderPanel(QtWidgets.QWidget):
         QtWidgets.QMessageBox.information(
             self,
             "Add Selected to Library",
-            "Ingested {} object(s).\nErrors: {}{}".format(
+            "Alembic assets created: {}. Errors: {}{}".format(
                 success_count,
                 error_count,
                 "\n" + "\n".join(errors) if errors else ""
@@ -855,7 +991,7 @@ def add_to_library():
     
     try:
         import bpy
-        selected = bpy.context.selected_objects
+        selected = _collect_selected_objects(bpy)
         if not selected:
             print("[add_to_library] No objects selected")
             return
