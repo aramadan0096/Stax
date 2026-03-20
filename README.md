@@ -28,7 +28,7 @@ StaX helps VFX artists and studios manage large collections of stock footage, 3D
 - **Network-Ready**: SQLite database with file locking for multi-user workstation access
 - **Extensible**: Custom Python processors for pre-ingest validation, post-ingest hooks, and post-import node configuration
 
-![StaX graph](assets/StaX-mian-standalone.png)
+<!-- ![StaX graph](assets/StaX-graph.png) -->
 
 ---
 **Quick Setup:**
@@ -37,14 +37,18 @@ StaX helps VFX artists and studios manage large collections of stock footage, 3D
 # Clone repository
 git clone --recurse-submodules https://github.com/aramadan0096/Stax.git
 cd Stax
+# Install libraries
+.\tools\install_libs_requirements_uv.ps1
+# Download dependencies and run
+.\tools\run_standalone.ps1
 ```
 ---
 ## Documentation
 
 - **[documentation](https://aramadan0096.github.io/stax-docs/)**: An internal reference describing StaX features, installation, and usage.
-- **[instructions.md](instructions.md)**: Complete technical specification and architecture
+<!-- - **[instructions.md](instructions.md)**: Complete technical specification and architecture
 - **[Roadmap.md](Roadmap.md)**: Development phases, milestones, and feature roadmap
-- **[changelog.md](changelog.md)**: Version history and release notes
+- **[changelog.md](changelog.md)**: Version history and release notes -->
 
 ---
 

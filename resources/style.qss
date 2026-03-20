@@ -40,6 +40,51 @@ QFrame.card, QWidget.card {
   padding: 18px;
 }
 
+/* Light outlines/dividers to isolate or split nearby widgets */
+QWidget.outlined, QFrame.outlined, QWidget#outlined, QFrame#outlined {
+  border: 1px solid rgba(230, 238, 240, 0.14);
+  border-radius: 9px;
+}
+QWidget.split, QFrame.split, QWidget#split, QFrame#split {
+  border-top: 1px solid rgba(230, 238, 240, 0.14);
+}
+QFrame[frameShape="4"] { /* HLine */
+  max-height: 1px;
+  min-height: 1px;
+  border: none;
+  background: rgba(230, 238, 240, 0.16);
+}
+QFrame[frameShape="5"] { /* VLine */
+  max-width: 1px;
+  min-width: 1px;
+  border: none;
+  background: rgba(230, 238, 240, 0.16);
+}
+
+/* Splitter handle — thin centre-line divider between panels */
+QSplitter::handle:horizontal {
+  width: 6px;
+  background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+    stop:0.0  transparent,
+    stop:0.44 transparent,
+    stop:0.5  rgba(230, 238, 240, 0.18),
+    stop:0.56 transparent,
+    stop:1.0  transparent);
+}
+QSplitter::handle:vertical {
+  height: 6px;
+  background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+    stop:0.0  transparent,
+    stop:0.44 transparent,
+    stop:0.5  rgba(230, 238, 240, 0.18),
+    stop:0.56 transparent,
+    stop:1.0  transparent);
+}
+QSplitter::handle:horizontal:hover,
+QSplitter::handle:vertical:hover {
+  background: rgba(22, 198, 176, 0.28);
+}
+
 /* Left file browser tree */
 QTreeView, QListView {
   background: transparent;

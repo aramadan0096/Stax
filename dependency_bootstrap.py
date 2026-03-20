@@ -63,7 +63,10 @@ def bootstrap(base_dir=None):
     ffpyplayer_player_dir = os.path.join(ffpyplayer_dir, "player")
     ffmpeg_bin_dir = os.path.join(project_root, "bin", "ffmpeg", "bin")
 
-    for path in [project_root, src_dir, repository_dir]:
+    # Bundled third-party libs shipped inside the repo (PySide2, shiboken2, …)
+    lib_dir = os.path.join(project_root, "lib")
+
+    for path in [project_root, src_dir, repository_dir, lib_dir]:
         _add_sys_path(path)
 
     needs_bundled_ffpy = bool(os.environ.get("STAX_FORCE_BUNDLED_FFPYPLAYER"))

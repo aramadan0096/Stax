@@ -1,4 +1,4 @@
-# Create and activate a Python virtual environment, install requirements, and run main.py
+﻿# Create and activate a Python virtual environment, install requirements, and run main.py
 # - Places where this script is located: tools/run_standalone.ps1
 # - It expects the repository root to be the parent of the tools folder.
 # Prerequisites: Python (3.x) available on PATH and permission to run scripts.
@@ -81,32 +81,15 @@ Write-Info "Activating virtual environment..."
 # Dot-source the Activate.ps1 script to modify current session
 . "$activateScript"
 
-# 4) Install requirements
-if (-Not (Test-Path $requirementsFile)) {
-    Write-Err "requirements.txt file not found at: $requirementsFile"
-    exit 1
-}
+# 4) Skip requirements installation
+Write-Info "Skipping dependency installation from requirements.txt."
 
-Write-Info "Installing dependencies from requirements.txt..."
-# Use pip from the venv explicitly
+# Use Python from the venv explicitly
 $pythonExe = Join-Path $venvDir "Scripts\python.exe"
 if (-Not (Test-Path $pythonExe)) {
     Write-Err "Python executable not found in venv: $pythonExe"
     exit 1
 }
-
-& "$pythonExe" -m pip install --upgrade pip setuptools
-if ($LASTEXITCODE -ne 0) {
-    Write-Err "Failed to upgrade pip/setuptools in virtual environment."
-    exit 1
-}
-
-& "$pythonExe" -m pip install -r "$requirementsFile"
-if ($LASTEXITCODE -ne 0) {
-    Write-Err "Failed to install dependencies from requirements.txt"
-    exit 1
-}
-
 $ffmpegExe = Join-Path $repoRoot "bin\ffmpeg\ffmpeg.exe"
 $ffmpegUnix = Join-Path $repoRoot "bin\ffmpeg\ffmpeg"
 if (-Not ((Test-Path $ffmpegExe) -or (Test-Path $ffmpegUnix))) {

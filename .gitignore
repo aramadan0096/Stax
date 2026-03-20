@@ -48,3 +48,7 @@ config.json
 *.spec
 
 tests/
+lib
+
+instructions.md
+Roadmap.md
