@@ -15,6 +15,34 @@
   <div id="viewer"></div>
   
 
+  <!--
+    WebGL patch: three.js (used internally by js-3d-model-viewer) may leave
+    vertex attribute slot 0 disabled, triggering a GLES2 performance warning.
+    We wrap drawArrays / drawElements to silently enable it when needed.
+  -->
+  <script>
+  (function patchWebGLAttr0() {
+    var origGetContext = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function(type, attrs) {
+      var ctx = origGetContext.call(this, type, attrs);
+      if (!ctx) return ctx;
+      var isWebGL = type === 'webgl' || type === 'experimental-webgl' || type === 'webgl2';
+      if (!isWebGL) return ctx;
+      ['drawArrays', 'drawElements'].forEach(function(m) {
+        if (typeof ctx[m] !== 'function') return;
+        var orig = ctx[m].bind(ctx);
+        ctx[m] = function() {
+          // Ensure slot 0 is always enabled so GLES2 doesn't emit the warning.
+          if (!ctx.getVertexAttrib(0, ctx.VERTEX_ATTRIB_ARRAY_ENABLED)) {
+            ctx.enableVertexAttribArray(0);
+          }
+          return orig.apply(null, arguments);
+        };
+      });
+      return ctx;
+    };
+  })();
+  </script>
   <script src="/dependencies/js-3d-model-viewer/dist/js-3d-model-viewer.min.js"></script>
   <script>
   (function() {
