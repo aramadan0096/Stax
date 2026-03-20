@@ -46,9 +46,9 @@ cd Stax
 ## Documentation
 
 - **[documentation](https://aramadan0096.github.io/stax-docs/)**: An internal reference describing StaX features, installation, and usage.
-- **[instructions.md](instructions.md)**: Complete technical specification and architecture
+<!-- - **[instructions.md](instructions.md)**: Complete technical specification and architecture
 - **[Roadmap.md](Roadmap.md)**: Development phases, milestones, and feature roadmap
-- **[changelog.md](changelog.md)**: Version history and release notes
+- **[changelog.md](changelog.md)**: Version history and release notes -->
 
 ---
 
