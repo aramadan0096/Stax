@@ -20,7 +20,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=7",
-    "pytest-qt",
+    # pytest-qt 4.3+ dropped PySide2; StaX is PySide2 (Qt5), so pin to the
+    # last PySide2-supporting line or the gui tier's qtbot fails to load.
+    "pytest-qt<4.3",
     "pytest-mock",
     "pytest-cov",
     "flask",
