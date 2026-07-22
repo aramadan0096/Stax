@@ -652,7 +652,7 @@ def test_fields_manager_lists_and_gates(qtbot, stax_db):
     stax_db.create_stack("Plates", "/tmp/P")
     stax_db.create_metadata_field(1, "shot", "Shot", "text")
     from ui.settings_panel import SettingsPanel
-    panel = SettingsPanel(stax_db, config=None, main_window=_Main(False))
+    panel = SettingsPanel(config=None, db_manager=stax_db, main_window=_Main(False))
     qtbot.addWidget(panel)
     panel.select_fields_stack(1)
     assert panel.fields_table.rowCount() == 1
@@ -1129,7 +1129,7 @@ def test_automation_tab_lists_templates(qtbot, stax_db):
     stax_db.create_stack("Plates", "/tmp/P")
     stax_db.create_metadata_template(1, "ACES", {"cs": "ACES"})
     from ui.settings_panel import SettingsPanel
-    panel = SettingsPanel(stax_db, config=None, main_window=_Main(True))
+    panel = SettingsPanel(config=None, db_manager=stax_db, main_window=_Main(True))
     qtbot.addWidget(panel)
     panel.select_automation_stack(1)
     assert panel.templates_table.rowCount() == 1

@@ -1498,7 +1498,7 @@ class _Main:
 def test_search_tab_lists_synonyms_and_gates_admin(qtbot, stax_db):
     stax_db.add_synonym("fire", "g1")
     from ui.settings_panel import SettingsPanel
-    panel = SettingsPanel(stax_db, config=None, main_window=_Main(admin=False))
+    panel = SettingsPanel(config=None, db_manager=stax_db, main_window=_Main(admin=False))
     qtbot.addWidget(panel)
     assert panel.synonyms_table.rowCount() == 1
     assert panel.add_synonym_button.isEnabled() is False
@@ -1507,7 +1507,7 @@ def test_search_tab_lists_synonyms_and_gates_admin(qtbot, stax_db):
 @pytest.mark.gui
 def test_admin_add_synonym(qtbot, stax_db):
     from ui.settings_panel import SettingsPanel
-    panel = SettingsPanel(stax_db, config=None, main_window=_Main(admin=True))
+    panel = SettingsPanel(config=None, db_manager=stax_db, main_window=_Main(admin=True))
     qtbot.addWidget(panel)
     panel._add_synonym_row("flame", "g1")
     assert any(s["term"] == "flame" for s in stax_db.get_synonyms())

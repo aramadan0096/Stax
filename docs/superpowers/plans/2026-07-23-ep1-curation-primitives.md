@@ -997,7 +997,7 @@ class _FakeMain:
 @pytest.mark.gui
 def test_labels_tab_lists_palette_and_gates_admin(qtbot, stax_db):
     from ui.settings_panel import SettingsPanel
-    panel = SettingsPanel(stax_db, config=None, main_window=_FakeMain(admin=False))
+    panel = SettingsPanel(config=None, db_manager=stax_db, main_window=_FakeMain(admin=False))
     qtbot.addWidget(panel)
     assert panel.labels_table.rowCount() == 7
     assert panel.add_label_button.isEnabled() is False
@@ -1006,7 +1006,7 @@ def test_labels_tab_lists_palette_and_gates_admin(qtbot, stax_db):
 @pytest.mark.gui
 def test_admin_can_add_label(qtbot, stax_db):
     from ui.settings_panel import SettingsPanel
-    panel = SettingsPanel(stax_db, config=None, main_window=_FakeMain(admin=True))
+    panel = SettingsPanel(config=None, db_manager=stax_db, main_window=_FakeMain(admin=True))
     qtbot.addWidget(panel)
     panel._create_label_row("Teal", "#12A594", "custom")
     assert any(l["name"] == "Teal" for l in stax_db.get_labels())
