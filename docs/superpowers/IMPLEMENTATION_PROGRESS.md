@@ -154,7 +154,7 @@ Feature-expansion program derived from [`STAX_FEATURE_ENHANCEMENT_REPORT.md`](..
 | EP | Theme | Spec | Plan | Impl | Report features |
 |----|-------|:----:|:----:|:----:|-----------------|
 | EP1 | Curation primitives | ☑ | ☑ | ☐ | F013, F014, F052, F053 |
-| EP2 | Search & discovery UX (non-AI) | ☐ | ☐ | ☐ | F007–F012, facets |
+| EP2 | Search & discovery UX (non-AI) | ☑ | ☑ | ☐ | F007–F012, facets |
 | EP3 | Browse productivity shell | ☐ | ☐ | ☐ | F049–F058 |
 | EP4 | Metadata schema & automation | ☐ | ☐ | ☐ | F015, F016, F018–F022 |
 | EP5 | Review, notes & approval | ☐ | ☐ | ☐ | F023–F030 |
@@ -175,6 +175,23 @@ Spec: [`specs/…-ep1-curation-primitives-design.md`](specs/2026-07-23-ep1-curat
 - [ ] Task 7 — Table Rating/Label columns
 - [ ] Task 8 — Admin-gated Labels settings tab
 - [ ] Task 9 — Wire tray + empty states into MediaDisplayWidget
+
+### EP2 — Search & discovery UX
+Spec: [`specs/…-ep2-search-discovery-design.md`](specs/2026-07-23-ep2-search-discovery-design.md) · Plan: [`plans/…-ep2-search-discovery.md`](plans/2026-07-23-ep2-search-discovery.md) · **Depends on EP1 + SP1.** Clusters: 2A facets · 2B persistence · 2C text-quality (trimmable).
+
+- [ ] Task 1 — `FilterSpec` model
+- [ ] Task 2 — Query builder (`search_elements_advanced` + count)
+- [ ] Task 3 — `get_facet_counts`
+- [ ] Task 4 — `FacetDrawer` (tri-state, negative filters)
+- [ ] Task 5 — `FilterChipBar` + result count
+- [ ] Task 6 — Wire drawer + chips into MediaDisplayWidget
+- [ ] Task 7 — Saved searches (personal) table + CRUD
+- [ ] Task 8 — Smart collections (shared) table + CRUD
+- [ ] Task 9 — Nav integration (saved searches + smart collections)
+- [ ] Task 10 — Synonyms table + `expand_terms`
+- [ ] Task 11 — difflib `suggest_correction` + capped recent searches
+- [ ] Task 12 — Wire did-you-mean + synonym expansion + recent completer
+- [ ] Task 13 — Admin Search settings tab (synonyms + smart collections)
 
 ---
 
