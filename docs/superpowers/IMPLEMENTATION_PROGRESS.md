@@ -1,0 +1,137 @@
+# StaX Audit Remediation — Implementation Progress
+
+Live tracker for the audit-driven remediation program. Source of issues:
+[`STAX_AUDIT_REPORT.md`](../../STAX_AUDIT_REPORT.md). Each sub-project has a
+design spec (`specs/`) and a task plan (`plans/`).
+
+**Legend:** ☐ not started · ◐ in progress · ☑ done
+
+**Program-level decisions (locked):** wire half-finished features up (don't
+delete) · target Windows + Linux · hybrid 3-tier testing · adopt proven OSS
+building blocks where they replace bespoke code.
+
+---
+
+## Sub-project status overview
+
+| SP | Title | Spec | Plan | Impl | Issues |
+|----|-------|:----:|:----:|:----:|--------|
+| SP0 | Test harness & CI foundation | ☑ | ☑ | ☐ | (test-coverage gap) |
+| SP1 | Database consolidation & concurrency | ☐ | ☐ | ☐ | C1, H1, H3, M1, L6, L11 |
+| SP2 | Async ingestion & preview pipeline | ☐ | ☐ | ☐ | C4, H7, M12, L8, L5 |
+| SP3 | FFmpeg/media hardening & cross-platform | ☐ | ☐ | ☐ | H4, M8, M9, M10 |
+| SP4 | Security hardening | ☐ | ☐ | ☐ | C2, C3, H2, H6, M2, L9 |
+| SP5 | Nuke integration & embedded-mode | ☐ | ☐ | ☐ | H5, H8, L1, L3, L7 |
+| SP6 | UI correctness & memory | ☐ | ☐ | ☐ | M3, M4, M5, M6, M7, M13, L2 |
+| SP7 | Build, packaging & deployment | ☐ | ☐ | ☐ | M11, M14 |
+| SP8 | Code quality & consistency | ☐ | ☐ | ☐ | L4, L10 |
+
+---
+
+## SP0 — Test harness & CI foundation
+Spec: [`specs/2026-07-22-sp0-test-harness-ci-design.md`](specs/2026-07-22-sp0-test-harness-ci-design.md) ·
+Plan: [`plans/2026-07-22-sp0-test-harness-ci.md`](plans/2026-07-22-sp0-test-harness-ci.md)
+
+- [ ] Task 1 — Restructure `tests/` into unit/gui/nuke tiers, archive scratch
+- [ ] Task 2 — Add dev dependencies (`pytest-qt`, `pytest-mock`, `pytest-cov`, `flask`)
+- [ ] Task 3 — Rewrite `conftest.py` around the real `DatabaseManager`
+- [ ] Task 4 — Update `pytest.ini` (testpaths, strict markers)
+- [ ] Task 5 — Characterization tests: SequenceDetector & Config
+- [ ] Task 6 — Characterization tests: PreviewCache & FileLockManager
+- [ ] Task 7 — Nuke-tier smoke: NukeBridge mock mode
+- [ ] Task 8 — GUI-tier smoke tests (strict `xfail` for C1)
+- [ ] Task 9 — GitHub Actions CI + branch protection
+
+---
+
+## SP1 — Database consolidation & concurrency
+Spec: _pending_ · Plan: _pending_
+
+- [ ] **C1** — Merge the two DB layers into one `DatabaseManager`; single versioned migration runner; wire analytics/API/batch-edit; write `ingestion_history`/insertion log. Flip SP0's C1 `xfail` smoke tests to pass.
+- [ ] **H1** — Fix lock-file delete-on-release race; switch WAL→DELETE/TRUNCATE on network shares.
+- [ ] **H3** — Remove duplicated, signature-swapped favorite methods; single canonical signature.
+- [ ] **M1** — Whitelist column names in `search_elements` / `update_element` (kill SQL-format injection).
+- [ ] **L6** — Scope the external lock to writes; allow concurrent readers; reuse per-thread connection.
+- [ ] **L11** — Playlist migration: verify row counts, raise on mismatch (no silent data loss).
+
+---
+
+## SP2 — Async ingestion & preview pipeline
+Spec: _pending_ · Plan: _pending_
+
+- [ ] **C4** — Wire `PreviewWorker` + `LazyGalleryView`; move ingestion off the GUI thread.
+- [ ] **H7** — Drop-ingest: pass `config.get_all()`, use `default_copy_policy`, hold thread reference.
+- [ ] **M12** — Decode EXR/DPX via **OpenImageIO**; derive padding from detected sequence, not `%04d`.
+- [ ] **L8** — Replace/harden frame-range parsing with **Fileseq**.
+- [ ] **L5** — Wire duplicate detection into ingest; fix MD5-fallback distance semantics.
+
+---
+
+## SP3 — FFmpeg/media hardening & cross-platform
+Spec: _pending_ · Plan: _pending_
+
+- [ ] **H4** — Select ffmpeg binary names by platform (Win `.exe` / Linux) — unblock Linux.
+- [ ] **M8** — Per-call temp palette file for GIF two-pass (no shared `palette.png` race).
+- [ ] **M9** — Add `timeout=` to all ffmpeg subprocess calls; handle `TimeoutExpired`.
+- [ ] **M10** — Fix ffplay PIPE deadlock (`DEVNULL` / drain); `CREATE_NO_WINDOW` on Windows.
+
+---
+
+## SP4 — Security hardening
+Spec: _pending_ · Plan: _pending_
+
+- [ ] **C2** — Sandbox/restrict processor `exec()` to an admin-owned dir; validate paths; drop "safe" claim.
+- [ ] **C3** — Pin + checksum ffmpeg download; sanitize archive extraction (Zip-Slip).
+- [ ] **H2** — Salted KDF (pbkdf2/bcrypt/argon2); eliminate default `admin/admin`; force reset.
+- [ ] **H6** — GeometryViewer: allow-list served files; reject paths outside previews root; shutdown hook.
+- [ ] **M2** — API: `hmac.compare_digest` token check; ingest-path allowlist.
+- [ ] **L9** — CLI: support HTTPS; prefer `STAX_API_TOKEN` env over `--token` in argv.
+
+---
+
+## SP5 — Nuke integration & embedded-mode
+Spec: _pending_ · Plan: _pending_
+
+- [ ] **H5** — `menu.py` commands must target the live `StaXPanel` (singleton), not a pane result.
+- [ ] **H8** — Scope stdout/stderr suppression to StaX; never swallow `stderr` in Nuke.
+- [ ] **L1** — `init.py`: add absolute plugin paths (`os.path.join(stax_root, subdir)`).
+- [ ] **L3** — Delete orphaned `nuke_bridge_patch.py`.
+- [ ] **L7** — Remove Python-2.7 claims/shims; state single interpreter.
+
+---
+
+## SP6 — UI correctness & memory
+Spec: _pending_ · Plan: _pending_
+
+- [ ] **M3** — Admin bulk actions: read `is_admin` from `main_window`, not the splitter parent.
+- [ ] **M4** — Add `on_advanced_search_result` to `MainWindow` (or emit a signal).
+- [ ] **M5** — Bound/clear `gif_movies` and the icon cache; disconnect `frameChanged`.
+- [ ] **M6** — Video player config: use `Config.get/set`, not `isinstance(dict)`.
+- [ ] **M7** — MediaInfoPopup: detect video/sequence by extension, not a nonexistent `type`.
+- [ ] **M13** — SettingsPanel reset: delete old layout before rebuilding.
+- [ ] **L2** — Wire `BatchEditDialog` into the bulk menu (depends on SP1's DB methods).
+
+---
+
+## SP7 — Build, packaging & deployment
+Spec: _pending_ · Plan: _pending_
+
+- [ ] **M11** — Converge on one packager; remove absolute paths; declare build tool; `.ico` icon; single version source.
+- [ ] **M14** — Write logs/config to a per-user writable location; add rotation; init once.
+- [ ] Linux packaging path (Win+Linux build).
+
+---
+
+## SP8 — Code quality & consistency
+Spec: _pending_ · Plan: _pending_
+
+- [ ] **L4** — Replace bare/blanket excepts and `print` with narrowed exceptions + `logging`.
+- [ ] **L10** — Extract shared utils (`_resolve_path`, size-format, dark palette); split god modules.
+
+---
+
+## Deferred / future (not a bug fix — tracked separately)
+
+- [ ] Qt.py migration for PySide6 / Nuke 16 forward-compat (see report §7).
+- [ ] Strategic building blocks: OpenAssetIO, OpenRV/DJV review, USD, Kitsu/ftrack bridge (report §6–§7).
+- [ ] Differentiators: AI auto-tagging, visual/similarity search (report §6 gaps #1–2).
