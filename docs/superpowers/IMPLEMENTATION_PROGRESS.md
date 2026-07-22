@@ -158,10 +158,12 @@ Feature-expansion program derived from [`STAX_FEATURE_ENHANCEMENT_REPORT.md`](..
 | EP3 | Browse productivity shell | ☑ | ☑ | ☐ | F049–F058 |
 | EP4 | Metadata schema & automation | ☑ | ☑ | ☐ | F015, F016, F018–F022 |
 | EP5 | Review, notes & approval | ☐ | ☐ | ☐ | F023–F030 |
-| EP6 | Ingestion automation & job queue | ☐ | ☐ | ☐ | F031–F040 |
-| EP7 | AI discovery | ☐ | ☐ | ☐ | F001–F006 |
-| EP8 | Collaboration & integrations | ☐ | ☐ | ☐ | F041–F048 |
-| EP9 | Analytics & ops dashboards | ☐ | ☐ | ☐ | F059–F064 |
+| EP6 | Ingestion automation & job queue | ☑ | ☑ | ☐ | F031–F040 |
+| EP7 | AI discovery (local-only) | ☑ | ☑ | ☐ | F001–F004 (+auto-tag) |
+| EP8 | Team collaboration (sync first) | ☑ | ☑ | ☐ | F041–F043 |
+| EP9 | Analytics & ops dashboards | ☑ | ☑ | ☐ | F059, F060, F063 |
+
+> **EP5 (Review, notes & approval) is the only remaining unplanned EP** — deferred by request; resume its brainstorm when ready. EP6–EP9 were batch-drafted with locked decisions (EP6 polling watch-folders + wraps SP2 workers; EP7 local-only AI; EP8 metadata-sync-first, bridges deferred; EP9 available-data dashboards).
 
 ### EP1 — Curation primitives
 Spec: [`specs/…-ep1-curation-primitives-design.md`](specs/2026-07-23-ep1-curation-primitives-design.md) · Plan: [`plans/…-ep1-curation-primitives.md`](plans/2026-07-23-ep1-curation-primitives.md) · **Depends on SP1 + SP6.**
@@ -230,6 +232,22 @@ Spec: [`specs/…-ep4-metadata-schema-design.md`](specs/2026-07-23-ep4-metadata-
 - [ ] Task 15 — Inspector Related section
 
 > **Cross-note (EP4 ↔ SP2):** EP4 Task 9 adds an additive auto-tag hook to `ingestion_core.ingest_file`, which SP2 (C4) also rewrites (async ingest). Apply EP4's hook on top of SP2's rewritten `ingest_file`, not the pre-SP2 version. `ON CONFLICT … DO UPDATE` upserts require SQLite ≥ 3.24 (bundled with Python 3.9 on Win/Linux); fall back to SELECT-then-write on older SQLite.
+
+### EP6 — Ingestion automation & job queue
+Spec: [`specs/…-ep6-ingestion-automation-design.md`](specs/2026-07-23-ep6-ingestion-automation-design.md) · Plan: [`plans/…-ep6-ingestion-automation.md`](plans/2026-07-23-ep6-ingestion-automation.md) · **Depends on SP2 + SP3 + EP4.** Clusters: 6A queue/retry/notify · 6B watch/recipes/dup-policy/preflight · 6C proxy profiles/action-chains (trimmable). 14 tasks. Polling watch-folders (no watchdog); durable `ingest_jobs` ledger wraps SP2's `IngestWorker`/`PreviewWorker`; action chains use whitelisted handlers (never `exec()`).
+
+### EP7 — AI discovery (local-only)
+Spec: [`specs/…-ep7-ai-discovery-design.md`](specs/2026-07-23-ep7-ai-discovery-design.md) · Plan: [`plans/…-ep7-ai-discovery.md`](plans/2026-07-23-ep7-ai-discovery.md) · **Depends on SP1 + SP2 + EP1/EP2.** `Embedder` abstraction (local CLIP ViT-B/32 via **onnxruntime CPU**, ~120–170 MB first-run download) + `FakeEmbedder` for tests; SQLite embeddings + brute-force numpy cosine; semantic/visual/similar + color search + human-in-the-loop auto-tag. F005 (transcript) / F006 (scene descriptors) deferred.
+
+### EP8 — Team collaboration (metadata sync first)
+Spec: [`specs/…-ep8-team-collaboration-design.md`](specs/2026-07-23-ep8-team-collaboration-design.md) · Plan: [`plans/…-ep8-team-collaboration.md`](plans/2026-07-23-ep8-team-collaboration.md) · **Depends on SP1 + SP4 + EP4.** Clusters: 8A granular roles · 8B activity feed · 8C `.staxbundle` metadata/preview export-import (newest-wins). `CollaborationConnector` ABC seam; Kitsu/Ftrack/Flow/DCC (F044–F048) deferred behind it.
+
+### EP9 — Analytics & ops dashboards
+Spec: [`specs/…-ep9-analytics-dashboards-design.md`](specs/2026-07-23-ep9-analytics-dashboards-design.md) · Plan: [`plans/…-ep9-analytics-dashboards.md`](plans/2026-07-23-ep9-analytics-dashboards.md) · **Depends on SP1 (+EP2/EP4).** Extends `AnalyticsPanel` (reuses `_BarChart`, no plotting libs) with Search + Storage tabs (`search_events` table, `get_storage_stats`/`get_duplicate_stats`). F061 (ingest throughput→EP6) / F062 (review cycle→EP5) / F064 (underused) deferred.
+
+> **Cross-note (EP7 dependency):** EP7 adds `onnxruntime` — the **only new heavy pip dependency** in the whole enhancement program — plus a first-run model download. Every AI path guards for a missing embedder and degrades gracefully, so the rest of StaX is unaffected if it's not installed.
+> **Cross-note (EP8 ↔ admin gating):** EP8's granular `has_permission`/`check_permission` supersede the binary `check_admin_permission` used by EP1/EP2/EP4/EP6 admin-gated surfaces. When EP8 lands, migrate those surfaces to the granular gate (a `check_admin_permission` shim mapping to `can_manage_*` keeps them working in the interim).
+> **Cross-note (EP6 ↔ EP4 ↔ SP2 ingest):** EP6 recipes, EP4 auto-tag, and SP2's async rewrite all touch `ingest_file`. Land SP2 first, then layer EP4's hook, then EP6's recipe/proxy options — all additive.
 
 ---
 
