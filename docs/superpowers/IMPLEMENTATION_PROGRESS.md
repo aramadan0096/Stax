@@ -17,14 +17,16 @@ building blocks where they replace bespoke code.
 | SP | Title | Spec | Plan | Impl | Issues |
 |----|-------|:----:|:----:|:----:|--------|
 | SP0 | Test harness & CI foundation | ☑ | ☑ | ☐ | (test-coverage gap) |
-| SP1 | Database consolidation & concurrency | ☐ | ☐ | ☐ | C1, H1, H3, M1, L6, L11 |
-| SP2 | Async ingestion & preview pipeline | ☐ | ☐ | ☐ | C4, H7, M12, L8, L5 |
-| SP3 | FFmpeg/media hardening & cross-platform | ☐ | ☐ | ☐ | H4, M8, M9, M10 |
-| SP4 | Security hardening | ☐ | ☐ | ☐ | C2, C3, H2, H6, M2, L9 |
-| SP5 | Nuke integration & embedded-mode | ☐ | ☐ | ☐ | H5, H8, L1, L3, L7 |
-| SP6 | UI correctness & memory | ☐ | ☐ | ☐ | M3, M4, M5, M6, M7, M13, L2 |
-| SP7 | Build, packaging & deployment | ☐ | ☐ | ☐ | M11, M14 |
-| SP8 | Code quality & consistency | ☐ | ☐ | ☐ | L4, L10 |
+| SP1 | Database consolidation & concurrency | ☑ | ☑ | ☐ | C1, H1, H3, M1, L6, L11 |
+| SP2 | Async ingestion & preview pipeline | ☑ | ☑ | ☐ | C4, H7, M12, L8, L5 |
+| SP3 | FFmpeg/media hardening & cross-platform | ☑ | ☑ | ☐ | H4, M8, M9, M10 |
+| SP4 | Security hardening | ☑ | ☑ | ☐ | C2, C3, H2, H6, M2, L9 |
+| SP5 | Nuke integration & embedded-mode | ☑ | ☑ | ☐ | H5, H8, L1, L3, L7 |
+| SP6 | UI correctness & memory | ☑ | ☑ | ☐ | M3, M4, M5, M6, M7, M13, L2 |
+| SP7 | Build, packaging & deployment | ☑ | ☑ | ☐ | M11, M14 |
+| SP8 | Code quality & consistency | ☑ | ☑ | ☐ | L4, L10 |
+
+**All specs and plans are written** (`docs/superpowers/specs/` and `plans/`). Execution has not started. See "Cross-SP reconciliation notes" at the bottom before executing.
 
 ---
 
@@ -45,7 +47,7 @@ Plan: [`plans/2026-07-22-sp0-test-harness-ci.md`](plans/2026-07-22-sp0-test-harn
 ---
 
 ## SP1 — Database consolidation & concurrency
-Spec: _pending_ · Plan: _pending_
+Spec: [`specs/…-sp1-database-consolidation-design.md`](specs/2026-07-22-sp1-database-consolidation-design.md) · Plan: [`plans/…-sp1-database-consolidation.md`](plans/2026-07-22-sp1-database-consolidation.md)
 
 - [ ] **C1** — Merge the two DB layers into one `DatabaseManager`; single versioned migration runner; wire analytics/API/batch-edit; write `ingestion_history`/insertion log. Flip SP0's C1 `xfail` smoke tests to pass.
 - [ ] **H1** — Fix lock-file delete-on-release race; switch WAL→DELETE/TRUNCATE on network shares.
@@ -57,7 +59,7 @@ Spec: _pending_ · Plan: _pending_
 ---
 
 ## SP2 — Async ingestion & preview pipeline
-Spec: _pending_ · Plan: _pending_
+Spec: [`specs/…-sp2-async-pipeline-design.md`](specs/2026-07-22-sp2-async-pipeline-design.md) · Plan: [`plans/…-sp2-async-pipeline.md`](plans/2026-07-22-sp2-async-pipeline.md)
 
 - [ ] **C4** — Wire `PreviewWorker` + `LazyGalleryView`; move ingestion off the GUI thread.
 - [ ] **H7** — Drop-ingest: pass `config.get_all()`, use `default_copy_policy`, hold thread reference.
@@ -68,7 +70,7 @@ Spec: _pending_ · Plan: _pending_
 ---
 
 ## SP3 — FFmpeg/media hardening & cross-platform
-Spec: _pending_ · Plan: _pending_
+Spec: [`specs/…-sp3-ffmpeg-cross-platform-design.md`](specs/2026-07-22-sp3-ffmpeg-cross-platform-design.md) · Plan: [`plans/…-sp3-ffmpeg-cross-platform.md`](plans/2026-07-22-sp3-ffmpeg-cross-platform.md)
 
 - [ ] **H4** — Select ffmpeg binary names by platform (Win `.exe` / Linux) — unblock Linux.
 - [ ] **M8** — Per-call temp palette file for GIF two-pass (no shared `palette.png` race).
@@ -78,7 +80,7 @@ Spec: _pending_ · Plan: _pending_
 ---
 
 ## SP4 — Security hardening
-Spec: _pending_ · Plan: _pending_
+Spec: [`specs/…-sp4-security-hardening-design.md`](specs/2026-07-22-sp4-security-hardening-design.md) · Plan: [`plans/…-sp4-security-hardening.md`](plans/2026-07-22-sp4-security-hardening.md)
 
 - [ ] **C2** — Sandbox/restrict processor `exec()` to an admin-owned dir; validate paths; drop "safe" claim.
 - [ ] **C3** — Pin + checksum ffmpeg download; sanitize archive extraction (Zip-Slip).
@@ -90,7 +92,7 @@ Spec: _pending_ · Plan: _pending_
 ---
 
 ## SP5 — Nuke integration & embedded-mode
-Spec: _pending_ · Plan: _pending_
+Spec: [`specs/…-sp5-nuke-integration-design.md`](specs/2026-07-22-sp5-nuke-integration-design.md) · Plan: [`plans/…-sp5-nuke-integration.md`](plans/2026-07-22-sp5-nuke-integration.md)
 
 - [ ] **H5** — `menu.py` commands must target the live `StaXPanel` (singleton), not a pane result.
 - [ ] **H8** — Scope stdout/stderr suppression to StaX; never swallow `stderr` in Nuke.
@@ -101,7 +103,7 @@ Spec: _pending_ · Plan: _pending_
 ---
 
 ## SP6 — UI correctness & memory
-Spec: _pending_ · Plan: _pending_
+Spec: [`specs/…-sp6-ui-correctness-design.md`](specs/2026-07-22-sp6-ui-correctness-design.md) · Plan: [`plans/…-sp6-ui-correctness.md`](plans/2026-07-22-sp6-ui-correctness.md)
 
 - [ ] **M3** — Admin bulk actions: read `is_admin` from `main_window`, not the splitter parent.
 - [ ] **M4** — Add `on_advanced_search_result` to `MainWindow` (or emit a signal).
@@ -114,7 +116,7 @@ Spec: _pending_ · Plan: _pending_
 ---
 
 ## SP7 — Build, packaging & deployment
-Spec: _pending_ · Plan: _pending_
+Spec: [`specs/…-sp7-packaging-design.md`](specs/2026-07-22-sp7-packaging-design.md) · Plan: [`plans/…-sp7-packaging.md`](plans/2026-07-22-sp7-packaging.md)
 
 - [ ] **M11** — Converge on one packager; remove absolute paths; declare build tool; `.ico` icon; single version source.
 - [ ] **M14** — Write logs/config to a per-user writable location; add rotation; init once.
@@ -123,10 +125,25 @@ Spec: _pending_ · Plan: _pending_
 ---
 
 ## SP8 — Code quality & consistency
-Spec: _pending_ · Plan: _pending_
+Spec: [`specs/…-sp8-code-quality-design.md`](specs/2026-07-22-sp8-code-quality-design.md) · Plan: [`plans/…-sp8-code-quality.md`](plans/2026-07-22-sp8-code-quality.md)
 
 - [ ] **L4** — Replace bare/blanket excepts and `print` with narrowed exceptions + `logging`.
 - [ ] **L10** — Extract shared utils (`_resolve_path`, size-format, dark palette); split god modules.
+
+---
+
+## Cross-SP reconciliation notes (resolve during execution)
+
+The plans were drafted in parallel; these known touch-point overlaps must be handled when sequencing execution. None require re-planning — they are ordering/merge concerns.
+
+1. **Execution order = SP0 → SP1 → SP2 → SP3 → SP4 → SP5 → SP6 → SP7 → SP8.** SP1 must land before SP2/SP6 (they consume its new DB methods `update_element_phash`, `get_elements_with_phash`, `update_element_metadata`, verified to match). SP2 & SP6 mark those consumer tests `xfail(strict)` until SP1 lands — flip them when executing on top of SP1.
+2. **`file_lock.py`** is edited by both SP1 (H1 lock-on-release + journal_mode) and SP5 (L7 `TimeoutError` polyfill removal). Do SP1 first; SP5's change is a small header/shim edit that rebases cleanly.
+3. **`stax_cli.py`** is edited by SP4 (L9 HTTPS + env token) and SP5 (L7 `urllib2` removal). Coordinate — ideally fold both into whichever runs second.
+4. **`nuke_bridge.py`** frame-range parse is touched by SP2 (L8 fileseq hardening) and SP5 (L7 `unicode` shim). Independent lines; SP2 first, SP5 rebases.
+5. **`paths` module naming:** SP7 creates `src/paths.py` (per-user app-data/log dirs) and SP8 creates `src/utils/paths.py` (`resolve_path`). Different purpose, but the names are confusable — **decision at execution:** put SP7's under `src/utils/appdirs.py` (recommended) or otherwise disambiguate so there is one obvious "paths" util.
+6. **SP4→SP6 handoffs:** SP4 sets `must_change_password` and adds `GeometryViewerServer` shutdown/allow-list, but explicitly hands the **forced-reset dialog** and the GeometryViewer **`closeEvent` wiring** to SP6. Ensure SP6 picks these up (SP6's plan already anticipates the dialog seam).
+7. **`human_size` behavior (SP8):** SP8 refines sub-MB formatting to KB/B (≥1 MB output unchanged). Flagged for reviewer veto — confirm acceptable before SP8 execution.
+8. **`pyproject.toml`** is edited by SP0 (dev extra), SP2 (`fileseq` dep), SP7 (build system → hatchling, `cx-freeze` build extra, drop `pyinstaller`). Merge these additively; SP7's build-system change is the most structural — apply carefully and re-run SP0's CI afterward.
 
 ---
 
