@@ -147,6 +147,37 @@ The plans were drafted in parallel; these known touch-point overlaps must be han
 
 ---
 
+## Enhancement Program (EP1–EP9)
+
+Feature-expansion program derived from [`STAX_FEATURE_ENHANCEMENT_REPORT.md`](../../STAX_FEATURE_ENHANCEMENT_REPORT.md). Builds **on top of** SP0–SP8 (does not duplicate the half-built-feature activation, which SP1/SP2/SP6 own). Brainstormed one EP at a time.
+
+| EP | Theme | Spec | Plan | Impl | Report features |
+|----|-------|:----:|:----:|:----:|-----------------|
+| EP1 | Curation primitives | ☑ | ☑ | ☐ | F013, F014, F052, F053 |
+| EP2 | Search & discovery UX (non-AI) | ☐ | ☐ | ☐ | F007–F012, facets |
+| EP3 | Browse productivity shell | ☐ | ☐ | ☐ | F049–F058 |
+| EP4 | Metadata schema & automation | ☐ | ☐ | ☐ | F015, F016, F018–F022 |
+| EP5 | Review, notes & approval | ☐ | ☐ | ☐ | F023–F030 |
+| EP6 | Ingestion automation & job queue | ☐ | ☐ | ☐ | F031–F040 |
+| EP7 | AI discovery | ☐ | ☐ | ☐ | F001–F006 |
+| EP8 | Collaboration & integrations | ☐ | ☐ | ☐ | F041–F048 |
+| EP9 | Analytics & ops dashboards | ☐ | ☐ | ☐ | F059–F064 |
+
+### EP1 — Curation primitives
+Spec: [`specs/…-ep1-curation-primitives-design.md`](specs/2026-07-23-ep1-curation-primitives-design.md) · Plan: [`plans/…-ep1-curation-primitives.md`](plans/2026-07-23-ep1-curation-primitives.md) · **Depends on SP1 + SP6.**
+
+- [ ] Task 1 — Schema: rating + label_fk columns, labels table, seeded palette
+- [ ] Task 2 — DB API: rating methods (validated)
+- [ ] Task 3 — DB API: label methods + labels CRUD (SET NULL on delete)
+- [ ] Task 4 — `EmptyStateWidget`
+- [ ] Task 5 — `MultiSelectActionTray`
+- [ ] Task 6 — Grid badges + hover quick-edit
+- [ ] Task 7 — Table Rating/Label columns
+- [ ] Task 8 — Admin-gated Labels settings tab
+- [ ] Task 9 — Wire tray + empty states into MediaDisplayWidget
+
+---
+
 ## Deferred / future (not a bug fix — tracked separately)
 
 - [ ] Qt.py migration for PySide6 / Nuke 16 forward-compat (see report §7).
