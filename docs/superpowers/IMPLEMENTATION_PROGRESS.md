@@ -155,7 +155,7 @@ Feature-expansion program derived from [`STAX_FEATURE_ENHANCEMENT_REPORT.md`](..
 |----|-------|:----:|:----:|:----:|-----------------|
 | EP1 | Curation primitives | ☑ | ☑ | ☐ | F013, F014, F052, F053 |
 | EP2 | Search & discovery UX (non-AI) | ☑ | ☑ | ☐ | F007–F012, facets |
-| EP3 | Browse productivity shell | ☐ | ☐ | ☐ | F049–F058 |
+| EP3 | Browse productivity shell | ☑ | ☑ | ☐ | F049–F058 |
 | EP4 | Metadata schema & automation | ☐ | ☐ | ☐ | F015, F016, F018–F022 |
 | EP5 | Review, notes & approval | ☐ | ☐ | ☐ | F023–F030 |
 | EP6 | Ingestion automation & job queue | ☐ | ☐ | ☐ | F031–F040 |
@@ -192,6 +192,23 @@ Spec: [`specs/…-ep2-search-discovery-design.md`](specs/2026-07-23-ep2-search-d
 - [ ] Task 11 — difflib `suggest_correction` + capped recent searches
 - [ ] Task 12 — Wire did-you-mean + synonym expansion + recent completer
 - [ ] Task 13 — Admin Search settings tab (synonyms + smart collections)
+
+### EP3 — Browse productivity shell
+Spec: [`specs/…-ep3-browse-productivity-design.md`](specs/2026-07-23-ep3-browse-productivity-design.md) · Plan: [`plans/…-ep3-browse-productivity.md`](plans/2026-07-23-ep3-browse-productivity.md) · **Depends on EP1 + SP1/SP2/SP6.** Clusters: 3A interaction · 3B inspector/loading · 3C shell polish (trimmable).
+
+- [ ] Task 1 — Command harvesting + registry + fuzzy filter
+- [ ] Task 2 — `CommandPalette` dialog + Ctrl+K
+- [ ] Task 3 — Spacebar quicklook overlay
+- [ ] Task 4 — Keyboard help overlay (`?`)
+- [ ] Task 5 — Extract shared metadata formatting (`metadata_format.py`)
+- [ ] Task 6 — `InspectorPanel` + right-pane vertical split
+- [ ] Task 7 — Skeleton placeholders + scroll retention
+- [ ] Task 8 — Layout presets (Browse/Review/Ingest/Curation)
+- [ ] Task 9 — Accessibility (contrast/text-scale/focus)
+- [ ] Task 10 — Onboarding checklist
+- [ ] Task 11 — `get_recent_elements` + minimal start page
+
+> **Cross-note (EP3 ↔ SP8):** EP3 Task 5 adds `src/ui/metadata_format.py::human_size`; SP8 (L10) adds `src/utils/formatting.py::human_size`. When both land, converge on one — have EP3's module import SP8's util (or vice-versa) so there is a single size formatter.
 
 ---
 
