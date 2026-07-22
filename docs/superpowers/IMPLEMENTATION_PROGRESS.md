@@ -156,7 +156,7 @@ Feature-expansion program derived from [`STAX_FEATURE_ENHANCEMENT_REPORT.md`](..
 | EP1 | Curation primitives | ☑ | ☑ | ☐ | F013, F014, F052, F053 |
 | EP2 | Search & discovery UX (non-AI) | ☑ | ☑ | ☐ | F007–F012, facets |
 | EP3 | Browse productivity shell | ☑ | ☑ | ☐ | F049–F058 |
-| EP4 | Metadata schema & automation | ☐ | ☐ | ☐ | F015, F016, F018–F022 |
+| EP4 | Metadata schema & automation | ☑ | ☑ | ☐ | F015, F016, F018–F022 |
 | EP5 | Review, notes & approval | ☐ | ☐ | ☐ | F023–F030 |
 | EP6 | Ingestion automation & job queue | ☐ | ☐ | ☐ | F031–F040 |
 | EP7 | AI discovery | ☐ | ☐ | ☐ | F001–F006 |
@@ -209,6 +209,27 @@ Spec: [`specs/…-ep3-browse-productivity-design.md`](specs/2026-07-23-ep3-brows
 - [ ] Task 11 — `get_recent_elements` + minimal start page
 
 > **Cross-note (EP3 ↔ SP8):** EP3 Task 5 adds `src/ui/metadata_format.py::human_size`; SP8 (L10) adds `src/utils/formatting.py::human_size`. When both land, converge on one — have EP3's module import SP8's util (or vice-versa) so there is a single size formatter.
+
+### EP4 — Metadata schema & automation
+Spec: [`specs/…-ep4-metadata-schema-design.md`](specs/2026-07-23-ep4-metadata-schema-design.md) · Plan: [`plans/…-ep4-metadata-schema.md`](plans/2026-07-23-ep4-metadata-schema.md) · **Depends on SP1 + SP2 + EP1/EP3.** Clusters: 4A schema · 4B templates/auto-tag · 4C rules/links.
+
+- [ ] Task 1 — Schema tables (fields, EAV values, defaults)
+- [ ] Task 2 — Value coercion helpers (`metadata_rules.py`)
+- [ ] Task 3 — Field CRUD + validation
+- [ ] Task 4 — EAV values + inheritance resolution
+- [ ] Task 5 — `CustomFieldsWidget` + edit/inspector integration
+- [ ] Task 6 — Admin metadata-fields manager tab
+- [ ] Task 7 — Metadata templates + `apply_template`
+- [ ] Task 8 — Auto-tag rules + pure `evaluate_autotag`
+- [ ] Task 9 — Ingest hook (auto-tag + derived fields)
+- [ ] Task 10 — Automation manager tab + ingest template picker
+- [ ] Task 11 — Quality rules + `check_element_quality`
+- [ ] Task 12 — Health panel dock
+- [ ] Task 13 — Naming assistant (`suggest_name`)
+- [ ] Task 14 — Element relationships table + API
+- [ ] Task 15 — Inspector Related section
+
+> **Cross-note (EP4 ↔ SP2):** EP4 Task 9 adds an additive auto-tag hook to `ingestion_core.ingest_file`, which SP2 (C4) also rewrites (async ingest). Apply EP4's hook on top of SP2's rewritten `ingest_file`, not the pre-SP2 version. `ON CONFLICT … DO UPDATE` upserts require SQLite ≥ 3.24 (bundled with Python 3.9 on Win/Linux); fall back to SELECT-then-write on older SQLite.
 
 ---
 
