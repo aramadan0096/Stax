@@ -1067,21 +1067,29 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 element_copy[key] = resolved
         return element_copy
     
+    def _is_admin_user(self):
+        """Return True if the owning MainWindow reports an admin session.
+
+        The widget's Qt parent is the central QSplitter (main.py), which has no
+        'is_admin' attribute; permission state lives on MainWindow, injected as
+        self.main_window at construction. (Fixes audit issue M3.)
+        """
+        return bool(getattr(self.main_window, 'is_admin', False))
+
     def show_context_menu(self, position, element_id):
         """
         Show context menu for element(s).
         Supports both single and bulk operations.
-        
+
         Args:
             position (QPoint): Position to show menu
             element_id (int): Element ID (for single selection)
         """
         # Get all selected element IDs
         selected_ids = self.get_selected_element_ids()
-        
+
         menu = QtWidgets.QMenu(self)
-        parent_widget = self.parent()
-        is_admin = bool(getattr(parent_widget, 'is_admin', False)) if parent_widget else False
+        is_admin = self._is_admin_user()
         
         # If multiple items selected, show bulk operations menu
         if len(selected_ids) > 1:
