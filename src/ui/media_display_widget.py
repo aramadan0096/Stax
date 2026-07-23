@@ -42,6 +42,10 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.media_popup.reveal_requested.connect(self.on_popup_reveal)
         self.preview_cache = get_preview_cache()  # Initialize preview cache
         self.gif_movies = {}  # Cache for QMovie objects {element_id: QMovie}
+        self._pending_icon_size = None
+        self._size_debounce = QtCore.QTimer(self)
+        self._size_debounce.setSingleShot(True)
+        self._size_debounce.timeout.connect(lambda: self._apply_pending_size())
         self.current_gif_item = None  # Currently hovering item with GIF
         self.element_items = {}  # Map element_id -> QListWidgetItem
         self.element_flags = {}  # Map element_id -> status flags (favorite/deprecated)
@@ -382,10 +386,17 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             self.size_slider.setEnabled(False)
     
     def on_size_changed(self, value):
-        """Handle thumbnail size change - reload elements with new size."""
+        """Handle thumbnail size change with debounced expensive reload."""
         self.gallery_view.setIconSize(QtCore.QSize(value, value))
-        
-        # Reload visible items to rescale images
+
+        if not self.current_elements:
+            return
+
+        self._pending_icon_size = value
+        self._size_debounce.start(150)
+
+    def _apply_pending_size(self):
+        """Reload current content once after size slider settles."""
         if not self.current_elements:
             return
         if self.config.get('pagination_enabled', True) and self.current_list_id:
@@ -542,6 +553,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
     def _update_views_with_elements(self, elements):
         """Update gallery and table views with given elements."""
         self.stop_current_gif()
+        self._clear_gif_movies()
         self.current_gif_item = None
         self.gallery_view.clear()
         icon_size = self.gallery_view.iconSize()
@@ -978,6 +990,16 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 movie.jumpToFrame(0)
                 # Update icon to show first frame
                 self._update_gif_frame(element_id)
+
+    def _clear_gif_movies(self):
+        """Stop, disconnect, and clear cached QMovie instances."""
+        for movie in self.gif_movies.values():
+            try:
+                movie.stop()
+                movie.frameChanged.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+        self.gif_movies.clear()
     
     def keyPressEvent(self, event):
         """Handle key press events."""

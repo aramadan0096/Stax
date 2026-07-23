@@ -6,17 +6,24 @@ Utility for loading and managing SVG icons in the application.
 """
 
 import os
+import logging
+from collections import OrderedDict
 from PySide2 import QtGui, QtSvg, QtCore
+
+
+log = logging.getLogger(__name__)
 
 
 class IconLoader(object):
     """
-    Utility class for loading SVG icons with caching.
+    Utility class for loading SVG icons with a bounded LRU cache.
     Provides consistent icon access throughout the application.
     """
     
     _instance = None
-    _icon_cache = {}
+    _icon_cache = OrderedDict()
+    _MAX_CACHE_ENTRIES = 256
+    _MISS = QtGui.QIcon()  # Shared sentinel for missing/failed icon loads
     
     def __new__(cls):
         """Singleton pattern - only one instance exists."""
@@ -38,11 +45,11 @@ class IconLoader(object):
         
         # Verify icons directory exists
         if not os.path.exists(self.icons_dir):
-            print("WARNING: Icons directory not found: {}".format(self.icons_dir))
+            log.warning("Icons directory not found: %s", self.icons_dir)
     
     def get_icon(self, icon_name, size=24, color=None):
         """
-        Get a QIcon from an SVG file.
+        Get a QIcon from an SVG file, with a bounded LRU cache.
         
         Args:
             icon_name (str): Icon filename without extension (e.g., 'add', 'delete')
@@ -52,42 +59,42 @@ class IconLoader(object):
         Returns:
             QtGui.QIcon: Loaded icon or default icon if not found
         """
-        # Create cache key
         cache_key = "{}_{}_{}".format(icon_name, size, color or 'default')
-        
-        # Return cached icon if available
-        if cache_key in self._icon_cache:
-            return self._icon_cache[cache_key]
+
+        cached = self._icon_cache.get(cache_key)
+        if cached is not None:
+            self._icon_cache.move_to_end(cache_key)
+            return cached
         
         # Build icon file path
         icon_path = os.path.join(self.icons_dir, "{}.svg".format(icon_name))
-        
+
         if not os.path.exists(icon_path):
-            print("WARNING: Icon not found: {}".format(icon_path))
-            # Return default Qt icon
-            return QtGui.QIcon()
-        
+            log.warning("Icon not found: %s", icon_path)
+            return self._store_icon(cache_key, self._MISS)
+
         try:
-            # Load SVG and create pixmap
             renderer = QtSvg.QSvgRenderer(icon_path)
             pixmap = QtGui.QPixmap(size, size)
             pixmap.fill(QtCore.Qt.transparent)
-            
+
             painter = QtGui.QPainter(pixmap)
             renderer.render(painter)
             painter.end()
-            
-            # Create icon from pixmap
-            icon = QtGui.QIcon(pixmap)
-            
-            # Cache the icon
-            self._icon_cache[cache_key] = icon
-            
-            return icon
-        
+
+            return self._store_icon(cache_key, QtGui.QIcon(pixmap))
+
         except Exception as e:
-            print("ERROR loading icon {}: {}".format(icon_name, str(e)))
-            return QtGui.QIcon()
+            log.exception("Error loading icon %s: %s", icon_name, str(e))
+            return self._store_icon(cache_key, self._MISS)
+
+    def _store_icon(self, cache_key, icon):
+        """Insert an icon into the bounded LRU cache and evict oldest entries."""
+        self._icon_cache[cache_key] = icon
+        self._icon_cache.move_to_end(cache_key)
+        while len(self._icon_cache) > self._MAX_CACHE_ENTRIES:
+            self._icon_cache.popitem(last=False)
+        return icon
     
     def get_pixmap(self, icon_name, size=24):
         """
