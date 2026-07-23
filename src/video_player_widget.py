@@ -7,6 +7,7 @@ Python 3.9+
 
 import os
 import sys
+import logging
 
 try:
     import dependency_bootstrap
@@ -20,9 +21,11 @@ dependency_bootstrap.bootstrap()
 
 from PySide2 import QtWidgets, QtCore, QtGui
 import subprocess
-import json
 from src.icon_loader import get_pixmap
 from src.geometry_viewer import GeometryViewerWidget
+
+
+log = logging.getLogger(__name__)
 
 _FFPY_IMPORT_ERROR = None
 
@@ -723,15 +726,18 @@ class VideoPlayerWidget(QtWidgets.QWidget):
             self.current_element = None
 
     def _get_config_player(self):
-        """Retrieve configured external player path from the provided config or prompt the user."""
+        """Retrieve configured external player path, prompting and persisting if missing.
+
+        Uses Config.get/Config.set when available (audit issue M6).
+        """
+        player = None
         try:
-            cfg_path = None
-            if hasattr(self, 'config') and isinstance(self.config, dict):
+            if hasattr(self, 'config') and hasattr(self.config, 'get'):
                 player = self.config.get('external_player')
-                if player:
-                    return player
         except Exception:
-            pass
+            log.exception("Failed to read external_player from config")
+        if player:
+            return player
 
         # Ask user to pick an executable
         dlg = QtWidgets.QFileDialog(self, 'Select external player executable')
@@ -740,27 +746,14 @@ class VideoPlayerWidget(QtWidgets.QWidget):
             files = dlg.selectedFiles()
             if files:
                 player_path = files[0]
-                # store (best-effort) back to config if possible
+
                 try:
-                    if hasattr(self, 'config') and isinstance(self.config, dict):
+                    if hasattr(self, 'config') and hasattr(self.config, 'set'):
+                        self.config.set('external_player', player_path)
+                    elif isinstance(self.config, dict):
                         self.config['external_player'] = player_path
-                        # try to write to disk to the project's config if present
-                        cfg_file = getattr(self, '_config_file_path', None)
-                        if not cfg_file:
-                            # look for common project config location
-                            possible = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'config.json'))
-                            if os.path.exists(os.path.dirname(possible)):
-                                cfg_file = possible
-                        if cfg_file:
-                            try:
-                                with open(cfg_file, 'w') as f:
-                                    json.dump(self.config, f, indent=2)
-                                # remember where we stored it
-                                self._config_file_path = cfg_file
-                            except Exception:
-                                pass
                 except Exception:
-                    pass
+                    log.exception("Failed to persist external_player to config")
                 return player_path
         return None
 
