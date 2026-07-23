@@ -35,6 +35,27 @@ def _install_legacy_playlist_items(path, rows):
     conn.close()
 
 
+def _install_legacy_playlist_items_no_timestamp(path, rows):
+    """Drop playlist_items and recreate it in the OLD shape with NO timestamp
+    column at all (no created_at, no added_at) — the class of legacy DB that
+    triggers the L11 startup-crash regression in Migration 6."""
+    conn = sqlite3.connect(path)
+    conn.execute("PRAGMA foreign_keys = OFF")
+    conn.execute("DROP TABLE playlist_items")
+    conn.execute(
+        "CREATE TABLE playlist_items ("
+        " playlist_fk INTEGER NOT NULL,"
+        " element_fk INTEGER NOT NULL,"
+        " order_index INTEGER DEFAULT 0)"
+    )
+    conn.executemany(
+        "INSERT INTO playlist_items (playlist_fk, element_fk, order_index) VALUES (?, ?, ?)",
+        rows,
+    )
+    conn.commit()
+    conn.close()
+
+
 @pytest.mark.unit
 def test_migration6_preserves_distinct_rows(tmp_path):
     path, lid, eids, pid = _seed_valid_db(tmp_path, 3)
@@ -65,3 +86,21 @@ def test_migration6_raises_on_row_count_mismatch(tmp_path):
     conn.close()
     assert "playlist_items_old" not in tables
     assert src == 2
+
+
+@pytest.mark.unit
+def test_migration6_legacy_without_timestamp_column(tmp_path):
+    """L11 regression guard: a legacy playlist_items with neither created_at
+    nor added_at must not crash DatabaseManager construction (previously
+    raised sqlite3.OperationalError: no such column: created_at)."""
+    path, lid, eids, pid = _seed_valid_db(tmp_path, 2)
+    _install_legacy_playlist_items_no_timestamp(
+        path, [(pid, eids[0], 0), (pid, eids[1], 1)]
+    )
+    # Must not raise.
+    db2 = DatabaseManager(path, enable_logging=False, use_file_lock=False)
+    with db2.get_connection(write=False) as conn:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(playlist_items)")}
+        count = conn.execute("SELECT COUNT(*) FROM playlist_items").fetchone()[0]
+    assert "item_id" in cols       # migrated to new shape
+    assert count == 2              # no data loss

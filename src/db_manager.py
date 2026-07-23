@@ -520,13 +520,27 @@ class DatabaseManager(object):
                     else:
                         select_cols.append('0')
 
+                    # L11: the timestamp source must be conditional too — a
+                    # legacy playlist_items may have neither created_at nor
+                    # added_at, and referencing a missing column unconditionally
+                    # raises sqlite3.OperationalError (uncaught here, crashing
+                    # DatabaseManager construction).
+                    if 'created_at' in cols:
+                        timestamp_expr = 'COALESCE(created_at, CURRENT_TIMESTAMP)'
+                    elif 'added_at' in cols:
+                        timestamp_expr = 'COALESCE(added_at, CURRENT_TIMESTAMP)'
+                    else:
+                        timestamp_expr = 'CURRENT_TIMESTAMP'
+
                     # INSERT OR IGNORE so a UNIQUE clash drops a row instead of
                     # aborting mid-statement — the count guard below then catches it.
                     copy_sql = (
                         "INSERT OR IGNORE INTO playlist_items_new "
                         "(playlist_fk, element_fk, order_index, added_at) "
-                        "SELECT {cols}, COALESCE(created_at, CURRENT_TIMESTAMP) "
-                        "FROM playlist_items".format(cols=','.join(select_cols))
+                        "SELECT {cols}, {ts} "
+                        "FROM playlist_items".format(
+                            cols=','.join(select_cols), ts=timestamp_expr
+                        )
                     )
                     cursor.execute(copy_sql)
 
