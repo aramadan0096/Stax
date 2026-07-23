@@ -1104,50 +1104,10 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         
         # If multiple items selected, show bulk operations menu
         if len(selected_ids) > 1:
-            # Bulk operations header
-            header_label = QtWidgets.QLabel("  {} items selected  ".format(len(selected_ids)))
-            header_label.setStyleSheet("font-weight: bold; color: #16c6b0; padding: 5px;")
-            header_action = QtWidgets.QWidgetAction(self)
-            header_action.setDefaultWidget(header_label)
-            menu.addAction(header_action)
-            
-            menu.addSeparator()
-            
-            # Bulk add to favorites
-            bulk_fav_action = menu.addAction(get_icon('favorite', size=16), "Add All to Favorites")
-            
-            # Bulk add to playlist
-            bulk_playlist_action = menu.addAction(get_icon('playlist', size=16), "Add All to Playlist...")
-
-            # Bulk metadata edit
-            bulk_edit_action = menu.addAction(get_icon('edit', size=16), "Batch Edit Metadata...")
-            
-            menu.addSeparator()
-            
-            # Bulk mark as deprecated (admin only)
-            bulk_deprecate_action = menu.addAction(get_icon('deprecated', size=16), "Mark All as Deprecated")
-            if not is_admin:
-                bulk_deprecate_action.setEnabled(False)
-            
-            # Bulk delete (admin only)
-            bulk_delete_action = menu.addAction(get_icon('delete', size=16), "Delete All Selected")
-            if not is_admin:
-                bulk_delete_action.setEnabled(False)
-            
-            # Execute menu
+            actions = self._populate_bulk_menu(menu, selected_ids, is_admin, with_header=True)
             action = menu.exec_(position)
-            
-            if action == bulk_fav_action:
-                self.bulk_add_to_favorites(selected_ids)
-            elif action == bulk_playlist_action:
-                self.bulk_add_to_playlist(selected_ids)
-            elif action == bulk_edit_action:
-                self.open_batch_edit(selected_ids)
-            elif action == bulk_deprecate_action:
-                self.bulk_mark_deprecated(selected_ids)
-            elif action == bulk_delete_action:
-                self.bulk_delete(selected_ids)
-        
+            self._dispatch_bulk_action(action, actions, selected_ids)
+
         else:
             # Single item context menu (existing behavior)
             # Check if already favorited
@@ -1313,48 +1273,59 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", "Failed to delete element: {}".format(str(e)))
     
+    def _populate_bulk_menu(self, menu, selected_ids, is_admin, with_header):
+        """Add the shared bulk-operation actions to `menu`; return {name: QAction}."""
+        if with_header:
+            header_label = QtWidgets.QLabel("  {} items selected  ".format(len(selected_ids)))
+            header_label.setStyleSheet("font-weight: bold; color: #16c6b0; padding: 5px;")
+            header_action = QtWidgets.QWidgetAction(self)
+            header_action.setDefaultWidget(header_label)
+            menu.addAction(header_action)
+            menu.addSeparator()
+
+        actions = {}
+        actions['fav'] = menu.addAction(get_icon('favorite', size=16), "Add All to Favorites")
+        actions['playlist'] = menu.addAction(get_icon('playlist', size=16), "Add All to Playlist...")
+        actions['edit'] = menu.addAction(get_icon('edit', size=16), "Batch Edit Metadata...")
+
+        menu.addSeparator()
+
+        actions['deprecate'] = menu.addAction(get_icon('deprecated', size=16), "Mark All as Deprecated")
+        actions['delete'] = menu.addAction(get_icon('delete', size=16), "Delete All Selected")
+        if not is_admin:
+            actions['deprecate'].setEnabled(False)
+            actions['delete'].setEnabled(False)
+        return actions
+
+    def _dispatch_bulk_action(self, action, actions, selected_ids):
+        """Route a chosen bulk QAction to its handler."""
+        if action == actions['fav']:
+            self.bulk_add_to_favorites(selected_ids)
+        elif action == actions['playlist']:
+            self.bulk_add_to_playlist(selected_ids)
+        elif action == actions['edit']:
+            self.open_batch_edit(selected_ids)
+        elif action == actions['deprecate']:
+            self.bulk_mark_deprecated(selected_ids)
+        elif action == actions['delete']:
+            self.bulk_delete(selected_ids)
+
     def show_bulk_menu(self):
         """Show bulk operations menu."""
         # Get selected elements
         selected_ids = self.get_selected_element_ids()
-        
+
         if not selected_ids:
             QtWidgets.QMessageBox.information(self, "No Selection", "Please select one or more elements.\n\nTip: Hold Ctrl/Cmd to select multiple items.")
             return
-        
+
         # Create menu
         menu = QtWidgets.QMenu(self)
-        
-        # Bulk add to favorites
-        bulk_fav_action = menu.addAction(get_icon('favorite', size=16), "Add All to Favorites")
-        
-        # Bulk add to playlist
-        bulk_playlist_action = menu.addAction(get_icon('playlist', size=16), "Add All to Playlist...")
-
-        # Bulk metadata edit
-        bulk_edit_action = menu.addAction(get_icon('edit', size=16), "Batch Edit Metadata...")
-        
-        menu.addSeparator()
-        
-        # Bulk mark as deprecated
-        bulk_deprecate_action = menu.addAction(get_icon('deprecated', size=16), "Mark All as Deprecated")
-        
-        # Bulk delete
-        bulk_delete_action = menu.addAction(get_icon('delete', size=16), "Delete All Selected")
-        
-        # Execute menu
+        # is_admin=True reproduces this menu's prior behavior: unlike the context
+        # menu, it never disabled the destructive actions.
+        actions = self._populate_bulk_menu(menu, selected_ids, is_admin=True, with_header=False)
         action = menu.exec_(QtGui.QCursor.pos())
-        
-        if action == bulk_fav_action:
-            self.bulk_add_to_favorites(selected_ids)
-        elif action == bulk_playlist_action:
-            self.bulk_add_to_playlist(selected_ids)
-        elif action == bulk_edit_action:
-            self.open_batch_edit(selected_ids)
-        elif action == bulk_deprecate_action:
-            self.bulk_mark_deprecated(selected_ids)
-        elif action == bulk_delete_action:
-            self.bulk_delete(selected_ids)
+        self._dispatch_bulk_action(action, actions, selected_ids)
 
     def open_batch_edit(self, element_ids=None):
         """Open batch metadata editor for selected elements."""
