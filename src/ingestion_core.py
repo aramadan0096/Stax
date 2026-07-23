@@ -19,6 +19,51 @@ from src.glb_converter import (
     BLENDER_SCRIPT_PATH,
 )
 
+import logging
+
+log = logging.getLogger(__name__)
+
+try:
+    import fileseq
+    _HAS_FILESEQ = True
+except ImportError:                       # graceful degradation
+    _HAS_FILESEQ = False
+
+
+def parse_frame_range(range_str):
+    """Parse a frame-range string into (first, last, frames_list).
+
+    Uses Fileseq when available so negative frames ('-5-10'), stepped
+    ranges ('1-10x2'), and missing frames ('1-3,5') all parse correctly.
+    Falls back to a negative-aware regex for the common 'a-b' case.
+    Returns None for empty/invalid input.
+    """
+    if range_str is None:
+        return None
+    text = str(range_str).strip()
+    if not text:
+        return None
+
+    if _HAS_FILESEQ:
+        try:
+            fs = fileseq.FrameSet(text)
+            frames = list(fs)
+            if frames:
+                return frames[0], frames[-1], frames
+        except Exception as exc:          # noqa: BLE001 - fall through to regex
+            log.debug("fileseq failed to parse %r: %s", text, exc)
+
+    match = re.match(r'^(-?\d+)-(-?\d+)$', text)
+    if match:
+        a, b = int(match.group(1)), int(match.group(2))
+        lo, hi = (a, b) if a <= b else (b, a)
+        return lo, hi, list(range(lo, hi + 1))
+    try:
+        v = int(text)
+        return v, v, [v]
+    except ValueError:
+        return None
+
 
 class SequenceDetector(object):
     """Detects and parses image sequences based on configurable patterns."""
@@ -131,7 +176,7 @@ class SequenceDetector(object):
                 'frame_pattern': frame_pattern,
                 'ffmpeg_pattern': ffmpeg_pattern,
                 'files': sequence_files,
-                'frame_range': '{}-{}'.format(frame_numbers[0], frame_numbers[-1]),
+                'frame_range': cls._compact_frame_range(frame_numbers),
                 'first_frame': frame_numbers[0],
                 'last_frame': frame_numbers[-1],
                 'start_frame': frame_numbers[0],
@@ -143,6 +188,23 @@ class SequenceDetector(object):
             }
 
         return None
+
+    @staticmethod
+    def _compact_frame_range(frame_numbers):
+        """Compact a list of frame numbers into a range string.
+
+        Uses Fileseq so gapped sequences render '1-3,5' rather than a
+        misleading '1-5'. Contiguous sets render 'first-last'.
+        """
+        if not frame_numbers:
+            return ''
+        ordered = sorted(set(frame_numbers))
+        if _HAS_FILESEQ:
+            try:
+                return str(fileseq.FrameSet(ordered).frameRange())
+            except Exception as exc:      # noqa: BLE001
+                log.debug("fileseq compact failed for %s: %s", ordered, exc)
+        return '{}-{}'.format(ordered[0], ordered[-1])
 
     @staticmethod
     def get_sequence_path(sequence_info):

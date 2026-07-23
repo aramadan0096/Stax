@@ -13,7 +13,7 @@ import shutil
 import hashlib
 import tempfile
 
-from src.ingestion_core import SequenceDetector
+from src.ingestion_core import SequenceDetector, parse_frame_range
 
 if sys.version_info[0] >= 3:  # Python 3 fallback for compatibility
     unicode = str
@@ -91,11 +91,9 @@ class NukeBridge(object):
                 node.setName(node_name)
             
             if frame_range:
-                # Parse frame range
-                parts = frame_range.split('-')
-                if len(parts) == 2:
-                    first = int(parts[0])
-                    last = int(parts[1])
+                parsed = parse_frame_range(frame_range)
+                if parsed:
+                    first, last, _frames = parsed
                     node['first'].setValue(first)
                     node['last'].setValue(last)
             

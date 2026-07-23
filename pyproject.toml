@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
     "ffpyplayer>=4.5.3",
+    "fileseq>=1.15.0",
     "flask>=3.1.3",
     "imagehash>=4.3.2",
     "numpy>=2.0.2",
