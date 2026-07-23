@@ -32,6 +32,7 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 from src.config import Config
 from src.db_manager import DatabaseManager
 from src.ingestion_core import IngestionCore
+from src.ingest_worker import IngestWorker
 from src.nuke_bridge import NukeBridge, NukeIntegration
 from src.extensibility_hooks import ProcessorManager
 from src.icon_loader import get_icon
@@ -712,35 +713,49 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.perform_ingestion(files, target_list_id)
 
     def perform_ingestion(self, files, target_list_id):
+        jobs = [(f, target_list_id) for f in files]
         progress = QtWidgets.QProgressDialog(
-            "Ingesting files...", "Cancel", 0, len(files), self
+            "Ingesting files...", "Cancel", 0, len(jobs), self
         )
         progress.setWindowModality(QtCore.Qt.WindowModal)
-        success_count = error_count = skipped_count = 0
-        for i, filepath in enumerate(files):
-            if progress.wasCanceled():
-                break
-            progress.setValue(i)
-            progress.setLabelText("Ingesting: {}".format(os.path.basename(filepath)))
-            result = self.ingestion.ingest_file(
-                filepath, target_list_id,
-                copy_policy=self.config.get("default_copy_policy"),
+        progress.setMinimumDuration(0)
+
+        worker = IngestWorker(
+            self.db, self.config.get_all(), jobs,
+            copy_policy=self.config.get("default_copy_policy"),
+        )
+        self._ingest_worker = worker            # keep a reference alive
+
+        worker.progress.connect(
+            lambda done, total, label: (
+                progress.setValue(done - 1),
+                progress.setLabelText("Ingesting: {}".format(label)),
             )
-            if result["success"]:
-                success_count += 1
-            elif result.get("reason") == "duplicate_skipped":
-                skipped_count += 1
-            else:
-                error_count += 1
-        progress.setValue(len(files))
-        msg = "Ingested {} file(s) successfully.".format(success_count)
-        if skipped_count:
-            msg += "\n{} skipped (duplicates).".format(skipped_count)
-        if error_count:
-            msg += "\n{} error(s).".format(error_count)
+        )
+        progress.canceled.connect(worker.cancel)
+        worker.ingest_finished.connect(
+            lambda s, k, e: self._on_perform_ingestion_done(progress, s, k, e)
+        )
+        worker.ingest_failed.connect(
+            lambda msg: self._on_perform_ingestion_failed(progress, msg)
+        )
+        worker.start()
+        progress.exec_()
+
+    def _on_perform_ingestion_done(self, progress, success, skipped, errors):
+        progress.reset()
+        msg = "Ingested {} file(s) successfully.".format(success)
+        if skipped:
+            msg += "\n{} skipped (duplicates).".format(skipped)
+        if errors:
+            msg += "\n{} error(s).".format(errors)
         QtWidgets.QMessageBox.information(self, "Ingestion Complete", msg)
         if self.media_display.current_list_id:
             self.media_display.load_elements(self.media_display.current_list_id)
+
+    def _on_perform_ingestion_failed(self, progress, message):
+        progress.reset()
+        QtWidgets.QMessageBox.critical(self, "Ingestion Error", message)
 
     def ingest_library(self):
         dialog = IngestLibraryDialog(self.db, self.ingestion, self.config, self)

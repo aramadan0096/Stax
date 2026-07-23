@@ -7,6 +7,7 @@ Dialog for bulk-ingesting folder structures
 import os
 from PySide2 import QtWidgets, QtCore, QtGui
 from src.icon_loader import get_icon
+from src.ingest_worker import IngestWorker
 
 class IngestLibraryDialog(QtWidgets.QDialog):
     """Dialog for bulk-ingesting an existing library folder structure."""
@@ -363,11 +364,11 @@ class IngestLibraryDialog(QtWidgets.QDialog):
         return count
     
     def start_ingestion(self):
-        """Start bulk ingestion process."""
+        """Build the Stacks/Lists structure, then ingest files off-thread."""
         if not self.scanned_structure:
             QtWidgets.QMessageBox.warning(self, "No Structure", "Please scan a folder first.")
             return
-        
+
         # Confirm
         reply = QtWidgets.QMessageBox.question(
             self, "Confirm Ingestion",
@@ -375,104 +376,68 @@ class IngestLibraryDialog(QtWidgets.QDialog):
             "This operation may take several minutes.",
             QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
         )
-        
         if reply != QtWidgets.QMessageBox.Yes:
             return
-        
-        # Count total files for progress
-        total_files = sum(self._count_files(stack) for stack in self.scanned_structure.values())
-        
-        # Create progress dialog
-        progress = QtWidgets.QProgressDialog("Ingesting library...", "Cancel", 0, total_files, self)
+
+        # --- Build DB structure (fast, GUI thread) and collect ingest jobs ---
+        jobs = []
+        try:
+            for stack_name, stack_data in self.scanned_structure.items():
+                stack_id = self.db.create_stack(stack_name, stack_data['path'])
+                if stack_data['files'] and not stack_data['lists']:
+                    root_list_id = self.db.create_list(stack_id, "_root")
+                    for filepath in stack_data['files']:
+                        jobs.append((filepath, root_list_id))
+                self._collect_list_jobs(stack_id, None, stack_data['lists'], jobs)
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(self, "Ingestion Error", "Failed: {}".format(str(exc)))
+            return
+
+        if not jobs:
+            QtWidgets.QMessageBox.information(self, "Nothing to Ingest", "No media files found.")
+            return
+
+        copy_policy = self.copy_policy_combo.currentText()
+        progress = QtWidgets.QProgressDialog("Ingesting library...", "Cancel", 0, len(jobs), self)
         progress.setWindowModality(QtCore.Qt.WindowModal)
         progress.setMinimumDuration(0)
-        
-        success_count = 0
-        error_count = 0
-        processed = 0
-        
-        copy_policy = self.copy_policy_combo.currentText()
-        
-        try:
-            # Process each stack
-            for stack_name, stack_data in self.scanned_structure.items():
-                if progress.wasCanceled():
-                    break
-                
-                # Create stack
-                stack_id = self.db.create_stack(stack_name, stack_data['path'])
-                
-                # Ingest stack files
-                for filepath in stack_data['files']:
-                    if progress.wasCanceled():
-                        break
-                    
-                    progress.setValue(processed)
-                    progress.setLabelText("Ingesting: {}".format(os.path.basename(filepath)))
-                    
-                    # Create temporary list for stack-level files
-                    if not stack_data['lists']:
-                        temp_list_id = self.db.create_list(stack_id, "_root")
-                    
-                    processed += 1
-                
-                # Process lists
-                s, e, processed = self._ingest_lists_recursive(
-                    stack_id, None, stack_data['lists'], copy_policy, progress, processed
-                )
-                success_count += s
-                error_count += e
-            
-            progress.setValue(total_files)
-            
-            # Show result
-            QtWidgets.QMessageBox.information(
-                self, "Ingestion Complete",
-                "Library ingested successfully!\n\n"
-                "{} files ingested\n{} errors".format(success_count, error_count)
+
+        config_dict = self.config.get_all() if hasattr(self.config, "get_all") else self.config
+        worker = IngestWorker(self.db, config_dict, jobs, copy_policy=copy_policy)
+        self._ingest_worker = worker
+
+        worker.progress.connect(
+            lambda done, total, label: (
+                progress.setValue(done - 1),
+                progress.setLabelText("Ingesting: {}".format(label)),
             )
-            
-            self.accept()
-            
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "Ingestion Error", "Failed: {}".format(str(e)))
-    
-    def _ingest_lists_recursive(self, stack_id, parent_list_id, lists_dict, copy_policy, progress, processed):
-        """Recursively ingest lists and their files."""
-        success_count = 0
-        error_count = 0
-        
+        )
+        progress.canceled.connect(worker.cancel)
+        worker.ingest_finished.connect(
+            lambda s, k, e: self._on_library_ingest_done(progress, s, k, e)
+        )
+        worker.ingest_failed.connect(
+            lambda msg: (progress.reset(),
+                         QtWidgets.QMessageBox.critical(self, "Ingestion Error", msg))
+        )
+        worker.start()
+        progress.exec_()
+
+    def _collect_list_jobs(self, stack_id, parent_list_id, lists_dict, jobs):
+        """Recursively create lists and append (filepath, list_id) jobs."""
         for list_name, list_data in lists_dict.items():
-            if progress.wasCanceled():
-                break
-            
-            # Create list
             list_id = self.db.create_list(stack_id, list_name, parent_list_id=parent_list_id)
-            
-            # Ingest files
             for filepath in list_data['files']:
-                if progress.wasCanceled():
-                    break
-                
-                progress.setValue(processed)
-                progress.setLabelText("Ingesting: {}".format(os.path.basename(filepath)))
-                
-                result = self.ingestion.ingest_file(filepath, list_id, copy_policy=copy_policy)
-                
-                if result['success']:
-                    success_count += 1
-                else:
-                    error_count += 1
-                
-                processed += 1
-            
-            # Process sub-lists
-            s, e, processed = self._ingest_lists_recursive(
-                stack_id, list_id, list_data['sub_lists'], copy_policy, progress, processed
-            )
-            success_count += s
-            error_count += e
-        
-        return success_count, error_count, processed
+                jobs.append((filepath, list_id))
+            self._collect_list_jobs(stack_id, list_id, list_data['sub_lists'], jobs)
+
+    def _on_library_ingest_done(self, progress, success, skipped, errors):
+        progress.reset()
+        QtWidgets.QMessageBox.information(
+            self, "Ingestion Complete",
+            "Library ingested!\n\n{} files ingested\n{} skipped\n{} errors".format(
+                success, skipped, errors)
+        )
+        self.accept()
 
 
