@@ -921,38 +921,6 @@ class DatabaseManager(object):
     # FAVORITES OPERATIONS
     # ======================
     
-    def add_favorite(self, element_id, machine_name, user_name=None):
-        """Add element to favorites."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT OR IGNORE INTO favorites (element_fk, machine_name, user_name) VALUES (?, ?, ?)",
-                (element_id, machine_name, user_name)
-            )
-            return cursor.lastrowid
-    
-    def remove_favorite(self, element_id, machine_name, user_name=None):
-        """Remove element from favorites."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "DELETE FROM favorites WHERE element_fk = ? AND machine_name = ? AND user_name IS ?",
-                (element_id, machine_name, user_name)
-            )
-            return cursor.rowcount > 0
-    
-    def get_favorites(self, machine_name, user_name=None):
-        """Get all favorite elements for user/machine."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT e.* FROM elements e
-                JOIN favorites f ON e.element_id = f.element_fk
-                WHERE f.machine_name = ? AND f.user_name IS ?
-                ORDER BY e.name
-            """, (machine_name, user_name))
-            return [dict(row) for row in cursor.fetchall()]
-    
     # ======================
     # HISTORY OPERATIONS
     # ======================
