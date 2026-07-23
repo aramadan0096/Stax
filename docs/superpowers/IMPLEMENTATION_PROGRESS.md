@@ -18,8 +18,8 @@ building blocks where they replace bespoke code.
 |----|-------|:----:|:----:|:----:|--------|
 | SP0 | Test harness & CI foundation | ☑ | ☑ | ☑ | (CI push + branch-protection deferred to human) |
 | SP1 | Database consolidation & concurrency | ☑ | ☑ | ☑ | C1, H1, H3, M1, L6, L11 — all fixed |
-| SP2 | Async ingestion & preview pipeline | ☑ | ☑ | ☐ | C4, H7, M12, L8, L5 |
-| SP3 | FFmpeg/media hardening & cross-platform | ☑ | ☑ | ☐ | H4, M8, M9, M10 |
+| SP2 | Async ingestion & preview pipeline | ☑ | ☑ | ☑ | C4, H7, M12, L8, L5 — all fixed |
+| SP3 | FFmpeg/media hardening & cross-platform | ☑ | ☑ | ☑ | H4, M8, M9, M10 — all fixed |
 | SP4 | Security hardening | ☑ | ☑ | ☐ | C2, C3, H2, H6, M2, L9 |
 | SP5 | Nuke integration & embedded-mode | ☑ | ☑ | ☐ | H5, H8, L1, L3, L7 |
 | SP6 | UI correctness & memory | ☑ | ☑ | ☐ | M3, M4, M5, M6, M7, M13, L2 |
@@ -61,21 +61,21 @@ Spec: [`specs/…-sp1-database-consolidation-design.md`](specs/2026-07-22-sp1-da
 ## SP2 — Async ingestion & preview pipeline
 Spec: [`specs/…-sp2-async-pipeline-design.md`](specs/2026-07-22-sp2-async-pipeline-design.md) · Plan: [`plans/…-sp2-async-pipeline.md`](plans/2026-07-22-sp2-async-pipeline.md)
 
-- [ ] **C4** — Wire `PreviewWorker` + `LazyGalleryView`; move ingestion off the GUI thread.
-- [ ] **H7** — Drop-ingest: pass `config.get_all()`, use `default_copy_policy`, hold thread reference.
-- [ ] **M12** — Decode EXR/DPX via **OpenImageIO**; derive padding from detected sequence, not `%04d`.
-- [ ] **L8** — Replace/harden frame-range parsing with **Fileseq**.
-- [ ] **L5** — Wire duplicate detection into ingest; fix MD5-fallback distance semantics.
+- [x] **C4** — Wire `PreviewWorker` + `LazyGalleryView`; move ingestion off the GUI thread. _(IngestWorker QThread drives perform_ingestion/library/drop-ingest; ingest_file submits async PreviewJob; DragGalleryView subclasses LazyGalleryView with viewport-bounded decode; ingestion_core_patch.py deleted)_
+- [x] **H7** — Drop-ingest: pass `config.get_all()`, use `default_copy_policy`, hold thread reference.
+- [x] **M12** — Decode EXR/DPX; derive padding from detected sequence, not `%04d`. _(routed through bundled ffmpeg via `ffmpeg_wrapper` — NOT OpenImageIO, per this batch's no-new-heavy-dependency decision; real sequence pattern + first_frame)_
+- [x] **L8** — Replace/harden frame-range parsing with **Fileseq**. _(parse_frame_range + _compact_frame_range; nuke_bridge real-mode hardened)_
+- [x] **L5** — Wire duplicate detection into ingest; fix MD5-fallback distance semantics. _(tagged p:/m: hashes; compute_phash+find_duplicates wired into ingest_file)_
 
 ---
 
 ## SP3 — FFmpeg/media hardening & cross-platform
 Spec: [`specs/…-sp3-ffmpeg-cross-platform-design.md`](specs/2026-07-22-sp3-ffmpeg-cross-platform-design.md) · Plan: [`plans/…-sp3-ffmpeg-cross-platform.md`](plans/2026-07-22-sp3-ffmpeg-cross-platform.md)
 
-- [ ] **H4** — Select ffmpeg binary names by platform (Win `.exe` / Linux) — unblock Linux.
-- [ ] **M8** — Per-call temp palette file for GIF two-pass (no shared `palette.png` race).
-- [ ] **M9** — Add `timeout=` to all ffmpeg subprocess calls; handle `TimeoutExpired`.
-- [ ] **M10** — Fix ffplay PIPE deadlock (`DEVNULL` / drain); `CREATE_NO_WINDOW` on Windows.
+- [x] **H4** — Select ffmpeg binary names by platform (Win `.exe` / Linux) — unblock Linux. _(`_binary_name` + `_resolve_binary` with `shutil.which` fallback)_
+- [x] **M8** — Per-call temp palette file for GIF two-pass (no shared `palette.png` race). _(`mkdtemp` per call, cleaned in `finally`)_
+- [x] **M9** — Add `timeout=` to all ffmpeg subprocess calls; handle `TimeoutExpired`. _(all 10 check_output sites; PROBE_TIMEOUT=60 / ENCODE_TIMEOUT=600)_
+- [x] **M10** — Fix ffplay PIPE deadlock (`DEVNULL` / drain); `CREATE_NO_WINDOW` on Windows.
 
 ---
 
