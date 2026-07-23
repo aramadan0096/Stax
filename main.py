@@ -645,7 +645,7 @@ class MainWindow(QtWidgets.QMainWindow):
                         host=socket.gethostname(),
                     )
                 except Exception:
-                    pass
+                    logging.getLogger(__name__).warning("Analytics logging failed", exc_info=True)
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", "Failed to insert element: {}".format(str(e)))
 

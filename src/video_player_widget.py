@@ -675,7 +675,8 @@ class VideoPlayerWidget(QtWidgets.QWidget):
             display_name = os.path.basename(geometry_path)
             try:
                 size_bytes = os.path.getsize(geometry_path)
-            except Exception:
+            except OSError:
+                log.debug("Could not stat %s", geometry_path, exc_info=True)
                 size_bytes = 0
             ok, load_message = self.geometry_viewer.load_geometry(geometry_path)
             if not ok:

@@ -553,7 +553,7 @@ class IngestionCore(object):
                         try:
                             proc.terminate()
                         except Exception:
-                            pass
+                            log.warning("Blender idle-timeout cleanup failed", exc_info=True)
                         message = 'Blender conversion idle timeout after {0} seconds.'.format(idle_limit)
                         self._log_geometry_progress(notes, message)
                         return False, message
@@ -884,7 +884,8 @@ class IngestionCore(object):
             
         except Exception as e:
             error_msg = 'Ingestion failed: {}'.format(str(e))
-            
+            log.exception("Ingestion failed for %s", source_path)
+
             # Log error
             self.db.log_ingestion(
                 action='ingest',
