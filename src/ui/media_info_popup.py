@@ -9,6 +9,10 @@ from PySide2 import QtWidgets, QtCore, QtGui
 from src.ffmpeg_wrapper import FFmpegWrapper
 from src.icon_loader import get_icon
 
+# Element type is 2D/3D/Toolset; playback mode is determined by format.
+VIDEO_EXTS = ('.mov', '.mp4', '.avi', '.mxf')
+SEQUENCE_EXTS = ('.exr', '.dpx', '.tif', '.tiff', '.png', '.jpg', '.jpeg', '.tga', '.bmp')
+
 
 class MediaInfoPopup(QtWidgets.QDialog):
     """
@@ -304,10 +308,13 @@ class MediaInfoPopup(QtWidgets.QDialog):
         comment = element_data.get('comment', '')
         self.comment_label.setText(comment or 'No comment')
         
-        # Determine if video or sequence
-        element_type = element_data.get('type', '').lower()
-        self.is_video = element_type == 'video'
-        self.is_sequence = element_type == 'sequence'
+        # Determine playback mode from extension + frame range, not element type.
+        fmt = (element_data.get('format') or '').lower()
+        if fmt and not fmt.startswith('.'):
+            fmt = '.' + fmt
+        frame_range = element_data.get('frame_range')
+        self.is_video = fmt in VIDEO_EXTS
+        self.is_sequence = bool(frame_range) and fmt in SEQUENCE_EXTS
         
         # Show/hide video controls
         if self.is_video or self.is_sequence:
