@@ -60,6 +60,8 @@ except ImportError:                 # Python 2
 
 from PySide2 import QtCore
 
+from src.ffmpeg_wrapper import get_ffmpeg
+
 log = logging.getLogger(__name__)
 
 # Sentinel that tells the worker thread to exit cleanly.
@@ -88,6 +90,8 @@ class PreviewJob(object):
     __slots__ = (
         "element_id", "source_path", "output_dir",
         "asset_type", "frame_range", "config", "priority",
+        "thumb_path", "gif_path", "video_path",
+        "is_sequence", "ffmpeg_pattern", "first_frame",
     )
 
     def __init__(
@@ -99,14 +103,26 @@ class PreviewJob(object):
         frame_range=None,
         config=None,
         priority=50,
+        thumb_path=None,
+        gif_path=None,
+        video_path=None,
+        is_sequence=False,
+        ffmpeg_pattern=None,
+        first_frame=1,
     ):
-        self.element_id  = element_id
-        self.source_path = source_path
-        self.output_dir  = output_dir
-        self.asset_type  = asset_type
-        self.frame_range = frame_range
-        self.config      = config or {}
-        self.priority    = priority
+        self.element_id     = element_id
+        self.source_path    = source_path
+        self.output_dir     = output_dir
+        self.asset_type     = asset_type
+        self.frame_range    = frame_range
+        self.config         = config or {}
+        self.priority       = priority
+        self.thumb_path     = thumb_path
+        self.gif_path       = gif_path
+        self.video_path     = video_path
+        self.is_sequence    = is_sequence
+        self.ffmpeg_pattern = ffmpeg_pattern
+        self.first_frame    = first_frame if first_frame is not None else 1
 
     # Allow PriorityQueue ordering
     def __lt__(self, other):
@@ -199,167 +215,100 @@ class PreviewWorker(QtCore.QThread):
     # ------------------------------------------------------------------
 
     def _process(self, job):
-        import time
-        asset_type  = job.asset_type or "2D"
-        source      = job.source_path
-        out_dir     = job.output_dir
-        element_id  = job.element_id
-        cfg         = job.config
+        cfg = job.config or {}
+        if job.output_dir and not os.path.isdir(job.output_dir):
+            try:
+                os.makedirs(job.output_dir)
+            except OSError:
+                pass
 
-        os.makedirs(out_dir) if not os.path.isdir(out_dir) else None
+        try:
+            ffmpeg = get_ffmpeg()
+        except Exception as exc:           # ffmpeg not available (e.g. SP3 pending on this OS)
+            log.warning("PreviewWorker: ffmpeg unavailable — %s", exc)
+            return
 
-        stem = "element_{:06d}".format(element_id)
+        try:
+            max_size = int(cfg.get("preview_size", 512))
+        except (TypeError, ValueError):
+            max_size = 512
 
-        # ---- Thumbnail ------------------------------------------------
-        thumb_path = self._generate_thumbnail(source, out_dir, stem, cfg)
-        if thumb_path:
-            self.preview_ready.emit(element_id, thumb_path, "thumbnail")
+        # ---- Thumbnail (all 2D; ffmpeg reads EXR/DPX/MXF, unlike PIL) ----
+        if cfg.get("generate_previews", True) and job.thumb_path:
+            ok = False
+            try:
+                if job.is_sequence and job.ffmpeg_pattern:
+                    ok = ffmpeg.generate_sequence_thumbnail(
+                        job.ffmpeg_pattern, job.thumb_path,
+                        max_size=max_size, frame_number=job.first_frame,
+                    )
+                else:
+                    ok = ffmpeg.generate_thumbnail(
+                        job.source_path, job.thumb_path, max_size=max_size,
+                    )
+            except Exception as exc:
+                log.warning("Thumbnail failed for element %s: %s", job.element_id, exc)
+            if ok:
+                self.preview_ready.emit(job.element_id, job.thumb_path, "thumbnail")
 
-        # ---- Animated GIF (2D / sequences only) -----------------------
-        if asset_type == "2D":
-            gif_path = self._generate_gif(
-                source, out_dir, stem, job.frame_range, cfg
-            )
-            if gif_path:
-                self.preview_ready.emit(element_id, gif_path, "gif")
+        if job.asset_type != "2D":
+            return
 
-            # ---- Low-res video preview --------------------------------
-            if cfg.get("generate_video_previews", True):
-                vid_path = self._generate_video(
-                    source, out_dir, stem, job.frame_range, cfg
+        first, _last, start_frame = self._range_bounds(job)
+
+        # ---- Animated GIF ----
+        if job.gif_path:
+            gif_input = job.ffmpeg_pattern if (job.is_sequence and job.ffmpeg_pattern) else job.source_path
+            try:
+                gif_size = int(cfg.get("gif_size", 256))
+            except (TypeError, ValueError):
+                gif_size = 256
+            try:
+                gif_fps = int(cfg.get("gif_fps", 10))
+            except (TypeError, ValueError):
+                gif_fps = 10
+            try:
+                seq_fps = int(cfg.get("sequence_preview_fps", 24))
+            except (TypeError, ValueError):
+                seq_fps = 24
+            gif_ok = False
+            try:
+                gif_ok = ffmpeg.generate_gif_preview(
+                    gif_input, job.gif_path,
+                    max_duration=cfg.get("gif_duration", 3.0),
+                    size=gif_size, fps=gif_fps,
+                    start_frame=start_frame if job.is_sequence else None,
+                    is_sequence=job.is_sequence,
+                    sequence_fps=seq_fps,
                 )
-                if vid_path:
-                    self.preview_ready.emit(element_id, vid_path, "video")
+            except Exception as exc:
+                log.warning("GIF failed for element %s: %s", job.element_id, exc)
+            if gif_ok:
+                self.preview_ready.emit(job.element_id, job.gif_path, "gif")
 
-    # ------------------------------------------------------------------ helpers
-
-    @staticmethod
-    def _generate_thumbnail(source, out_dir, stem, cfg):
-        """Return path to written thumbnail PNG, or None on failure."""
-        try:
-            from PIL import Image
-            thumb_path = os.path.join(out_dir, stem + "_thumb.png")
-            max_size   = cfg.get("thumbnail_size", 256)
-
-            img = Image.open(source)
-            img.thumbnail((max_size, max_size), Image.LANCZOS)
-
-            # Normalise 16/32-bit EXR/HDR to 8-bit before saving PNG
-            if img.mode in ("F", "I", "RGBA"):
-                img = img.convert("RGBA")
-            elif img.mode != "RGB":
-                img = img.convert("RGB")
-
-            img.save(thumb_path, "PNG", optimize=True)
-            return thumb_path
-
-        except Exception as exc:
-            log.warning("Thumbnail failed for %s: %s", source, exc)
-            return None
+        # ---- Low-res MP4 (sequences only) ----
+        if job.video_path and job.is_sequence and job.ffmpeg_pattern \
+                and cfg.get("generate_video_previews", True):
+            try:
+                seq_fps = int(cfg.get("sequence_preview_fps", 24))
+            except (TypeError, ValueError):
+                seq_fps = 24
+            vid_ok = False
+            try:
+                vid_ok = ffmpeg.generate_sequence_video_preview(
+                    job.ffmpeg_pattern, job.video_path,
+                    max_size=512, fps=seq_fps, start_frame=start_frame,
+                )
+            except Exception as exc:
+                log.warning("Video failed for element %s: %s", job.element_id, exc)
+            if vid_ok:
+                self.preview_ready.emit(job.element_id, job.video_path, "video")
 
     @staticmethod
-    def _generate_gif(source, out_dir, stem, frame_range, cfg):
-        """Generate a short animated GIF preview from a sequence."""
-        try:
-            import glob
-            import re
-            from PIL import Image
-
-            gif_path   = os.path.join(out_dir, stem + "_preview.gif")
-            max_frames = cfg.get("gif_max_frames", 24)
-            fps        = cfg.get("gif_fps", 12)
-            max_size   = cfg.get("gif_size", 240)
-
-            # Detect sequence pattern from source path
-            dir_name   = os.path.dirname(source)
-            base_name  = os.path.basename(source)
-            # Replace trailing digits (frame number) with glob wildcard
-            pattern    = re.sub(r'\d+(?=\.[^.]+$)', '*', base_name)
-            frames_raw = sorted(glob.glob(os.path.join(dir_name, pattern)))
-
-            if not frames_raw:
-                frames_raw = [source]
-
-            # Sample evenly across available frames
-            step   = max(1, len(frames_raw) // max_frames)
-            frames_raw = frames_raw[::step][:max_frames]
-
-            pil_frames = []
-            for fp in frames_raw:
-                try:
-                    img = Image.open(fp).convert("RGBA")
-                    img.thumbnail((max_size, max_size), Image.LANCZOS)
-                    pil_frames.append(img)
-                except Exception:
-                    continue
-
-            if not pil_frames:
-                return None
-
-            duration_ms = int(1000 / max(1, fps))
-            pil_frames[0].save(
-                gif_path,
-                save_all=True,
-                append_images=pil_frames[1:],
-                loop=0,
-                duration=duration_ms,
-                optimize=True,
-            )
-            return gif_path
-
-        except Exception as exc:
-            log.warning("GIF generation failed for %s: %s", source, exc)
-            return None
-
-    @staticmethod
-    def _generate_video(source, out_dir, stem, frame_range, cfg):
-        """Generate low-res MP4 via FFmpeg subprocess."""
-        try:
-            import subprocess
-            import shutil
-
-            ffmpeg = shutil.which("ffmpeg") or cfg.get("ffmpeg_path", "ffmpeg")
-            vid_path = os.path.join(out_dir, stem + "_preview.mp4")
-
-            # Build input pattern
-            dir_name  = os.path.dirname(source)
-            base_name = os.path.basename(source)
-            import re
-            pattern = re.sub(r'\d+(?=\.[^.]+$)', '%04d', base_name)
-            inp = os.path.join(dir_name, pattern)
-
-            start_frame = 1
-            if frame_range:
-                parts = str(frame_range).split("-")
-                if len(parts) == 2:
-                    try:
-                        start_frame = int(parts[0])
-                    except ValueError:
-                        pass
-
-            cmd = [
-                ffmpeg, "-y",
-                "-start_number", str(start_frame),
-                "-i", inp,
-                "-vf", "scale=480:-2",
-                "-c:v", "libx264",
-                "-preset", "ultrafast",
-                "-crf", "28",
-                "-pix_fmt", "yuv420p",
-                "-frames:v", "72",
-                vid_path,
-            ]
-            result = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=60,
-            )
-            if result.returncode == 0 and os.path.exists(vid_path):
-                return vid_path
-        except Exception as exc:
-            log.debug("Video preview failed for %s: %s", source, exc)
-        return None
+    def _range_bounds(job):
+        """(first, last, start_frame) — start_frame defaults to job.first_frame."""
+        start = job.first_frame if job.first_frame is not None else 1
+        return start, start, start
 
 
 # ---------------------------------------------------------------------------
