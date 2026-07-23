@@ -15,7 +15,16 @@ from src.utils.paths import resolve_path
 # independent LazyGalleryView classes loaded under "ui.lazy_gallery_view"
 # and "src.ui.lazy_gallery_view" — breaking isinstance() checks against
 # whichever one a caller imported flatly (see tests/gui, which import flat).
-from ui.lazy_gallery_view import LazyGalleryView
+#
+# The fallback is required when this module is reached via `src.ui` FIRST
+# (as main.py does): importing `ui.lazy_gallery_view` runs the flat `ui`
+# package __init__, whose own line 9 re-imports this still-initializing module
+# and raises "cannot import name 'DragGalleryView'". Entering via `src.ui.*`
+# already fixes the class identity, so the fallback is safe there.
+try:
+    from ui.lazy_gallery_view import LazyGalleryView
+except ImportError:
+    from src.ui.lazy_gallery_view import LazyGalleryView
 
 
 class DragGalleryView(LazyGalleryView):
