@@ -3,8 +3,7 @@
 
 This refactors the previous pyrender-based preview to a WebGL pipeline that
 reuses the bundled js-3d-model-viewer dependency. The HTTP server mirrors the
-reference implementation from tests/glb_converter but is written to work with
-Python 2.7, which StaX targets for Nuke compatibility.
+reference implementation from tests/glb_converter.
 """
 
 from __future__ import absolute_import

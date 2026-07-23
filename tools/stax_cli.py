@@ -58,20 +58,14 @@ Examples
   python tools/stax_cli.py patch 42 --tags "fire, reviewed, 4k"
 """
 
-from __future__ import absolute_import, print_function, unicode_literals
-
 import argparse
 import json
 import os
 import sys
 
-try:
-    from urllib.request import urlopen, Request
-    from urllib.error   import HTTPError, URLError
-    from urllib.parse   import urlencode, quote
-except ImportError:
-    from urllib2 import urlopen, Request, HTTPError, URLError  # Python 2
-    from urllib  import urlencode, quote
+from urllib.request import urlopen, Request
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode, quote
 
 
 # ---------------------------------------------------------------------------

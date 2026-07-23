@@ -2,7 +2,6 @@
 """
 File Lock Manager for Network-aware SQLite Access
 Provides robust file locking for concurrent database access across network shares
-Python 2.7 compatible
 """
 
 import os
@@ -221,10 +220,3 @@ def file_lock(lock_file_path, timeout=30.0):
         yield lock
     finally:
         lock.release()
-
-
-# Python 2.7 compatibility: Define TimeoutError if not available
-if not hasattr(__builtins__, 'TimeoutError'):
-    class TimeoutError(OSError):
-        """Timeout error for Python 2.7 compatibility."""
-        pass

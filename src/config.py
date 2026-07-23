@@ -2,7 +2,6 @@
 """
 Configuration Manager for StaX
 Handles application settings and user preferences
-Python 2.7 compatible
 """
 
 import os

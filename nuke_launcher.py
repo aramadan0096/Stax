@@ -2,7 +2,6 @@
 """
 StaX Nuke Launcher
 Nuke-specific panel launcher for StaX asset management system
-Python 2.7 compatible
 """
 
 import os

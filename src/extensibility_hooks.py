@@ -2,7 +2,6 @@
 """
 Extensibility Hooks for StaX
 Defines custom processor architecture for pipeline integration
-Python 2.7 compatible
 """
 
 import os

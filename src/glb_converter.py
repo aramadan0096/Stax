@@ -57,7 +57,7 @@ except Exception:  # pragma: no cover
 
 
 def _which(executable):
-    """Portable find executable for Python 2.7."""
+    """Portable executable lookup (shutil.which with a PATH fallback)."""
     if hasattr(shutil, 'which'):
         path = shutil.which(executable)  # type: ignore[attr-defined]
         if path:
@@ -134,7 +134,7 @@ def convert_obj_with_trimesh(in_path, out_path):
 
 
 def _communicate_with_timeout(proc, timeout):
-    """Communicate with timeout support for Python 2.7."""
+    """Communicate with a subprocess, enforcing a timeout."""
     start_time = time.time()
     stdout = ''
     stderr = ''

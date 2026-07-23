@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Main GUI for StaX — Python 2.7 / 3.x compatible
+Main GUI for StaX — Python 3.9+
 
 Changes from original:
   - apply_dark_palette(app) before setStyleSheet  THE real fix for white bg

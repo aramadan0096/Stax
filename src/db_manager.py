@@ -2,7 +2,6 @@
 """
 Database Manager for StaX
 Handles SQLite operations with network-aware file locking
-Python 2.7 compatible
 """
 
 import sqlite3

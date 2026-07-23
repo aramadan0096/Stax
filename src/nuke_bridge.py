@@ -2,7 +2,6 @@
 """
 Nuke Bridge for StaX
 Abstraction layer for Nuke API operations with mock implementations for development
-Python 2.7 compatible
 """
 
 import os
@@ -14,9 +13,6 @@ import hashlib
 import tempfile
 
 from src.ingestion_core import SequenceDetector, parse_frame_range
-
-if sys.version_info[0] >= 3:  # Python 3 fallback for compatibility
-    unicode = str
 
 # Ensure bundled FFmpeg binaries are available when bridge runs outside standalone launcher
 _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -511,12 +507,12 @@ class NukeIntegration(object):
 
         filename_stem = self._sanitize_toolset_filename(name)
         timestamp = int(time.time())
-        if isinstance(name, unicode):
+        if isinstance(name, str):
             name_bytes = name.encode('utf-8')
-        elif isinstance(name, str):
+        elif isinstance(name, bytes):
             name_bytes = name
         else:
-            name_bytes = str(name)
+            name_bytes = str(name).encode('utf-8')
         name_hash = hashlib.md5(name_bytes).hexdigest()[:8]
 
         toolset_dir = os.path.join(repository_path, self._toolset_subdir)

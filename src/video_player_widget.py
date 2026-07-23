@@ -2,7 +2,7 @@
 """
 Video Player Widget with embedded video playback using ffpyplayer
 Provides video playback with timeline scrubbing and metadata display
-Python 2.7/3+ compatible
+Python 3.9+
 """
 
 import os
