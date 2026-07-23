@@ -1,6 +1,10 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "StaX"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Open-source advanced solution for mass production stock footage management"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -28,3 +32,9 @@ dev = [
     "pytest-cov",
     "flask",
 ]
+
+[tool.hatch.version]
+path = "src/version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
