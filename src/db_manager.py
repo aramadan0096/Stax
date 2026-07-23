@@ -18,7 +18,16 @@ class DatabaseManager(object):
     Manages SQLite database operations for StaX.
     Implements network-aware file locking and connection pooling.
     """
-    
+
+    # Column whitelists — guard against .format()-into-SQL injection (M1).
+    SEARCHABLE_ELEMENT_COLUMNS = {"name", "format", "type", "comment", "tags"}
+    UPDATABLE_ELEMENT_COLUMNS = {
+        "list_fk", "name", "type", "filepath_soft", "filepath_hard",
+        "is_hard_copy", "frame_range", "format", "comment", "tags",
+        "preview_path", "gif_preview_path", "video_preview_path",
+        "geometry_preview_path", "is_deprecated", "file_size", "phash",
+    }
+
     def __init__(self, db_path, enable_logging=False, use_file_lock=True):
         """
         Initialize database manager.
@@ -855,14 +864,17 @@ class DatabaseManager(object):
         Returns:
             bool: True if updated
         """
-        if not kwargs:
+        updates = {
+            k: v for k, v in kwargs.items() if k in self.UPDATABLE_ELEMENT_COLUMNS
+        }
+        if not updates:
             return False
-        
+
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            
-            set_clause = ', '.join(["{} = ?".format(k) for k in kwargs.keys()])
-            values = list(kwargs.values()) + [element_id]
+
+            set_clause = ', '.join(["{} = ?".format(k) for k in updates.keys()])
+            values = list(updates.values()) + [element_id]
             
             cursor.execute(
                 "UPDATE elements SET {} WHERE element_id = ?".format(set_clause),
@@ -889,9 +901,13 @@ class DatabaseManager(object):
         Returns:
             list: Matching elements
         """
+        if property_name not in self.SEARCHABLE_ELEMENT_COLUMNS:
+            self._log("search_elements: rejected column '{}', using 'name'".format(property_name))
+            property_name = "name"
+
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            
+
             if match_type == 'loose':
                 query = "SELECT * FROM elements WHERE {} LIKE ? ORDER BY name".format(property_name)
                 cursor.execute(query, ('%' + search_text + '%',))
