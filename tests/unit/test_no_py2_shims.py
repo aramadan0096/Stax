@@ -8,8 +8,10 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__f
 _BANNED = ("Python 2.7", "unicode = str", "urllib2")
 
 # Vendored / generated / doc / test trees are not first-party source.
+# `build`/`dist` are frozen build outputs (cx_Freeze/PyInstaller) that bundle
+# vendored libs and a pre-build snapshot of src/ — generated, not maintained here.
 _SKIP_DIRS = {".git", "lib", "dependencies", "docs", "tests", "examples", "bin",
-              "__pycache__", ".venv", "venv"}
+              "__pycache__", ".venv", "venv", "build", "dist"}
 
 
 def _iter_source_files():
