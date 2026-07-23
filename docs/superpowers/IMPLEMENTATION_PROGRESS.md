@@ -20,8 +20,8 @@ building blocks where they replace bespoke code.
 | SP1 | Database consolidation & concurrency | ☑ | ☑ | ☑ | C1, H1, H3, M1, L6, L11 — all fixed |
 | SP2 | Async ingestion & preview pipeline | ☑ | ☑ | ☑ | C4, H7, M12, L8, L5 — all fixed |
 | SP3 | FFmpeg/media hardening & cross-platform | ☑ | ☑ | ☑ | H4, M8, M9, M10 — all fixed |
-| SP4 | Security hardening | ☑ | ☑ | ☐ | C2, C3, H2, H6, M2, L9 |
-| SP5 | Nuke integration & embedded-mode | ☑ | ☑ | ☐ | H5, H8, L1, L3, L7 |
+| SP4 | Security hardening | ☑ | ☑ | ☑ | C2, C3, H2, H6, M2, L9 |
+| SP5 | Nuke integration & embedded-mode | ☑ | ☑ | ☑ | H5, H8, L1, L3, L7 |
 | SP6 | UI correctness & memory | ☑ | ☑ | ☐ | M3, M4, M5, M6, M7, M13, L2 |
 | SP7 | Build, packaging & deployment | ☑ | ☑ | ☐ | M11, M14 |
 | SP8 | Code quality & consistency | ☑ | ☑ | ☐ | L4, L10 |
@@ -82,23 +82,23 @@ Spec: [`specs/…-sp3-ffmpeg-cross-platform-design.md`](specs/2026-07-22-sp3-ffm
 ## SP4 — Security hardening
 Spec: [`specs/…-sp4-security-hardening-design.md`](specs/2026-07-22-sp4-security-hardening-design.md) · Plan: [`plans/…-sp4-security-hardening.md`](plans/2026-07-22-sp4-security-hardening.md)
 
-- [ ] **C2** — Sandbox/restrict processor `exec()` to an admin-owned dir; validate paths; drop "safe" claim.
-- [ ] **C3** — Pin + checksum ffmpeg download; sanitize archive extraction (Zip-Slip).
-- [ ] **H2** — Salted KDF (pbkdf2/bcrypt/argon2); eliminate default `admin/admin`; force reset.
-- [ ] **H6** — GeometryViewer: allow-list served files; reject paths outside previews root; shutdown hook.
-- [ ] **M2** — API: `hmac.compare_digest` token check; ingest-path allowlist.
-- [ ] **L9** — CLI: support HTTPS; prefer `STAX_API_TOKEN` env over `--token` in argv.
+- [x] **C2** — Restrict processor `exec()` to an admin-owned trusted dir; validate paths (realpath containment); drop "safe" claim. (Not sandboxed — path-restricted, per locked decision.)
+- [x] **C3** — Pin + checksum ffmpeg download; sanitize archive extraction (Zip-Slip). *(SHA-256 values deferred: empty placeholders fail closed; need a human-approved one-time download to populate.)*
+- [x] **H2** — Salted PBKDF2 (stdlib); eliminate default `admin/admin`; random seed + `must_change_password`. (Forced-reset dialog deferred to SP6.)
+- [x] **H6** — GeometryViewer: allow-list served files; reject paths outside previews root; server shutdown hook. (`closeEvent` wiring deferred to SP6.)
+- [x] **M2** — API: `hmac.compare_digest` token check (both backends); ingest-path allowlist.
+- [x] **L9** — CLI: support HTTPS; prefer `STAX_API_TOKEN` env over `--token` in argv.
 
 ---
 
 ## SP5 — Nuke integration & embedded-mode
 Spec: [`specs/…-sp5-nuke-integration-design.md`](specs/2026-07-22-sp5-nuke-integration-design.md) · Plan: [`plans/…-sp5-nuke-integration.md`](plans/2026-07-22-sp5-nuke-integration.md)
 
-- [ ] **H5** — `menu.py` commands must target the live `StaXPanel` (singleton), not a pane result.
-- [ ] **H8** — Scope stdout/stderr suppression to StaX; never swallow `stderr` in Nuke.
-- [ ] **L1** — `init.py`: add absolute plugin paths (`os.path.join(stax_root, subdir)`).
-- [ ] **L3** — Delete orphaned `nuke_bridge_patch.py`.
-- [ ] **L7** — Remove Python-2.7 claims/shims; state single interpreter.
+- [x] **H5** — `menu.py` commands target the live `StaXPanel` singleton via `get_stax_panel()`, not a pane result.
+- [x] **H8** — DebugManager scoped to the `stax` logger; never replaces/swallows stdout/stderr.
+- [x] **L1** — `init.py`: pure `build_plugin_paths(stax_root)` returns absolute normalized paths; imports cleanly without Nuke.
+- [x] **L3** — Deleted orphaned `nuke_bridge_patch.py` (+ regression guard).
+- [x] **L7** — Removed Python-2.7 claims/shims across 13 files; single Py3 interpreter (guard test enforces).
 
 ---
 

@@ -2,7 +2,6 @@
 """
 Configuration Manager for StaX
 Handles application settings and user preferences
-Python 2.7 compatible
 """
 
 import os
@@ -64,7 +63,9 @@ class Config(object):
         'pre_ingest_processor': None,
         'post_ingest_processor': None,
         'post_import_processor': None,
-        
+        'trusted_processors_dir': None,  # admin-owned dir; None => hooks disabled (SP4/C2)
+        'api_ingest_roots': [],  # allow-list of dirs the REST API may ingest from (SP4/M2)
+
         # GUI settings
         'default_view_mode': 'gallery',  # 'gallery' or 'list'
         'thumbnail_size': 256,

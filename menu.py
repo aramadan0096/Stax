@@ -97,7 +97,7 @@ try:
     try:
         stax_menu.addCommand(
             'Quick Ingest...',
-            'import nuke_launcher; panel = nuke_launcher.show_stax_panel(); panel.ingest_files()',
+            'import nuke_launcher; nuke_launcher.get_stax_panel().ingest_files()',
             'Ctrl+Shift+I'
         )
         if logger:
@@ -112,7 +112,7 @@ try:
     try:
         stax_menu.addCommand(
             'Register Toolset...',
-            'import nuke_launcher; panel = nuke_launcher.show_stax_panel(); panel.register_toolset()',
+            'import nuke_launcher; nuke_launcher.get_stax_panel().register_toolset()',
             'Ctrl+Shift+T'
         )
         if logger:
@@ -127,7 +127,7 @@ try:
     try:
         stax_menu.addCommand(
             'Advanced Search...',
-            'import nuke_launcher; panel = nuke_launcher.show_stax_panel(); panel.show_advanced_search()',
+            'import nuke_launcher; nuke_launcher.get_stax_panel().show_advanced_search()',
             'Ctrl+F'
         )
         if logger:

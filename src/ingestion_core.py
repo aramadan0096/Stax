@@ -2,7 +2,6 @@
 """
 Ingestion Core for StaX
 Handles file operations, sequence detection, metadata extraction, and preview generation
-Python 2.7 compatible
 """
 
 import os

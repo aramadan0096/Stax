@@ -1,105 +1,56 @@
 # -*- coding: utf-8 -*-
 """Centralized debug-output controller for StaX.
 
-This module wraps ``sys.stdout`` and ``sys.stderr`` with lightweight proxies so
-that any ``print`` statements (or direct ``write`` calls) are suppressed when
-Debug Mode is disabled via application settings.
-
-Python 2.7 compatible.
+Debug Mode toggles the verbosity of StaX's *own* logger only. It never
+replaces the interpreter's ``sys.stdout`` / ``sys.stderr`` and never swallows
+``stderr`` — doing so inside a host application (Nuke) silenced the host's own
+console and other tools' tracebacks for the whole session (issue H8).
 """
 
 import json
+import logging
 import os
-import sys
 import threading
-
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DEFAULT_CONFIG_PATH = os.path.join(_PROJECT_ROOT, 'config', 'config.json')
 
-
-class _DebugStream(object):
-    """Proxy stream that conditionally forwards writes to the real stream."""
-
-    def __init__(self, original_stream):
-        self._original = original_stream
-        self._enabled = True
-        self._lock = threading.RLock()
-
-    def set_enabled(self, enabled):
-        with self._lock:
-            self._enabled = bool(enabled)
-
-    def is_enabled(self):
-        with self._lock:
-            return self._enabled
-
-    def write(self, data):
-        if not data:
-            return
-        with self._lock:
-            if self._enabled:
-                self._original.write(data)
-
-    def writelines(self, lines):
-        if not lines:
-            return
-        with self._lock:
-            if self._enabled:
-                self._original.writelines(lines)
-
-    def flush(self):
-        with self._lock:
-            if hasattr(self._original, 'flush'):
-                self._original.flush()
-
-    def fileno(self):
-        fileno_attr = getattr(self._original, 'fileno', None)
-        if fileno_attr is None:
-            raise AttributeError('fileno')
-        return fileno_attr()
-
-    def __iter__(self):
-        return iter(self._original)
-
-    def __getattr__(self, name):
-        return getattr(self._original, name)
-
-    @property
-    def original(self):
-        return self._original
+# StaX's own logger namespace. Suppression is scoped to this tree; the root
+# logger, sys.stdout, and sys.stderr are left untouched.
+_STAX_LOGGER_NAME = 'stax'
 
 
 class DebugManager(object):
-    """Singleton-style controller for application-wide debug output."""
+    """Controller for StaX's own debug verbosity (logger-scoped)."""
 
     _initialized = False
     _enabled = True
-    _stdout_proxy = None
-    _stderr_proxy = None
     _lock = threading.RLock()
 
     @classmethod
     def initialize(cls, enabled=True):
-        """Wrap standard streams and set initial enabled state."""
+        """Configure the StaX logger and set the initial enabled state.
+
+        Does NOT touch sys.stdout / sys.stderr.
+        """
         with cls._lock:
+            logger = logging.getLogger(_STAX_LOGGER_NAME)
             if not cls._initialized:
-                cls._stdout_proxy = _DebugStream(sys.stdout)
-                cls._stderr_proxy = _DebugStream(sys.stderr)
-                sys.stdout = cls._stdout_proxy
-                sys.stderr = cls._stderr_proxy
+                # Give StaX log records a sink without hijacking interpreter
+                # streams. A NullHandler stays quiet unless the app installs
+                # its own handler (see stax_logger).
+                if not logger.handlers:
+                    logger.addHandler(logging.NullHandler())
                 cls._initialized = True
             cls.set_enabled(enabled)
 
     @classmethod
     def set_enabled(cls, enabled):
-        """Enable or disable debug output globally."""
+        """Enable or disable StaX debug output (StaX logger level only)."""
         with cls._lock:
             cls._enabled = bool(enabled)
-            if cls._stdout_proxy is not None:
-                cls._stdout_proxy.set_enabled(cls._enabled)
-            if cls._stderr_proxy is not None:
-                cls._stderr_proxy.set_enabled(cls._enabled)
+            logger = logging.getLogger(_STAX_LOGGER_NAME)
+            logger.setLevel(logging.DEBUG if cls._enabled else logging.WARNING)
 
     @classmethod
     def is_enabled(cls):
@@ -107,20 +58,24 @@ class DebugManager(object):
             return cls._enabled
 
     @classmethod
+    def debug(cls, message, *args):
+        """Emit a StaX debug message (suppressed when Debug Mode is off).
+
+        Use in place of gated ``print`` calls. stdout/stderr are never
+        replaced, so host and other-tool output is unaffected.
+        """
+        logging.getLogger(_STAX_LOGGER_NAME).debug(message, *args)
+
+    @classmethod
     def restore_original_streams(cls):
-        """Restore the original stdout/stderr streams."""
+        """Back-compat reset. Streams are never replaced anymore, so this only
+        clears the initialized flag (kept so existing callers don't break)."""
         with cls._lock:
-            if not cls._initialized:
-                return
-            sys.stdout = cls._stdout_proxy.original
-            sys.stderr = cls._stderr_proxy.original
-            cls._stdout_proxy = None
-            cls._stderr_proxy = None
             cls._initialized = False
 
     @classmethod
     def bootstrap_from_config(cls, config_path=None):
-        """Read debug preference from config file and initialize streams."""
+        """Read the debug preference from the config file and initialize."""
         debug_enabled = cls._read_debug_flag(config_path)
         cls.initialize(debug_enabled)
         return debug_enabled

@@ -2,7 +2,7 @@
 """
 Video Player Widget with embedded video playback using ffpyplayer
 Provides video playback with timeline scrubbing and metadata display
-Python 2.7/3+ compatible
+Python 3.9+
 """
 
 import os
@@ -390,7 +390,13 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         geometry_layout.setContentsMargins(0, 0, 0, 0)
         geometry_layout.setSpacing(10)
 
-        self.geometry_viewer = GeometryViewerWidget(self._project_root, parent=self.geometry_container)
+        previews_root = None
+        try:
+            previews_root = self.config.get('previews_path') if self.config else None
+        except Exception:
+            previews_root = None
+        self.geometry_viewer = GeometryViewerWidget(
+            self._project_root, previews_root=previews_root, parent=self.geometry_container)
         cube_pixmap = get_pixmap('cube', size=180)
         if cube_pixmap and not cube_pixmap.isNull():
             self.geometry_viewer.set_placeholder_pixmap(

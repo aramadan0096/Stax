@@ -2,7 +2,7 @@
 """
 Preview Cache Manager for StaX
 Implements LRU caching for preview thumbnails to reduce disk I/O
-Python 2.7/3+ compatible
+Python 3.9+
 """
 
 import os
