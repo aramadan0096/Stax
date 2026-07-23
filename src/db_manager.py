@@ -9,8 +9,45 @@ import sqlite3
 import os
 import time
 import json
+import hashlib
+import hmac
+import secrets
 from contextlib import contextmanager
 from file_lock import FileLockManager
+
+
+_PBKDF2_ITERATIONS = 260000
+
+
+def hash_password(password, iterations=_PBKDF2_ITERATIONS, salt=None):
+    """Return a self-describing salted PBKDF2 hash: pbkdf2_sha256$iters$salt$hash."""
+    if salt is None:
+        salt = os.urandom(16)
+    dk = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, iterations)
+    return 'pbkdf2_sha256${0}${1}${2}'.format(iterations, salt.hex(), dk.hex())
+
+
+def is_legacy_hash(stored):
+    """True for the old unsalted format: a bare 64-char hex sha256 digest."""
+    return bool(stored) and '$' not in stored and len(stored) == 64
+
+
+def verify_password(stored, password):
+    """Constant-time verify against a PBKDF2 or a legacy unsalted-sha256 hash."""
+    if not stored:
+        return False
+    if is_legacy_hash(stored):
+        legacy = hashlib.sha256(password.encode('utf-8')).hexdigest()
+        return hmac.compare_digest(legacy, stored)
+    try:
+        scheme, iters, salt_hex, hash_hex = stored.split('$')
+    except ValueError:
+        return False
+    if scheme != 'pbkdf2_sha256':
+        return False
+    dk = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'),
+                             bytes.fromhex(salt_hex), int(iters))
+    return hmac.compare_digest(dk.hex(), hash_hex)
 
 
 class DatabaseManager(object):
@@ -316,7 +353,8 @@ class DatabaseManager(object):
                     email TEXT,
                     is_active BOOLEAN DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_login TIMESTAMP
+                    last_login TIMESTAMP,
+                    must_change_password INTEGER DEFAULT 0
                 )
             """)
             
@@ -357,16 +395,10 @@ class DatabaseManager(object):
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON user_sessions(user_fk)")
             
-            # Create default admin user if no users exist (password: "admin")
+            # Create the initial admin user with a random password if none exist
             cursor.execute("SELECT COUNT(*) as count FROM users")
             if cursor.fetchone()['count'] == 0:
-                import hashlib
-                password_hash = hashlib.sha256("admin".encode('utf-8')).hexdigest()
-                cursor.execute(
-                    "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-                    ("admin", password_hash, "admin")
-                )
-                self._log("Default admin user created (username: admin, password: admin)")
+                self._seed_initial_admin(cursor)
             
             self._log("Database schema created with optimized indexes")
     
@@ -430,19 +462,15 @@ class DatabaseManager(object):
                         email TEXT,
                         is_active BOOLEAN DEFAULT 1,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        last_login TIMESTAMP
+                        last_login TIMESTAMP,
+                        must_change_password INTEGER DEFAULT 0
                     )
                 """)
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
-                
-                # Create default admin user
-                import hashlib
-                password_hash = hashlib.sha256("admin".encode('utf-8')).hexdigest()
-                cursor.execute(
-                    "INSERT INTO users (username, password_hash, role) VALUES (?, ?, ?)",
-                    ("admin", password_hash, "admin")
-                )
-                self._log("Migration 3: Complete - Default admin user created")
+
+                # Create the initial admin user with a random password
+                self._seed_initial_admin(cursor)
+                self._log("Migration 3: Complete - Initial admin user created")
             
             # Migration 4: Create user_sessions table if it doesn't exist
             cursor.execute("""
@@ -582,6 +610,17 @@ class DatabaseManager(object):
                 self._log("Migration 7: Complete")
             else:
                 self._log("Migration 7: settings table already exists")
+
+            # Migration 8: add must_change_password to users (SP4/H2)
+            try:
+                cursor.execute("SELECT must_change_password FROM users LIMIT 1")
+                self._log("Migration 8: must_change_password already exists")
+            except sqlite3.OperationalError:
+                self._log("Migration 8: Adding must_change_password to users")
+                cursor.execute(
+                    "ALTER TABLE users ADD COLUMN must_change_password INTEGER DEFAULT 0"
+                )
+                self._log("Migration 8: Complete")
 
             self._log("All migrations applied successfully")
 
@@ -1501,6 +1540,21 @@ class DatabaseManager(object):
     
     # ==================== User Management Methods ====================
     
+    def _seed_initial_admin(self, cursor):
+        """Create the initial admin with a RANDOM password (never admin/admin).
+
+        The password is logged once so a deployer can capture it; the account
+        is flagged must_change_password so the login UI forces a reset (SP4/H2).
+        """
+        initial = secrets.token_urlsafe(12)
+        cursor.execute(
+            "INSERT INTO users (username, password_hash, role, must_change_password) "
+            "VALUES (?, ?, ?, 1)",
+            ("admin", hash_password(initial), "admin"),
+        )
+        self._log("Initial admin created. One-time password: {0} "
+                  "(change on first login)".format(initial))
+
     def create_user(self, username, password, role='user', email=None):
         """
         Create a new user with hashed password.
@@ -1514,10 +1568,8 @@ class DatabaseManager(object):
         Returns:
             int: user_id if successful, None if failed
         """
-        import hashlib
-        
-        password_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
-        
+        password_hash = hash_password(password)
+
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -1542,28 +1594,36 @@ class DatabaseManager(object):
         Returns:
             dict: User dict if authenticated, None if failed
         """
-        import hashlib
-        
-        password_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
-        
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT * FROM users WHERE username = ? AND password_hash = ? AND is_active = 1",
-                (username, password_hash)
+                "SELECT * FROM users WHERE username = ? AND is_active = 1",
+                (username,)
             )
             row = cursor.fetchone()
-            
-            if row:
-                # Update last login time
-                cursor.execute(
-                    "UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE user_id = ?",
-                    (row['user_id'],)
-                )
-                conn.commit()
-                return dict(row)
-            
-            return None
+            if row is None:
+                return None
+
+            stored = row['password_hash']
+            if not verify_password(stored, password):
+                return None
+
+            # Transparent upgrade of a legacy unsalted hash on successful login.
+            if is_legacy_hash(stored):
+                try:
+                    cursor.execute(
+                        "UPDATE users SET password_hash = ? WHERE user_id = ?",
+                        (hash_password(password), row['user_id'])
+                    )
+                except sqlite3.Error:
+                    self._log("Password upgrade failed (read-only?); login allowed")
+
+            cursor.execute(
+                "UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE user_id = ?",
+                (row['user_id'],)
+            )
+            conn.commit()
+            return dict(row)
     
     def get_user_by_id(self, user_id):
         """
@@ -1649,10 +1709,8 @@ class DatabaseManager(object):
         Returns:
             bool: True if successful
         """
-        import hashlib
-        
-        password_hash = hashlib.sha256(new_password.encode('utf-8')).hexdigest()
-        
+        password_hash = hash_password(new_password)
+
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
