@@ -656,6 +656,16 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         if hasattr(self.gallery_view, "set_item_loader"):
             self.gallery_view.set_item_loader(self._lazy_load_gallery_item)
 
+        # _update_views_with_elements populates gallery_view directly
+        # (bypassing LazyGalleryView.set_elements), so none of that
+        # class's own triggers (its set_elements timer, scrollbar
+        # valueChanged, resizeEvent) fire on an ordinary list switch.
+        # Explicitly kick off an initial visible-load, deferred so the
+        # viewport geometry is settled before _load_visible reads item
+        # rects (mirrors set_elements's own QTimer.singleShot(0, ...)).
+        if hasattr(self.gallery_view, "refresh_visible"):
+            QtCore.QTimer.singleShot(0, self.gallery_view.refresh_visible)
+
     def _lazy_load_gallery_item(self, item):
         """Decode a single gallery item's static preview when it becomes visible."""
         if item is None or item.data(QtCore.Qt.UserRole + 1) is None:

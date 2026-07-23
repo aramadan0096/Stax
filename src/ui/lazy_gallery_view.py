@@ -269,6 +269,19 @@ class LazyGalleryView(QtWidgets.QListWidget):
     def clear_item_loader(self):
         self._item_loader = None
 
+    def refresh_visible(self):
+        """
+        Public trigger for an immediate visible-load sweep.
+
+        Hosts that populate this widget's items directly (bypassing
+        set_elements, e.g. to keep GIF-first-frame / badge logic in the
+        host) must call this — deferred via QTimer.singleShot(0, ...) so
+        viewport geometry is settled first — after repopulating, since
+        neither the scrollbar nor resizeEvent fire on an ordinary
+        same-size list switch.
+        """
+        self._load_visible()
+
     def get_selected_element_ids(self):
         """Return list of selected element_ids."""
         return [
