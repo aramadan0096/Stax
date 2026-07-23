@@ -1,4 +1,6 @@
 import argparse
+import hashlib
+import hmac
 import os
 import platform
 import shutil
@@ -12,20 +14,74 @@ from pathlib import Path
 
 BIN_NAMES = ["ffmpeg", "ffplay", "ffprobe"]
 
+# Pinned, versioned artifacts (Windows + Linux only — no macOS, per SP program
+# decision). Each record's sha256 MUST be populated from a human-approved,
+# one-time download before this downloader is trusted in the field; until
+# then verify_checksum() fails closed and main() aborts rather than
+# installing an unverified binary.
 DOWNLOAD_SOURCES = {
-    ("Windows", "AMD64"): [
-        "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
-    ],
-    ("Linux", "x86_64"): [
-        "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz",
-    ],
-    ("Darwin", "arm64"): [
-        "https://evermeet.cx/ffmpeg/ffmpeg.zip",
-    ],
-    ("Darwin", "x86_64"): [
-        "https://evermeet.cx/ffmpeg/ffmpeg.zip",
-    ],
+    ("Windows", "AMD64"): {
+        "url": "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-7.0.2-essentials_build.zip",
+        "sha256": "",  # sha256 TODO(SP4/C3): populate via one-time human-approved download; empty => verify fails closed
+    },
+    ("Linux", "x86_64"): {
+        "url": "https://johnvansickle.com/ffmpeg/old-releases/ffmpeg-7.0.2-amd64-static.tar.xz",
+        "sha256": "",  # sha256 TODO(SP4/C3): populate via one-time human-approved download; empty => verify fails closed
+    },
 }
+
+
+def verify_checksum(path, expected_sha256):
+    """Return True iff the SHA-256 of `path` equals expected_sha256 (case-insensitive)."""
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return hmac.compare_digest(h.hexdigest(), (expected_sha256 or "").lower())
+
+
+def _is_within_directory(directory, target):
+    base = os.path.realpath(directory)
+    resolved = os.path.realpath(os.path.join(base, target)) if not os.path.isabs(target) \
+        else os.path.realpath(target)
+    try:
+        return os.path.commonpath([base, resolved]) == base
+    except ValueError:
+        return False
+
+
+def safe_extract(archive, dest):
+    """Extract a zip/tar into dest, rejecting any path-traversal member.
+
+    Uses tarfile/zipfile data filters on Python >= 3.12; on older versions
+    validates each member stays within dest before extracting. Raises
+    RuntimeError on a traversing member or a corrupt archive.
+    """
+    print("Extracting:", archive)
+    use_filter = sys.version_info >= (3, 12)
+    if zipfile.is_zipfile(archive):
+        try:
+            with zipfile.ZipFile(archive, "r") as z:
+                for name in z.namelist():
+                    if not _is_within_directory(dest, name):
+                        raise RuntimeError("Unsafe path in zip: {0}".format(name))
+                z.extractall(dest)
+        except zipfile.BadZipFile as exc:
+            raise RuntimeError("Corrupt zip archive: {0}".format(exc))
+        return True
+
+    try:
+        with tarfile.open(archive, "r:*") as t:
+            for member in t.getmembers():
+                if not _is_within_directory(dest, member.name):
+                    raise RuntimeError("Unsafe path in tar: {0}".format(member.name))
+            if use_filter:
+                t.extractall(dest, filter="data")
+            else:
+                t.extractall(dest)
+    except tarfile.TarError as exc:
+        raise RuntimeError("Corrupt tar archive: {0}".format(exc))
+    return True
 
 
 def detect_platform_arch():
@@ -45,21 +101,6 @@ def download(url, outpath):
     with urllib.request.urlopen(url) as r, open(outpath, "wb") as f:
         shutil.copyfileobj(r, f)
     print("Download complete:", outpath)
-
-
-def extract(archive, dest):
-    print("Extracting:", archive)
-    if zipfile.is_zipfile(archive):
-        with zipfile.ZipFile(archive, "r") as z:
-            z.extractall(dest)
-        return True
-
-    try:
-        with tarfile.open(archive, "r:*") as t:
-            t.extractall(dest)
-        return True
-    except:
-        return False
 
 
 def find_binaries(folder):
@@ -103,9 +144,9 @@ def main(argv=None):
     print("Installing FFmpeg into:", dest)
 
     sysname, arch = detect_platform_arch()
-    urls = DOWNLOAD_SOURCES.get((sysname, arch))
+    record = DOWNLOAD_SOURCES.get((sysname, arch))
 
-    if not urls:
+    if not record:
         print("No download sources configured for this platform.")
         sys.exit(1)
 
@@ -114,16 +155,19 @@ def main(argv=None):
         td = Path(td)
         archive = td / "ffmpeg_dl"
 
-        # Use first working URL
-        url = urls[0]
+        url = record["url"]
         download(url, archive)
+
+        if not verify_checksum(archive, record["sha256"]):
+            print("SHA-256 mismatch for {0} — aborting (fail closed).".format(url))
+            sys.exit(1)
 
         extracted = td / "extracted"
         extracted.mkdir()
-
-        ok = extract(archive, extracted)
-        if not ok:
-            print("Extraction failed.")
+        try:
+            safe_extract(str(archive), str(extracted))
+        except RuntimeError as exc:
+            print("Extraction rejected:", exc)
             sys.exit(1)
 
         found = find_binaries(extracted)
