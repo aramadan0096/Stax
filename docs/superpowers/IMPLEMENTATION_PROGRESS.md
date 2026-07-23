@@ -20,7 +20,7 @@ building blocks where they replace bespoke code.
 | SP1 | Database consolidation & concurrency | ☑ | ☑ | ☑ | C1, H1, H3, M1, L6, L11 — all fixed |
 | SP2 | Async ingestion & preview pipeline | ☑ | ☑ | ☑ | C4, H7, M12, L8, L5 — all fixed |
 | SP3 | FFmpeg/media hardening & cross-platform | ☑ | ☑ | ☑ | H4, M8, M9, M10 — all fixed |
-| SP4 | Security hardening | ☑ | ☑ | ☐ | C2, C3, H2, H6, M2, L9 |
+| SP4 | Security hardening | ☑ | ☑ | ☑ | C2, C3, H2, H6, M2, L9 |
 | SP5 | Nuke integration & embedded-mode | ☑ | ☑ | ☐ | H5, H8, L1, L3, L7 |
 | SP6 | UI correctness & memory | ☑ | ☑ | ☐ | M3, M4, M5, M6, M7, M13, L2 |
 | SP7 | Build, packaging & deployment | ☑ | ☑ | ☐ | M11, M14 |
@@ -82,12 +82,12 @@ Spec: [`specs/…-sp3-ffmpeg-cross-platform-design.md`](specs/2026-07-22-sp3-ffm
 ## SP4 — Security hardening
 Spec: [`specs/…-sp4-security-hardening-design.md`](specs/2026-07-22-sp4-security-hardening-design.md) · Plan: [`plans/…-sp4-security-hardening.md`](plans/2026-07-22-sp4-security-hardening.md)
 
-- [ ] **C2** — Sandbox/restrict processor `exec()` to an admin-owned dir; validate paths; drop "safe" claim.
-- [ ] **C3** — Pin + checksum ffmpeg download; sanitize archive extraction (Zip-Slip).
-- [ ] **H2** — Salted KDF (pbkdf2/bcrypt/argon2); eliminate default `admin/admin`; force reset.
-- [ ] **H6** — GeometryViewer: allow-list served files; reject paths outside previews root; shutdown hook.
-- [ ] **M2** — API: `hmac.compare_digest` token check; ingest-path allowlist.
-- [ ] **L9** — CLI: support HTTPS; prefer `STAX_API_TOKEN` env over `--token` in argv.
+- [x] **C2** — Restrict processor `exec()` to an admin-owned trusted dir; validate paths (realpath containment); drop "safe" claim. (Not sandboxed — path-restricted, per locked decision.)
+- [x] **C3** — Pin + checksum ffmpeg download; sanitize archive extraction (Zip-Slip). *(SHA-256 values deferred: empty placeholders fail closed; need a human-approved one-time download to populate.)*
+- [x] **H2** — Salted PBKDF2 (stdlib); eliminate default `admin/admin`; random seed + `must_change_password`. (Forced-reset dialog deferred to SP6.)
+- [x] **H6** — GeometryViewer: allow-list served files; reject paths outside previews root; server shutdown hook. (`closeEvent` wiring deferred to SP6.)
+- [x] **M2** — API: `hmac.compare_digest` token check (both backends); ingest-path allowlist.
+- [x] **L9** — CLI: support HTTPS; prefer `STAX_API_TOKEN` env over `--token` in argv.
 
 ---
 
