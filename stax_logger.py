@@ -19,9 +19,9 @@ import sys
 from logging.handlers import RotatingFileHandler
 
 try:
-        from paths import get_log_dir
-except ImportError:
-        from src.paths import get_log_dir
+    from utils.appdirs import get_log_dir      # flat (src/ on sys.path)
+except ImportError:                            # imported as a package
+    from src.utils.appdirs import get_log_dir
 
 _LOGGER_NAME = "stax"
 _MAX_BYTES = 2_000_000

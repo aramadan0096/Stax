@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""OS-aware, per-user writable directories for StaX.
+r"""OS-aware, per-user writable directories for StaX.
 
 Frozen builds install under a read-only location (e.g. %ProgramFiles%\StaX),
 so logs, the database, and config must live in a per-user writable dir.
