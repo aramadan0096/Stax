@@ -3,6 +3,7 @@
 Media Display Widget with Gallery/List Views
 """
 
+import logging
 import os
 from PySide2 import QtWidgets, QtCore, QtGui
 
@@ -14,6 +15,8 @@ from src.ui.media_info_popup import MediaInfoPopup
 from src.ui.drag_gallery_view import DragGalleryView
 from src.ui.pagination_widget import PaginationWidget
 from src.ui.dialogs import AddToPlaylistDialog, EditElementDialog
+
+logger = logging.getLogger(__name__)
 
 
 class MediaDisplayWidget(QtWidgets.QWidget):
@@ -778,6 +781,10 @@ class MediaDisplayWidget(QtWidgets.QWidget):
 
     def _apply_status_badges(self, pixmap, element_id):
         """Overlay favorite/deprecated badges onto a pixmap."""
+        # EP1: overlay rating stars + label chip first so every return path
+        # below (no flags / no overlays / flags present) carries it.
+        pixmap = self._draw_curation_badges(pixmap, element_id)
+
         flags = self.element_flags.get(element_id)
         if not flags:
             return pixmap
@@ -808,7 +815,78 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         painter.end()
 
         return result
-    
+
+    def _draw_curation_badges(self, pixmap, element_id):
+        """Overlay a star strip and a label color-chip onto a thumbnail."""
+        result = QtGui.QPixmap(pixmap)
+        if element_id is None:
+            return result
+        try:
+            el = self.db.get_element_by_id(element_id) or {}
+        except Exception:
+            logger.exception("failed reading curation state for %s", element_id)
+            return result
+        rating = el.get("rating", 0) or 0
+        label_fk = el.get("label_fk")
+
+        painter = QtGui.QPainter(result)
+        try:
+            # star strip, bottom-left
+            if rating:
+                painter.setPen(QtGui.QColor("#F5D90A"))
+                painter.drawText(6, result.height() - 6, "★" * int(rating))
+            # label chip, top-right
+            if label_fk:
+                color = self._label_color(label_fk)
+                if color:
+                    painter.fillRect(result.width() - 16, 6, 10, 10, QtGui.QColor(color))
+        finally:
+            painter.end()
+        return result
+
+    def _label_color(self, label_fk):
+        """Resolve a label_fk to its color_hex (cached per refresh)."""
+        cache = getattr(self, "_label_color_cache", None)
+        if cache is None:
+            cache = {l["label_id"]: l["color_hex"] for l in self.db.get_labels()}
+            self._label_color_cache = cache
+        return cache.get(label_fk)
+
+    def quick_set_rating(self, element_id, stars):
+        """Write-through rating setter for the grid's hover quick-edit."""
+        self.db.set_element_rating(element_id, stars)
+        self._refresh_item(element_id)
+
+    def quick_set_label(self, element_id, label_id):
+        """Write-through label setter for the grid's hover quick-edit."""
+        self.db.set_element_label(element_id, label_id)
+        self._label_color_cache = None  # force re-resolve
+        self._refresh_item(element_id)
+
+    def _refresh_item(self, element_id):
+        """Repaint a single gallery item's icon after a rating/label change.
+
+        Minimal per-item update modeled on on_preview_ready; deliberately a
+        no-op when the element has no current gallery item and never
+        triggers a full view rebuild (see SP2 in-place-update work).
+        """
+        item = self.element_items.get(element_id)
+        if item is None:
+            return
+        try:
+            element = self.db.get_element_by_id(element_id)
+        except Exception:
+            logger.exception("failed refreshing item %s", element_id)
+            return
+        if not element:
+            return
+        icon_size = self.gallery_view.iconSize()
+        element_stub = dict(element)
+        element_stub["element_id"] = element_id
+        pixmap = self._load_preview_pixmap(element_stub, icon_size)
+        if pixmap:
+            item.setIcon(QtGui.QIcon(pixmap))
+
     @QtCore.Slot(int, str, str)
     def on_preview_ready(self, element_id, preview_path, preview_type):
         """Slot connected to PreviewWorker.preview_ready.
