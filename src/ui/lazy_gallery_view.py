@@ -197,6 +197,7 @@ class LazyGalleryView(QtWidgets.QListWidget):
         self.thumb_h = thumb_h
 
         self._element_index = {}   # element_id → GalleryItem
+        self._item_loader = None       # optional host callback: fn(item) -> loads icon
 
         # Configure appearance
         self.setViewMode(QtWidgets.QListWidget.IconMode)
@@ -255,6 +256,18 @@ class LazyGalleryView(QtWidgets.QListWidget):
 
         # Trigger first-visible load after Qt has laid out the items
         QtCore.QTimer.singleShot(0, self._load_visible)
+
+    def set_item_loader(self, loader):
+        """Register a host callback fn(item) that loads a single item's icon.
+
+        When set, _load_visible calls it for visible items instead of the
+        built-in GalleryItem.load_pixmap, so a host can keep its own decode
+        (badges, GIF first-frame) while staying viewport-bounded.
+        """
+        self._item_loader = loader
+
+    def clear_item_loader(self):
+        self._item_loader = None
 
     def get_selected_element_ids(self):
         """Return list of selected element_ids."""
@@ -334,14 +347,19 @@ class LazyGalleryView(QtWidgets.QListWidget):
 
         for i in range(self.count()):
             item = self.item(i)
-            if not isinstance(item, GalleryItem):
+            if item is None:
+                continue
+            if self._item_loader is None and not isinstance(item, GalleryItem):
                 continue
 
             rect = self.visualItemRect(item)
 
             if expanded.intersects(rect):
-                item.load_pixmap()
-            elif item._loaded and not evict_zone.intersects(rect):
+                if self._item_loader is not None:
+                    self._item_loader(item)
+                elif isinstance(item, GalleryItem):
+                    item.load_pixmap()
+            elif getattr(item, "_loaded", False) and not evict_zone.intersects(rect):
                 # Release pixmap memory for far-away items
                 placeholder = QtGui.QPixmap(self.thumb_w, self.thumb_h)
                 placeholder.fill(QtGui.QColor(45, 45, 45))

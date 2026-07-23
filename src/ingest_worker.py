@@ -32,7 +32,12 @@ class IngestWorker(QtCore.QThread):
     ingest_failed   = QtCore.Signal(str)
 
     def __init__(self, db, config, jobs, copy_policy="soft", parent=None):
-        super(IngestWorker, self).__init__(parent)
+        # NOTE: zero-arg super() (not `super(IngestWorker, self)`) — the
+        # old-style form re-resolves the bare name `IngestWorker` as a
+        # module-global lookup at call time, so test doubles that do
+        # `monkeypatch.setattr(ingest_worker, "IngestWorker", Spy)` end up
+        # making this line call itself again via the MRO (wrong arity).
+        super().__init__(parent)
         self.db = db
         self.config = config          # MUST be a plain dict (Config.get_all())
         self.jobs = list(jobs)

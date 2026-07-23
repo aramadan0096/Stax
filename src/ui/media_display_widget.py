@@ -318,117 +318,52 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.ingest_dropped_files(file_paths)
     
     def ingest_dropped_files(self, file_paths):
-        """Ingest dropped files into the current list."""
-        from src.ui.dialogs import IngestProgressDialog
-        from src.ingestion_core import IngestionCore
-        from PySide2.QtCore import QThread, Signal
-        
-        # Create ingestion thread with proper signals
-        class IngestThread(QThread):
-            progress_updated = Signal(int, int, str)
-            ingestion_complete = Signal()
-            ingestion_failed = Signal(str)
-            
-            def __init__(self, db, config, file_paths, list_id, copy_policy):
-                super(IngestThread, self).__init__()
-                self.db = db
-                self.config = config
-                self.file_paths = file_paths
-                self.list_id = list_id
-                self.copy_policy = copy_policy
-                self._cancelled = False
-            
-            def run(self):
-                try:
-                    ingest_manager = IngestionCore(self.db, self.config)
-                    normalized_pairs = [
-                        (original_path, os.path.normpath(original_path))
-                        for original_path in self.file_paths
-                    ]
-                    total_count = len(self.file_paths)
-                    processed_paths = set()
-                    processed_items = 0
+        """Ingest dropped files into the current list, off the GUI thread."""
+        # Flat imports (not `src.xxx`): keep this module resolving the same
+        # module/class objects tests patch via `import ingest_worker` and
+        # `ui.dialogs.IngestProgressDialog.exec_` (see the dual-import note
+        # in drag_gallery_view.py).
+        from ui.dialogs import IngestProgressDialog
+        from ingest_worker import IngestWorker
 
-                    for file_path, normalized_path in normalized_pairs:
-                        if self._cancelled:
-                            break
+        if not self.current_list_id:
+            QtWidgets.QMessageBox.information(
+                self, "No List Selected", "Select a list before ingesting.")
+            return
 
-                        if normalized_path in processed_paths:
-                            processed_items += 1
-                            self.progress_updated.emit(processed_items, total_count, os.path.basename(file_path))
-                            continue
-
-                        # Ingest file
-                        result = ingest_manager.ingest_file(
-                            source_path=normalized_path,
-                            target_list_id=self.list_id,
-                            copy_policy=self.copy_policy
-                        )
-
-                        processed_paths.add(normalized_path)
-                        if isinstance(result, dict) and result.get('success'):
-                            sequence_files = result.get('sequence_files') or []
-                            for seq_file in sequence_files:
-                                processed_paths.add(os.path.normpath(seq_file))
-
-                        processed_items += 1
-                        self.progress_updated.emit(processed_items, total_count, os.path.basename(file_path))
-                    
-                    # Complete
-                    if not self._cancelled:
-                        self.progress_updated.emit(processed_items, total_count, "Complete")
-                        self.ingestion_complete.emit()
-                        
-                except Exception as e:
-                    self.ingestion_failed.emit(str(e))
-            
-            def cancel(self):
-                self._cancelled = True
-        
-        # Show ingest progress dialog
+        jobs = [(p, self.current_list_id) for p in file_paths]
         dialog = IngestProgressDialog(self)
         dialog.setWindowTitle("Ingesting Files...")
-        
-        # Get ingestion settings from config
-        copy_policy = self.config.get('copy_policy', 'soft')
-        
-        # Create and configure thread
-        thread = IngestThread(self.db, self.config, file_paths, self.current_list_id, copy_policy)
-        
-        # Connect signals
-        thread.progress_updated.connect(dialog.update_progress)
-        thread.ingestion_complete.connect(lambda: self._on_ingest_complete(dialog, thread))
-        thread.ingestion_failed.connect(lambda err: self._on_ingest_failed(dialog, thread, err))
-        
-        # Connect dialog cancel to thread cancel
-        dialog.rejected.connect(thread.cancel)
-        
-        # Start thread and show dialog
-        thread.start()
+
+        # H7: pass a dict (get_all), correct key (default_copy_policy).
+        config_dict = self.config.get_all() if hasattr(self.config, "get_all") else self.config
+        copy_policy = (config_dict.get("default_copy_policy", "soft")
+                       if isinstance(config_dict, dict) else "soft")
+
+        worker = IngestWorker(self.db, config_dict, jobs, copy_policy=copy_policy)
+        self._ingest_worker = worker      # H7: hold a member reference until finished
+
+        worker.progress.connect(
+            lambda done, total, label: dialog.update_progress(done, total, label))
+        worker.ingest_finished.connect(
+            lambda s, k, e: self._on_ingest_complete(dialog))
+        worker.ingest_failed.connect(
+            lambda err: self._on_ingest_failed(dialog, err))
+        dialog.rejected.connect(worker.cancel)
+
+        worker.start()
         dialog.exec_()
-        
-        # Wait for thread to finish (non-blocking in practice due to exec_)
-        thread.wait(3000)  # 3 second timeout
-    
-    def _on_ingest_complete(self, dialog, thread):
+
+    def _on_ingest_complete(self, dialog):
         """Handle successful ingestion completion."""
         dialog.accept()
-        thread.deleteLater()
-        
-        # Reload elements in main thread
         if self.current_list_id:
             self.load_elements(self.current_list_id)
-    
-    def _on_ingest_failed(self, dialog, thread, error_message):
+
+    def _on_ingest_failed(self, dialog, error_message):
         """Handle ingestion failure."""
         dialog.reject()
-        thread.deleteLater()
-        
-        QtWidgets.QMessageBox.critical(
-            self,
-            "Ingestion Error",
-            "Failed to ingest files: {}".format(error_message)
-        )
+        QtWidgets.QMessageBox.critical(self, "Ingestion Error", error_message)
 
     
     def set_view_mode(self, mode):
@@ -660,11 +595,9 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                     has_gif = False
 
             if not has_gif:
-                static_pixmap = self._load_preview_pixmap(element, icon_size)
-                if static_pixmap:
-                    item.setIcon(QtGui.QIcon(static_pixmap))
-                else:
-                    item.setIcon(self._get_default_icon_for_type(element.get('type'), icon_size))
+                # Defer decode to the lazy loader; show the type fallback now.
+                item.setIcon(self._get_default_icon_for_type(element.get('type'), icon_size))
+                item.setData(QtCore.Qt.UserRole + 1, element)
 
             self.gallery_view.addItem(item)
 
@@ -719,6 +652,21 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             self.table_view.setItem(row, 5, QtWidgets.QTableWidgetItem(comment_text))
 
             self.table_view.item(row, 0).setData(QtCore.Qt.UserRole, element_id)
+
+        if hasattr(self.gallery_view, "set_item_loader"):
+            self.gallery_view.set_item_loader(self._lazy_load_gallery_item)
+
+    def _lazy_load_gallery_item(self, item):
+        """Decode a single gallery item's static preview when it becomes visible."""
+        if item is None or item.data(QtCore.Qt.UserRole + 1) is None:
+            return
+        element = item.data(QtCore.Qt.UserRole + 1)
+        icon_size = self.gallery_view.iconSize()
+        pixmap = self._load_preview_pixmap(element, icon_size)
+        if pixmap:
+            item.setIcon(QtGui.QIcon(pixmap))
+        # Loaded once — drop the stash so we don't redecode.
+        item.setData(QtCore.Qt.UserRole + 1, None)
 
     def _load_preview_pixmap(self, element, icon_size):
         """Load and scale a static preview pixmap for an element."""

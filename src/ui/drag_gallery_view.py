@@ -9,13 +9,19 @@ import os
 from PySide2 import QtWidgets, QtCore, QtGui
 
 from src.ingestion_core import SequenceDetector
+# Flat import (not `src.ui.xxx`): src/ui/__init__.py eagerly imports this
+# module via the absolute `src.ui.*` path, which would otherwise leave two
+# independent LazyGalleryView classes loaded under "ui.lazy_gallery_view"
+# and "src.ui.lazy_gallery_view" — breaking isinstance() checks against
+# whichever one a caller imported flatly (see tests/gui, which import flat).
+from ui.lazy_gallery_view import LazyGalleryView
 
 
-class DragGalleryView(QtWidgets.QListWidget):
-    """Custom QListWidget with drag & drop support for Nuke integration."""
-    
+class DragGalleryView(LazyGalleryView):
+    """Lazy-loading gallery with drag & drop support for Nuke integration."""
+
     def __init__(self, db_manager, config, nuke_bridge, parent=None):
-        super(DragGalleryView, self).__init__(parent)
+        super(DragGalleryView, self).__init__(parent=parent)
         self.db = db_manager
         self.config = config
         self.nuke_bridge = nuke_bridge
