@@ -101,3 +101,57 @@ def test_missing_binaries_raise_runtimeerror(tmp_path, mocker):
     empty.mkdir()
     with pytest.raises(RuntimeError):
         FFmpegWrapper(ffmpeg_bin_path=str(empty))
+
+
+# --- M9: subprocess timeouts ------------------------------------------------
+
+@pytest.mark.unit
+def test_get_media_info_passes_timeout(wrapper, mocker):
+    m = mocker.patch("ffmpeg_wrapper.subprocess.check_output",
+                     return_value=b'{"format": {}, "streams": []}')
+    wrapper.get_media_info("/tmp/clip.mp4")
+    args, kwargs = m.call_args
+    assert args[0][0] == wrapper.ffprobe_path
+    assert kwargs.get("timeout") == wrapper.PROBE_TIMEOUT
+
+
+@pytest.mark.unit
+def test_get_media_info_handles_timeout(wrapper, mocker):
+    mocker.patch("ffmpeg_wrapper.subprocess.check_output",
+                 side_effect=subprocess.TimeoutExpired(cmd="ffprobe", timeout=1))
+    assert wrapper.get_media_info("/tmp/clip.mp4") is None
+
+
+@pytest.mark.unit
+def test_get_frame_count_handles_timeout(wrapper, mocker):
+    mocker.patch("ffmpeg_wrapper.subprocess.check_output",
+                 side_effect=subprocess.TimeoutExpired(cmd="ffprobe", timeout=1))
+    assert wrapper.get_frame_count("/tmp/clip.mp4") is None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("method,posargs", [
+    ("generate_thumbnail", ("/in.mp4", "/out.png")),
+    ("generate_sequence_thumbnail", ("/in.%04d.exr", "/out.png")),
+    ("generate_video_preview", ("/in.mp4", "/out.mp4")),
+    ("extract_frame", ("/in.mp4", 5, "/out.png")),
+    ("convert_sequence_to_video", ("/in.%04d.exr", "/out.mp4")),
+    ("generate_sequence_video_preview", ("/in.%04d.exr", "/out.mp4")),
+])
+def test_encode_methods_pass_timeout(wrapper, mocker, method, posargs):
+    m = mocker.patch("ffmpeg_wrapper.subprocess.check_output", return_value=b"")
+    # generate_thumbnail calls get_media_info first when frame_time is None;
+    # pass frame_time to avoid a second probe muddying call_args.
+    if method == "generate_thumbnail":
+        getattr(wrapper, method)(*posargs, frame_time=0.0)
+    else:
+        getattr(wrapper, method)(*posargs)
+    _, kwargs = m.call_args  # last check_output call
+    assert kwargs.get("timeout") == wrapper.ENCODE_TIMEOUT
+
+
+@pytest.mark.unit
+def test_encode_method_returns_false_on_timeout(wrapper, mocker):
+    mocker.patch("ffmpeg_wrapper.subprocess.check_output",
+                 side_effect=subprocess.TimeoutExpired(cmd="ffmpeg", timeout=1))
+    assert wrapper.generate_video_preview("/in.mp4", "/out.mp4") is False

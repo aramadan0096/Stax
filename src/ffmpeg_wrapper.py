@@ -32,7 +32,10 @@ class FFmpegWrapper(object):
     Wrapper for FFmpeg, FFprobe, and FFplay operations.
     Provides preview generation, video playback, and media information extraction.
     """
-    
+
+    PROBE_TIMEOUT = 60      # ffprobe metadata / packet-count calls
+    ENCODE_TIMEOUT = 600    # thumbnail / gif / video encode calls
+
     def __init__(self, ffmpeg_bin_path=None):
         """
         Initialize FFmpeg wrapper.
@@ -91,7 +94,8 @@ class FFmpegWrapper(object):
         ]
         
         try:
-            output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+            output = subprocess.check_output(cmd, stderr=subprocess.STDOUT,
+                                             timeout=self.PROBE_TIMEOUT)
             data = json.loads(output.decode('utf-8'))
             
             # Extract useful information
@@ -138,7 +142,10 @@ class FFmpegWrapper(object):
                             pass
             
             return info
-            
+
+        except subprocess.TimeoutExpired:
+            logger.error("FFprobe timed out after %ss: %s", self.PROBE_TIMEOUT, filepath)
+            return None
         except subprocess.CalledProcessError as e:
             print("FFprobe error: {}".format(str(e)))
             return None
@@ -182,8 +189,13 @@ class FFmpegWrapper(object):
         ]
         
         try:
-            subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+            subprocess.check_output(cmd, stderr=subprocess.STDOUT,
+                                    timeout=self.ENCODE_TIMEOUT)
             return os.path.exists(output_path)
+        except subprocess.TimeoutExpired:
+            logger.error("FFmpeg thumbnail timed out after %ss: %s",
+                         self.ENCODE_TIMEOUT, input_path)
+            return False
         except subprocess.CalledProcessError as e:
             print("FFmpeg thumbnail error: {}".format(str(e)))
             return False
@@ -225,8 +237,13 @@ class FFmpegWrapper(object):
         ]
         
         try:
-            subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+            subprocess.check_output(cmd, stderr=subprocess.STDOUT,
+                                    timeout=self.ENCODE_TIMEOUT)
             return os.path.exists(output_path)
+        except subprocess.TimeoutExpired:
+            logger.error("FFmpeg sequence thumbnail timed out after %ss: %s",
+                         self.ENCODE_TIMEOUT, sequence_pattern)
+            return False
         except subprocess.CalledProcessError as e:
             print("FFmpeg sequence thumbnail error: {}".format(str(e)))
             return False
@@ -263,8 +280,13 @@ class FFmpegWrapper(object):
         ]
         
         try:
-            subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+            subprocess.check_output(cmd, stderr=subprocess.STDOUT,
+                                    timeout=self.ENCODE_TIMEOUT)
             return os.path.exists(output_path)
+        except subprocess.TimeoutExpired:
+            logger.error("FFmpeg video preview timed out after %ss: %s",
+                         self.ENCODE_TIMEOUT, input_path)
+            return False
         except subprocess.CalledProcessError as e:
             print("FFmpeg video preview error: {}".format(str(e)))
             return False
@@ -331,8 +353,13 @@ class FFmpegWrapper(object):
         ]
         
         try:
-            subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+            subprocess.check_output(cmd, stderr=subprocess.STDOUT,
+                                    timeout=self.ENCODE_TIMEOUT)
             return os.path.exists(output_path)
+        except subprocess.TimeoutExpired:
+            logger.error("FFmpeg frame extraction timed out after %ss: %s",
+                         self.ENCODE_TIMEOUT, input_path)
+            return False
         except subprocess.CalledProcessError as e:
             print("FFmpeg frame extraction error: {}".format(str(e)))
             return False
@@ -361,9 +388,14 @@ class FFmpegWrapper(object):
         ]
         
         try:
-            output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+            output = subprocess.check_output(cmd, stderr=subprocess.STDOUT,
+                                             timeout=self.PROBE_TIMEOUT)
             return int(output.decode('utf-8').strip())
-        except:
+        except subprocess.TimeoutExpired:
+            logger.error("FFprobe frame count timed out after %ss: %s",
+                         self.PROBE_TIMEOUT, filepath)
+            return None
+        except Exception:
             return None
     
     def generate_gif_preview(self, input_path, output_path, max_duration=None, size=256,
@@ -423,7 +455,8 @@ class FFmpegWrapper(object):
                 '-vf', 'fps={},{},palettegen'.format(fps, scale_filter),
                 palette_path
             ])
-            subprocess.check_output(palette_cmd, stderr=subprocess.STDOUT)
+            subprocess.check_output(palette_cmd, stderr=subprocess.STDOUT,
+                                    timeout=self.ENCODE_TIMEOUT)
             
             # Step 2: Generate GIF using palette with same scaling
             gif_cmd = [
@@ -460,7 +493,8 @@ class FFmpegWrapper(object):
             if loop_forever:
                 gif_cmd.extend(['-loop', '0'])
             gif_cmd.append(output_path)
-            subprocess.check_output(gif_cmd, stderr=subprocess.STDOUT)
+            subprocess.check_output(gif_cmd, stderr=subprocess.STDOUT,
+                                    timeout=self.ENCODE_TIMEOUT)
             
             # Cleanup palette
             if os.path.exists(palette_path):
@@ -506,8 +540,13 @@ class FFmpegWrapper(object):
         ]
         
         try:
-            subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+            subprocess.check_output(cmd, stderr=subprocess.STDOUT,
+                                    timeout=self.ENCODE_TIMEOUT)
             return os.path.exists(output_path)
+        except subprocess.TimeoutExpired:
+            logger.error("FFmpeg sequence conversion timed out after %ss: %s",
+                         self.ENCODE_TIMEOUT, sequence_pattern)
+            return False
         except subprocess.CalledProcessError as e:
             print("FFmpeg sequence conversion error: {}".format(str(e)))
             return False
@@ -554,8 +593,13 @@ class FFmpegWrapper(object):
         ])
         
         try:
-            subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+            subprocess.check_output(cmd, stderr=subprocess.STDOUT,
+                                    timeout=self.ENCODE_TIMEOUT)
             return os.path.exists(output_path)
+        except subprocess.TimeoutExpired:
+            logger.error("FFmpeg sequence video preview timed out after %ss: %s",
+                         self.ENCODE_TIMEOUT, sequence_pattern)
+            return False
         except subprocess.CalledProcessError as e:
             print("FFmpeg sequence video preview error: {}".format(str(e)))
             return False
