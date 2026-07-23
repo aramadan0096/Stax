@@ -8,6 +8,7 @@ from PySide2 import QtWidgets, QtCore, QtGui
 
 from src.icon_loader import get_icon, get_pixmap
 from src.preview_cache import get_preview_cache
+from src.utils.paths import resolve_path
 from src.ui.media_info_popup import MediaInfoPopup
 from src.ui.drag_gallery_view import DragGalleryView
 from src.ui.pagination_widget import PaginationWidget
@@ -1070,14 +1071,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
 
     def _resolve_path(self, path):
         """Convert stored relative paths to absolute paths rooted at the project."""
-        if not path:
-            return None
-        path = path.strip()
-        if not path:
-            return None
-        if os.path.isabs(path):
-            return os.path.normpath(path)
-        return os.path.normpath(os.path.join(self._project_root, path))
+        return resolve_path(path, project_root=self._project_root)
 
     def _prepare_element_for_popup(self, element_data):
         """Return a copy of element data with absolute filesystem paths."""

@@ -22,6 +22,7 @@ dependency_bootstrap.bootstrap()
 from PySide2 import QtWidgets, QtCore, QtGui
 import subprocess
 from src.icon_loader import get_pixmap
+from src.utils.paths import resolve_path
 from src.geometry_viewer import GeometryViewerWidget
 
 
@@ -626,14 +627,7 @@ class VideoPlayerWidget(QtWidgets.QWidget):
 
     def _resolve_path(self, path):
         """Resolve stored relative paths against the project root."""
-        if not path:
-            return None
-        path = path.strip()
-        if not path:
-            return None
-        if os.path.isabs(path):
-            return os.path.normpath(path)
-        return os.path.normpath(os.path.join(self._project_root, path))
+        return resolve_path(path, project_root=self._project_root)
 
     def _is_sequence_element(self, element):
         """Return True if the element represents an image sequence."""

@@ -8,6 +8,7 @@ import os
 from PySide2 import QtWidgets, QtCore, QtGui
 from src.ffmpeg_wrapper import FFmpegWrapper
 from src.icon_loader import get_icon
+from src.utils.paths import resolve_path
 
 # Element type is 2D/3D/Toolset; playback mode is determined by format.
 VIDEO_EXTS = ('.mov', '.mp4', '.avi', '.mxf')
@@ -516,11 +517,4 @@ class MediaInfoPopup(QtWidgets.QDialog):
 
     def _resolve_path(self, path):
         """Resolve project-relative paths to absolute ones for file access."""
-        if not path:
-            return None
-        path = path.strip()
-        if not path:
-            return None
-        if os.path.isabs(path):
-            return os.path.normpath(path)
-        return os.path.normpath(os.path.join(self._project_root, path))
+        return resolve_path(path, project_root=self._project_root)
