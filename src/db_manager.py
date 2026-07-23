@@ -948,7 +948,35 @@ class DatabaseManager(object):
             cursor = conn.cursor()
             cursor.execute("DELETE FROM elements WHERE element_id = ?", (element_id,))
             return cursor.rowcount > 0
-    
+
+    @staticmethod
+    def _validate_rating(rating):
+        if not isinstance(rating, int) or rating < 0 or rating > 5:
+            raise ValueError("rating must be an integer 0..5, got {!r}".format(rating))
+
+    def set_element_rating(self, element_id, rating):
+        """Set the team-shared 0..5 star rating on an element."""
+        self._validate_rating(rating)
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "UPDATE elements SET rating = ? WHERE element_id = ?",
+                (rating, element_id),
+            )
+
+    def bulk_set_rating(self, element_ids, rating):
+        """Set the rating on many elements. Returns rows affected."""
+        self._validate_rating(rating)
+        if not element_ids:
+            return 0
+        placeholders = ",".join("?" for _ in element_ids)
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE elements SET rating = ? WHERE element_id IN ({})".format(placeholders),
+                [rating] + list(element_ids),
+            )
+            return cur.rowcount
+
     def search_elements(self, search_text, property_name='name', match_type='loose'):
         """
         Search elements by property.
