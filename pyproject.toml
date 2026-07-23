@@ -16,13 +16,16 @@ dependencies = [
     "numpy>=2.0.2",
     "opencv-python>=4.13.0.92",
     "pillow>=11.3.0",
-    "pyinstaller>=6.19.0",
     "pyside2>=5.15.2.1",
     "pytest>=8.4.2",
     "pytest-mock>=3.15.1",
 ]
 
 [project.optional-dependencies]
+build = [
+    "cx-freeze>=7.2",
+]
+
 dev = [
     "pytest>=7",
     # pytest-qt 4.3+ dropped PySide2; StaX is PySide2 (Qt5), so pin to the
