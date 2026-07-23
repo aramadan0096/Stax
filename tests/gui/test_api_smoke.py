@@ -18,8 +18,6 @@ def test_health_endpoint_ok(stax_db, stax_config):
 
 
 @pytest.mark.gui
-@pytest.mark.xfail(reason="C1: analytics endpoint calls DB methods missing until SP1",
-                   strict=True)
 def test_analytics_top_endpoint_no_server_error(stax_db, stax_config):
     client = _client(stax_db, stax_config)
     resp = client.get("/api/v1/analytics/top?n=5",
