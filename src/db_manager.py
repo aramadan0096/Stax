@@ -10,7 +10,7 @@ import os
 import time
 import json
 from contextlib import contextmanager
-from src.file_lock import FileLockManager
+from file_lock import FileLockManager
 
 
 class DatabaseManager(object):
@@ -92,7 +92,7 @@ class DatabaseManager(object):
             print("[DB] {}".format(message))
     
     @contextmanager
-    def get_connection(self):
+    def get_connection(self, write=True):
         """
         Context manager for database connections with file locking and retry logic.
         Implements external file locking for network-shared databases with exponential backoff.
@@ -108,8 +108,9 @@ class DatabaseManager(object):
         file_lock = None
         
         try:
-            # Acquire external file lock if enabled (for network shares)
-            if self.use_file_lock:
+            # Acquire the external file lock only for writes (L6): concurrent
+            # read connections no longer serialize behind one global OS lock.
+            if self.use_file_lock and write:
                 self._log("Acquiring file lock: {}".format(self.lock_file_path))
                 file_lock = FileLockManager(
                     self.lock_file_path,
@@ -137,7 +138,7 @@ class DatabaseManager(object):
                     
                     # Optimize for network file systems
                     conn.execute("PRAGMA synchronous = NORMAL")  # Balance between safety and speed
-                    conn.execute("PRAGMA journal_mode = WAL")  # Write-Ahead Logging for better concurrency
+                    conn.execute("PRAGMA journal_mode = DELETE")  # network-share safe (H1); no -wal/-shm sidecars
                     conn.execute("PRAGMA cache_size = -16000")  # 16MB cache
                     
                     self._log("Connection successful")
@@ -601,14 +602,14 @@ class DatabaseManager(object):
         Returns:
             list: List of stack dictionaries
         """
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM stacks ORDER BY name")
             return [dict(row) for row in cursor.fetchall()]
     
     def get_stack_by_id(self, stack_id):
         """Get stack by ID."""
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM stacks WHERE stack_id = ?", (stack_id,))
             row = cursor.fetchone()
@@ -657,7 +658,7 @@ class DatabaseManager(object):
         Returns:
             list: List of list dictionaries
         """
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             if parent_list_id is None:
                 # Get top-level lists (no parent)
@@ -683,7 +684,7 @@ class DatabaseManager(object):
         Returns:
             list: List of sub-list dictionaries
         """
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT * FROM lists WHERE parent_list_fk = ? ORDER BY name",
@@ -693,7 +694,7 @@ class DatabaseManager(object):
     
     def get_list_by_id(self, list_id):
         """Get list by ID."""
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM lists WHERE list_id = ?", (list_id,))
             row = cursor.fetchone()
@@ -702,7 +703,7 @@ class DatabaseManager(object):
     def get_list_hierarchy(self, list_id):
         """Return list ancestors from top-level to the specified list."""
         hierarchy = []
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             current_id = list_id
             while current_id:
@@ -806,7 +807,7 @@ class DatabaseManager(object):
         Returns:
             list: List of element dictionaries
         """
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             query = "SELECT * FROM elements WHERE list_fk = ?"
             params = [list_id]
@@ -834,7 +835,7 @@ class DatabaseManager(object):
         Returns:
             int: Total element count
         """
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             query = "SELECT COUNT(*) FROM elements WHERE list_fk = ?"
             params = [list_id]
@@ -847,7 +848,7 @@ class DatabaseManager(object):
     
     def get_element_by_id(self, element_id):
         """Get element by ID."""
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM elements WHERE element_id = ?", (element_id,))
             row = cursor.fetchone()
@@ -905,7 +906,7 @@ class DatabaseManager(object):
             self._log("search_elements: rejected column '{}', using 'name'".format(property_name))
             property_name = "name"
 
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
 
             if match_type == 'loose':
@@ -960,7 +961,7 @@ class DatabaseManager(object):
         Returns:
             list: History records
         """
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT * FROM ingestion_history ORDER BY ingested_at DESC LIMIT ?",
@@ -1058,7 +1059,7 @@ class DatabaseManager(object):
         Returns:
             bool: True if favorited, False otherwise
         """
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT 1 FROM favorites WHERE element_fk = ? AND user_name = ? AND machine_name = ?",
@@ -1077,7 +1078,7 @@ class DatabaseManager(object):
         Returns:
             list: List of element dicts
         """
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT e.* FROM elements e
@@ -1118,7 +1119,7 @@ class DatabaseManager(object):
         Returns:
             list: List of playlist dicts
         """
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM playlists ORDER BY created_at DESC")
             return [dict(row) for row in cursor.fetchall()]
@@ -1133,7 +1134,7 @@ class DatabaseManager(object):
         Returns:
             dict: Playlist data or None
         """
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM playlists WHERE playlist_id = ?", (playlist_id,))
             row = cursor.fetchone()
@@ -1245,7 +1246,7 @@ class DatabaseManager(object):
         Returns:
             list: List of element dicts with order_index
         """
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 SELECT e.*, pi.order_index, pi.added_at as playlist_added_at
@@ -1267,7 +1268,7 @@ class DatabaseManager(object):
         Returns:
             bool: True if in playlist
         """
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT 1 FROM playlist_items WHERE playlist_fk = ? AND element_fk = ?",
@@ -1305,7 +1306,7 @@ class DatabaseManager(object):
         Returns:
             list: Sorted list of unique tags
         """
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT DISTINCT tags FROM elements WHERE tags IS NOT NULL AND tags != ''")
             
@@ -1331,10 +1332,10 @@ class DatabaseManager(object):
         """
         if not tags:
             return []
-        
-        with self.get_connection() as conn:
+
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
-            
+
             if match_all:
                 # Element must contain all specified tags
                 query = "SELECT * FROM elements WHERE "
@@ -1555,7 +1556,7 @@ class DatabaseManager(object):
         Returns:
             dict: User dict or None
         """
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
             row = cursor.fetchone()
@@ -1571,7 +1572,7 @@ class DatabaseManager(object):
         Returns:
             dict: User dict or None
         """
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
             row = cursor.fetchone()
@@ -1584,7 +1585,7 @@ class DatabaseManager(object):
         Returns:
             list: List of user dicts
         """
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM users ORDER BY username")
             return [dict(row) for row in cursor.fetchall()]
@@ -1692,10 +1693,10 @@ class DatabaseManager(object):
         Returns:
             dict: Session dict or None
         """
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute(
-                """SELECT * FROM user_sessions 
+                """SELECT * FROM user_sessions
                    WHERE user_fk = ? AND machine_name = ? AND is_active = 1 
                    ORDER BY login_time DESC LIMIT 1""",
                 (user_id, machine_name)
@@ -1737,7 +1738,7 @@ class DatabaseManager(object):
         Returns:
             str or default: Setting value or default
         """
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
             row = cursor.fetchone()
@@ -1771,7 +1772,7 @@ class DatabaseManager(object):
         Returns:
             dict: Dictionary of all settings
         """
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT key, value FROM settings")
             rows = cursor.fetchall()
@@ -1794,7 +1795,7 @@ class DatabaseManager(object):
 
         Returns list[dict] keys: element_id, name, list_name, format, type, count.
         """
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -1817,7 +1818,7 @@ class DatabaseManager(object):
 
     def get_insertions_by_month(self):
         """Insertion counts by calendar month. Returns list[dict] keys: month, count."""
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -1832,7 +1833,7 @@ class DatabaseManager(object):
 
     def get_insertions_by_user(self):
         """Insertion counts per user. Returns list[dict] keys: username, count, last_active."""
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -1849,7 +1850,7 @@ class DatabaseManager(object):
 
     def get_total_insertions(self):
         """Total number of rows in insertion_log."""
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM insertion_log")
             row = cursor.fetchone()
@@ -1857,7 +1858,7 @@ class DatabaseManager(object):
 
     def count_elements_by_list(self, list_id):
         """Count of non-deprecated elements in a list."""
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT COUNT(*) FROM elements "
@@ -1896,7 +1897,7 @@ class DatabaseManager(object):
 
     def get_elements_with_phash(self):
         """All elements that have a stored phash (SP2 duplicate detection)."""
-        with self.get_connection() as conn:
+        with self.get_connection(write=False) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT element_id, name, list_fk, format, phash, preview_path "

@@ -142,18 +142,14 @@ class FileLockManager(object):
             else:
                 self._unlock_posix()
             
-            # Close and clean up lock file
+            # Close the handle but KEEP the lock file on disk.
+            # Deleting it here caused a delete-on-release inode race (H1):
+            # a blocked process and a fresh opener could both believe they
+            # held the lock. The persisted, unlocked file is harmless.
             if self.lock_file:
                 self.lock_file.close()
                 self.lock_file = None
-            
-            # Remove lock file
-            try:
-                if os.path.exists(self.lock_file_path):
-                    os.remove(self.lock_file_path)
-            except OSError:
-                pass  # Lock file may be in use by another process
-            
+
             self.is_locked = False
             return True
         
