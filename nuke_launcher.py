@@ -201,6 +201,12 @@ if logger:
     logger.separator()
 
 
+# Module-level singleton: the one live StaXPanel the menu operates on. In Nuke
+# mode show_stax_panel() returns a Nuke pane object, not this widget, so menu
+# commands must go through get_stax_panel() instead (issue H5).
+_STAX_PANEL_INSTANCE = None
+
+
 class StaXPanel(QtWidgets.QWidget):
     """
     StaX panel widget for embedding in Nuke.
@@ -414,7 +420,13 @@ class StaXPanel(QtWidgets.QWidget):
         if logger:
             logger.info("StaXPanel initialization completed successfully")
             logger.separator()
-    
+
+        # Register this instance as the module-level singleton so menu commands
+        # operate on the live widget — whether it was built here or by Nuke's
+        # registerWidgetAsPanel('nuke_launcher.StaXPanel', ...) machinery (H5).
+        global _STAX_PANEL_INSTANCE
+        _STAX_PANEL_INSTANCE = self
+
     def setup_ui(self):
         """Setup the panel UI."""
         # Main layout
@@ -862,6 +874,20 @@ class StaXPanel(QtWidgets.QWidget):
             self.advanced_search_dialog = AdvancedSearchDialog(self.db, self)
         self.advanced_search_dialog.show()
         self.advanced_search_dialog.raise_()
+
+
+def get_stax_panel():
+    """Return the live StaXPanel singleton, creating one if none exists yet.
+
+    Menu commands MUST call this rather than show_stax_panel(): in Nuke mode
+    show_stax_panel() returns registerWidgetAsPanel(...).addToPane()'s result
+    (a Nuke pane object), NOT a StaXPanel, so calling panel.ingest_files() on it
+    raises AttributeError and docks a duplicate panel each time (H5).
+    """
+    global _STAX_PANEL_INSTANCE
+    if _STAX_PANEL_INSTANCE is None:
+        _STAX_PANEL_INSTANCE = StaXPanel()
+    return _STAX_PANEL_INSTANCE
 
 
 def show_stax_panel():
