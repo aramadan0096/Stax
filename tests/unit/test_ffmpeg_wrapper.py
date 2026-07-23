@@ -6,6 +6,7 @@ marked @pytest.mark.ffmpeg, which skips when binaries are absent.
 """
 
 import os
+import shutil
 import sys
 import subprocess
 
@@ -240,3 +241,29 @@ def test_play_media_creationflags_match_platform(wrapper, mocker):
         assert kwargs.get("creationflags", 0) == subprocess.CREATE_NO_WINDOW
     else:
         assert kwargs.get("creationflags", 0) == 0
+
+
+# --- Optional real-binary smoke (skipped when ffmpeg is not installed) ------
+
+@pytest.mark.ffmpeg
+@pytest.mark.skipif(shutil.which("ffprobe") is None or shutil.which("ffmpeg") is None,
+                    reason="ffmpeg/ffprobe not on PATH")
+def test_real_get_media_info_reads_generated_clip(tmp_path):
+    import shutil as _sh  # local alias to build wrapper against PATH binaries
+    # Build a wrapper that resolves ffmpeg/ffprobe/ffplay from PATH.
+    bin_dir = tmp_path / "empty_bin"
+    bin_dir.mkdir()
+    w = FFmpegWrapper(ffmpeg_bin_path=str(bin_dir))  # falls back to shutil.which
+
+    # Generate a 1s test clip with the real ffmpeg.
+    clip = str(tmp_path / "test.mp4")
+    subprocess.check_call([
+        w.ffmpeg_path, "-y", "-f", "lavfi",
+        "-i", "testsrc=duration=1:size=64x64:rate=10",
+        "-pix_fmt", "yuv420p", clip,
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60)
+
+    info = w.get_media_info(clip)
+    assert info is not None
+    assert info["width"] == 64
+    assert info["height"] == 64
