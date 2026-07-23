@@ -72,7 +72,11 @@ class DatabaseManager(object):
         else:
             # Apply migrations for existing databases
             self._apply_migrations()
-    
+
+        # Versioned migrations (phash column, insertion_log table).
+        # Idempotent; runs on every start so fresh and existing DBs converge.
+        self._run_versioned_migrations()
+
     def _log(self, message):
         """Log message if logging is enabled."""
         if self.enable_logging:
@@ -551,7 +555,13 @@ class DatabaseManager(object):
                 self._log("Migration 7: settings table already exists")
 
             self._log("All migrations applied successfully")
-    
+
+    def _run_versioned_migrations(self):
+        """Run the versioned migration runner (elements.phash, insertion_log)."""
+        from db_migrations import run_migrations
+        with self.get_connection() as conn:
+            run_migrations(conn)
+
     # ======================
     # STACK OPERATIONS
     # ======================
