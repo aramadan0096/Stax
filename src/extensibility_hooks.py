@@ -10,26 +10,52 @@ import sys
 import traceback
 
 
+def resolve_trusted_script(script_path, trusted_dir):
+    """Resolve script_path and confirm it is a real file inside trusted_dir.
+
+    Returns the resolved absolute path on success, else None (fail closed):
+    None/empty trusted_dir or script_path, a path resolving outside the dir,
+    or a non-file. Symlinks are resolved before the containment check.
+    """
+    if not trusted_dir or not script_path:
+        return None
+    base = os.path.realpath(trusted_dir)
+    target = os.path.realpath(script_path)
+    try:
+        if os.path.commonpath([base, target]) != base:
+            return None
+    except ValueError:
+        # Different drives on Windows -> not contained.
+        return None
+    if not os.path.isfile(target):
+        return None
+    return target
+
+
 class ProcessorHook(object):
-    """Base class for processor hooks with safe execution."""
-    
-    def __init__(self, script_path=None):
+    """Base class for processor hooks (path-restricted, not sandboxed)."""
+
+    def __init__(self, script_path=None, trusted_dir=None):
         """
         Initialize processor hook.
-        
+
         Args:
             script_path (str): Path to user's Python script
+            trusted_dir (str): Admin-owned trusted-processors directory;
+                script_path must resolve inside it (SP4 / issue C2)
         """
         self.script_path = script_path
-        self.enabled = script_path is not None and os.path.exists(script_path)
-    
+        self.trusted_dir = trusted_dir
+        self._resolved = resolve_trusted_script(script_path, trusted_dir)
+        self.enabled = self._resolved is not None
+
     def execute(self, context):
         """
         Execute the processor hook with given context.
-        
+
         Args:
             context (dict): Context dictionary passed to user script
-            
+
         Returns:
             dict: Result from user script with keys:
                   - 'continue': bool (whether to continue operation)
@@ -38,20 +64,30 @@ class ProcessorHook(object):
         """
         if not self.enabled:
             return {'continue': True, 'message': 'Hook not enabled'}
-        
+
         try:
-            # Create safe execution environment
+            # Re-resolve immediately before running (narrows TOCTOU).
+            resolved = resolve_trusted_script(self.script_path, self.trusted_dir)
+            if resolved is None:
+                return {'continue': False,
+                        'message': 'Processor script is not inside the trusted directory',
+                        'error': True}
+
+            # NOTE: this still runs the script with full builtins. It is NOT a
+            # sandbox. The only protection is that the path is confined to an
+            # admin-owned trusted-processors directory (SP4 / issue C2). Anyone
+            # who can write that directory can run code in this process.
             hook_globals = {
                 '__builtins__': __builtins__,
-                '__file__': self.script_path,
+                '__file__': resolved,
                 '__name__': '__processor_hook__',
                 'context': context
             }
-            
+
             # Execute user script
-            with open(self.script_path, 'r') as f:
+            with open(resolved, 'r') as f:
                 script_code = f.read()
-            
+
             exec(script_code, hook_globals)
             
             # Extract result from hook_globals
@@ -184,29 +220,19 @@ class ProcessorManager(object):
             config (dict): Configuration with processor script paths
         """
         self.config = config
-        
+
         # Initialize hooks
-        self.pre_ingest = PreIngestHook(
-            config.get('pre_ingest_processor')
-        )
-        self.post_ingest = PostIngestHook(
-            config.get('post_ingest_processor')
-        )
-        self.post_import = PostImportHook(
-            config.get('post_import_processor')
-        )
-    
+        trusted = config.get('trusted_processors_dir')
+        self.pre_ingest = PreIngestHook(config.get('pre_ingest_processor'), trusted)
+        self.post_ingest = PostIngestHook(config.get('post_ingest_processor'), trusted)
+        self.post_import = PostImportHook(config.get('post_import_processor'), trusted)
+
     def reload_hooks(self):
         """Reload all hooks from configuration."""
-        self.pre_ingest = PreIngestHook(
-            self.config.get('pre_ingest_processor')
-        )
-        self.post_ingest = PostIngestHook(
-            self.config.get('post_ingest_processor')
-        )
-        self.post_import = PostImportHook(
-            self.config.get('post_import_processor')
-        )
+        trusted = self.config.get('trusted_processors_dir')
+        self.pre_ingest = PreIngestHook(self.config.get('pre_ingest_processor'), trusted)
+        self.post_ingest = PostIngestHook(self.config.get('post_ingest_processor'), trusted)
+        self.post_import = PostImportHook(self.config.get('post_import_processor'), trusted)
     
     def execute_pre_ingest(self, context):
         """Execute pre-ingest hook."""
