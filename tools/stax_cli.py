@@ -121,8 +121,13 @@ def _patch(url, token, payload):
     return _request("PATCH", url, token, payload)
 
 
-def _base(host, port):
-    return "http://{}:{}/api/v1".format(host, port)
+def _base(host, port, scheme="http"):
+    return "{}://{}:{}/api/v1".format(scheme, host, port)
+
+
+def resolve_token(cli_token):
+    """Prefer the STAX_API_TOKEN env var over a token passed in argv."""
+    return os.environ.get("STAX_API_TOKEN") or cli_token or ""
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +171,7 @@ def _ok(code, body, raw_json):
 # ---------------------------------------------------------------------------
 
 def cmd_health(args):
-    base = _base(args.host, args.port)
+    base = _base(args.host, args.port, args.scheme)
     code, body = _get("{}/health".format(base), args.token)
     if code == 200:
         print("OK  StaX API is up. status={}".format(body.get("status")))
@@ -176,7 +181,7 @@ def cmd_health(args):
 
 
 def cmd_stacks(args):
-    base = _base(args.host, args.port)
+    base = _base(args.host, args.port, args.scheme)
     code, body = _get("{}/stacks".format(base), args.token)
     body = _ok(code, body, args.json)
     if not args.json:
@@ -185,7 +190,7 @@ def cmd_stacks(args):
 
 
 def cmd_lists(args):
-    base = _base(args.host, args.port)
+    base = _base(args.host, args.port, args.scheme)
     code, body = _get("{}/stacks/{}/lists".format(base, args.stack_id),
                       args.token)
     body = _ok(code, body, args.json)
@@ -195,7 +200,7 @@ def cmd_lists(args):
 
 
 def cmd_elements(args):
-    base = _base(args.host, args.port)
+    base = _base(args.host, args.port, args.scheme)
     url  = "{}/lists/{}/elements?page={}&per_page={}".format(
         base, args.list_id, args.page, args.per_page
     )
@@ -215,7 +220,7 @@ def cmd_elements(args):
 
 
 def cmd_element(args):
-    base = _base(args.host, args.port)
+    base = _base(args.host, args.port, args.scheme)
     code, body = _get("{}/elements/{}".format(base, args.element_id),
                       args.token)
     body = _ok(code, body, args.json)
@@ -225,7 +230,7 @@ def cmd_element(args):
 
 
 def cmd_ingest(args):
-    base    = _base(args.host, args.port)
+    base    = _base(args.host, args.port, args.scheme)
     payload = {
         "filepath":    args.filepath,
         "list_id":     int(args.list_id),
@@ -243,7 +248,7 @@ def cmd_ingest(args):
 
 
 def cmd_search(args):
-    base = _base(args.host, args.port)
+    base = _base(args.host, args.port, args.scheme)
     url  = "{}/search?q={}&property={}&match={}".format(
         base,
         quote(args.query),
@@ -260,7 +265,7 @@ def cmd_search(args):
 
 
 def cmd_top(args):
-    base = _base(args.host, args.port)
+    base = _base(args.host, args.port, args.scheme)
     code, body = _get("{}/analytics/top?n={}".format(base, args.n),
                       args.token)
     body = _ok(code, body, args.json)
@@ -276,7 +281,7 @@ def cmd_top(args):
 
 
 def cmd_patch(args):
-    base    = _base(args.host, args.port)
+    base    = _base(args.host, args.port, args.scheme)
     payload = {}
     if args.tags    is not None: payload["tags"]    = args.tags
     if args.comment is not None: payload["comment"] = args.comment
@@ -324,6 +329,17 @@ def _build_parser():
         "--token",
         default=os.environ.get("STAX_API_TOKEN", ""),
         help="Auth token (or set STAX_API_TOKEN env var)",
+    )
+    p.add_argument(
+        "--scheme",
+        default=os.environ.get("STAX_API_SCHEME", "http"),
+        choices=["http", "https"],
+        help="URL scheme (default: http; env STAX_API_SCHEME)",
+    )
+    p.add_argument(
+        "--https",
+        action="store_const", const="https", dest="scheme",
+        help="Shortcut for --scheme https",
     )
     p.add_argument(
         "--json",
@@ -399,9 +415,10 @@ def main():
     parser = _build_parser()
     args   = parser.parse_args()
 
+    args.token = resolve_token(args.token)
     if not args.token and args.command != "health":
         print("WARNING: No auth token set.  "
-              "Use --token or set STAX_API_TOKEN.")
+              "Prefer the STAX_API_TOKEN env var over --token.")
 
     fn = _COMMANDS.get(args.command)
     if fn is None:
