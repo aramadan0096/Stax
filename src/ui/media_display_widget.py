@@ -1129,6 +1129,9 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             
             # Bulk add to playlist
             bulk_playlist_action = menu.addAction(get_icon('playlist', size=16), "Add All to Playlist...")
+
+            # Bulk metadata edit
+            bulk_edit_action = menu.addAction(get_icon('edit', size=16), "Batch Edit Metadata...")
             
             menu.addSeparator()
             
@@ -1149,6 +1152,8 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 self.bulk_add_to_favorites(selected_ids)
             elif action == bulk_playlist_action:
                 self.bulk_add_to_playlist(selected_ids)
+            elif action == bulk_edit_action:
+                self.open_batch_edit(selected_ids)
             elif action == bulk_deprecate_action:
                 self.bulk_mark_deprecated(selected_ids)
             elif action == bulk_delete_action:
@@ -1336,6 +1341,9 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         
         # Bulk add to playlist
         bulk_playlist_action = menu.addAction(get_icon('playlist', size=16), "Add All to Playlist...")
+
+        # Bulk metadata edit
+        bulk_edit_action = menu.addAction(get_icon('edit', size=16), "Batch Edit Metadata...")
         
         menu.addSeparator()
         
@@ -1352,10 +1360,37 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             self.bulk_add_to_favorites(selected_ids)
         elif action == bulk_playlist_action:
             self.bulk_add_to_playlist(selected_ids)
+        elif action == bulk_edit_action:
+            self.open_batch_edit(selected_ids)
         elif action == bulk_deprecate_action:
             self.bulk_mark_deprecated(selected_ids)
         elif action == bulk_delete_action:
             self.bulk_delete(selected_ids)
+
+    def open_batch_edit(self, element_ids=None):
+        """Open batch metadata editor for selected elements."""
+        if element_ids is None:
+            element_ids = self.get_selected_element_ids()
+
+        if len(element_ids) < 2:
+            QtWidgets.QMessageBox.information(
+                self,
+                "No Selection",
+                "Please select at least two elements for batch edit."
+            )
+            return
+
+        try:
+            from src.ui.batch_edit_dialog import BatchEditDialog
+
+            dialog = BatchEditDialog(element_ids, self.db, self)
+            if dialog.exec_() == QtWidgets.QDialog.Accepted:
+                if self.current_list_id:
+                    self.load_elements(self.current_list_id)
+                elif self.current_elements is not None:
+                    self._update_views_with_elements(self.current_elements)
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", "Failed to open batch edit dialog: {}".format(str(e)))
     
     def get_selected_element_ids(self):
         """Get list of selected element IDs from current view."""
