@@ -649,6 +649,11 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", "Failed to insert element: {}".format(str(e)))
 
+    def on_advanced_search_result(self, element_id):
+        """Handle activation of an advanced-search result: insert it, same path
+        as a gallery double-click. (Fixes audit issue M4.)"""
+        self.on_element_double_clicked(element_id)
+
     def on_selection_changed(self):
         selected_ids = self.media_display.get_selected_element_ids()
         if len(selected_ids) == 1:
@@ -776,6 +781,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def show_advanced_search(self):
         if not hasattr(self, "advanced_search_dialog") or self.advanced_search_dialog is None:
             self.advanced_search_dialog = AdvancedSearchDialog(self.db, self)
+            self.advanced_search_dialog.result_activated.connect(self.on_advanced_search_result)
         self.advanced_search_dialog.show()
         self.advanced_search_dialog.raise_()
 

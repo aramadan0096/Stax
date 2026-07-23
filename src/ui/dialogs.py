@@ -13,6 +13,9 @@ from src.icon_loader import get_icon
 
 class AdvancedSearchDialog(QtWidgets.QDialog):
     """Advanced search dialog with property and match type selection."""
+
+    result_activated = QtCore.Signal(int)  # element_id (fixes audit issue M4)
+
     def __init__(self, db_manager, parent=None):
         super(AdvancedSearchDialog, self).__init__(parent)
         self.db = db_manager
@@ -120,11 +123,15 @@ class AdvancedSearchDialog(QtWidgets.QDialog):
         self.status_label.setStyleSheet("color: green;" if len(self.results) > 0 else "color: orange;")
     
     def on_result_double_clicked(self, item):
-        """Handle double-click on result."""
+        """Handle double-click on result by emitting result_activated(element_id).
+
+        Previously called self.parent().on_advanced_search_result(...), a method
+        MainWindow does not define -> AttributeError (audit issue M4). Emitting a
+        signal decouples the dialog from its owner.
+        """
         element_id = self.results_table.item(item.row(), 0).data(QtCore.Qt.UserRole)
         if element_id:
-            # Emit signal or trigger action
-            self.parent().on_advanced_search_result(element_id)
+            self.result_activated.emit(int(element_id))
 
 
 
