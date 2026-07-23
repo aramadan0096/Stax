@@ -4,7 +4,6 @@ Main GUI for StaX — Python 3.9+
 
 Changes from original:
   - apply_dark_palette(app) before setStyleSheet  THE real fix for white bg
-  - _apply_fallback_palette() inline if src/dark_palette.py not deployed yet
   - _force_panel_palette() propagates dark bg to LEFT nav + RIGHT preview
   - setObjectName on all three main panels for reliable QSS targeting
   - Async preview worker wired (Feature 1)
@@ -36,6 +35,7 @@ from src.ingest_worker import IngestWorker
 from src.nuke_bridge import NukeBridge, NukeIntegration
 from src.extensibility_hooks import ProcessorManager
 from src.icon_loader import get_icon
+from src.dark_palette import apply_dark_palette
 from src.video_player_widget import VideoPlayerWidget
 
 try:
@@ -811,39 +811,6 @@ class MainWindow(QtWidgets.QMainWindow):
 # Entry point
 # =============================================================================
 
-def _apply_fallback_palette(app):
-    """Inline dark palette — same values as src/dark_palette.py."""
-    c = QtGui.QColor
-    pal = QtGui.QPalette()
-    pal.setColor(QtGui.QPalette.Window,          c("#0e0e0e"))
-    pal.setColor(QtGui.QPalette.WindowText,      c("#e7e5e4"))
-    pal.setColor(QtGui.QPalette.Base,            c("#0e0e0e"))
-    pal.setColor(QtGui.QPalette.AlternateBase,   c("#191a1a"))
-    pal.setColor(QtGui.QPalette.Button,          c("#262626"))
-    pal.setColor(QtGui.QPalette.ButtonText,      c("#e7e5e4"))
-    pal.setColor(QtGui.QPalette.Text,            c("#e7e5e4"))
-    pal.setColor(QtGui.QPalette.BrightText,      c("#ffffff"))
-    pal.setColor(QtGui.QPalette.PlaceholderText, c("#acabaa"))
-    pal.setColor(QtGui.QPalette.Highlight,       c("#71d7cd"))
-    pal.setColor(QtGui.QPalette.HighlightedText, c("#003e39"))
-    pal.setColor(QtGui.QPalette.Link,            c("#71d7cd"))
-    pal.setColor(QtGui.QPalette.ToolTipBase,     c("#2c2c2c"))
-    pal.setColor(QtGui.QPalette.ToolTipText,     c("#e7e5e4"))
-    pal.setColor(QtGui.QPalette.Light,           c("#2c2c2c"))
-    pal.setColor(QtGui.QPalette.Midlight,        c("#1f2020"))
-    pal.setColor(QtGui.QPalette.Mid,             c("#191a1a"))
-    pal.setColor(QtGui.QPalette.Dark,            c("#131313"))
-    pal.setColor(QtGui.QPalette.Shadow,          c("#0e0e0e"))
-    pal.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.Window,      c("#131313"))
-    pal.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.WindowText,  c("#484848"))
-    pal.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.Base,        c("#131313"))
-    pal.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.Text,        c("#484848"))
-    pal.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.Button,      c("#1f2020"))
-    pal.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.ButtonText,  c("#484848"))
-    app.setPalette(pal)
-    QtWidgets.QToolTip.setPalette(pal)
-
-
 def main():
     try:
         QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling)
@@ -861,10 +828,9 @@ def main():
 
     # STEP 2 — Dark palette (MUST be before any widget construction and before QSS)
     try:
-        from src.dark_palette import apply_dark_palette
         apply_dark_palette(app)
-    except ImportError:
-        _apply_fallback_palette(app)
+    except Exception:
+        logging.getLogger(__name__).exception("Failed to apply dark palette; using default")
 
     # STEP 3 — QSS fine-grained overrides on top of the palette
     stylesheet_path = os.path.join(os.path.dirname(__file__), "resources", "style.qss")
