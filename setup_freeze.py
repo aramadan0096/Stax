@@ -135,6 +135,14 @@ PACKAGES = [
 # Modules to exclude (reduces bundle size by ~15-20 MB)
 # ---------------------------------------------------------------------------
 EXCLUDES = [
+    # Qt5 QML bindings. StaX never imports QtQml/QtQuick (grep-verified), and
+    # cx_Freeze's qtqml hook asks QLibraryInfo for "QmlImportsPath" — a Qt6-only
+    # key. On PySide2/Qt5 (which exposes "Qml2ImportsPath" instead) that hook
+    # raises KeyError and aborts the whole build, so these must be excluded to
+    # stop include_package("PySide2") from walking into them.
+    "PySide2.QtQml",
+    "PySide2.QtQuick",
+    "PySide2.QtQuickWidgets",
     "tkinter",
     "tkinter.ttk",
     "unittest",
