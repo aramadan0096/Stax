@@ -62,7 +62,7 @@ def log_insertion(db, element_id, user_id=None, project="", host=""):
     """
     try:
         db.execute(
-            "INSERT INTO InsertionLog (element_fk, user_fk, project, host) "
+            "INSERT INTO insertion_log (element_fk, user_fk, project, host) "
             "VALUES (?, ?, ?, ?)",
             (element_id, user_id, project or None, host or None),
         )

@@ -1783,7 +1783,7 @@ class DatabaseManager(object):
     def get_all_settings(self):
         """
         Get all settings from database.
-        
+
         Returns:
             dict: Dictionary of all settings
         """
@@ -1792,5 +1792,83 @@ class DatabaseManager(object):
             cursor.execute("SELECT key, value FROM settings")
             rows = cursor.fetchall()
             return {row['key']: row['value'] for row in rows}
+
+    # ============================================================
+    # Consolidated methods merged from db_manager_additions (C1)
+    # ============================================================
+
+    def execute(self, sql, params=()):
+        """Execute a write statement (INSERT/UPDATE/DELETE) and return the cursor.
+
+        Used by analytics_panel.log_insertion. The context manager commits.
+        """
+        with self.get_connection() as conn:
+            return conn.execute(sql, params)
+
+    def get_top_inserted_elements(self, n=20):
+        """Top N most-inserted elements with insertion counts.
+
+        Returns list[dict] keys: element_id, name, list_name, format, type, count.
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT e.element_id,
+                       e.name,
+                       l.name   AS list_name,
+                       e.format,
+                       e.type,
+                       COUNT(i.log_id) AS count
+                FROM insertion_log i
+                JOIN elements e ON e.element_id = i.element_fk
+                LEFT JOIN lists l ON l.list_id = e.list_fk
+                GROUP BY i.element_fk
+                ORDER BY count DESC
+                LIMIT ?
+                """,
+                (n,),
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_insertions_by_month(self):
+        """Insertion counts by calendar month. Returns list[dict] keys: month, count."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT strftime('%Y-%m', inserted_at) AS month,
+                       COUNT(*)                        AS count
+                FROM insertion_log
+                GROUP BY month
+                ORDER BY month ASC
+                """
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_insertions_by_user(self):
+        """Insertion counts per user. Returns list[dict] keys: username, count, last_active."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT COALESCE(u.username, 'Guest') AS username,
+                       COUNT(i.log_id)               AS count,
+                       MAX(i.inserted_at)            AS last_active
+                FROM insertion_log i
+                LEFT JOIN users u ON u.user_id = i.user_fk
+                GROUP BY i.user_fk
+                ORDER BY count DESC
+                """
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
+    def get_total_insertions(self):
+        """Total number of rows in insertion_log."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM insertion_log")
+            row = cursor.fetchone()
+            return row[0] if row else 0
 
 
