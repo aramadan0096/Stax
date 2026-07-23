@@ -29,6 +29,9 @@ try:
 except ImportError:                       # graceful degradation
     _HAS_FILESEQ = False
 
+from src.preview_worker import get_preview_queue, PreviewJob
+from src.duplicate_detection import compute_phash, find_duplicates
+
 
 def parse_frame_range(range_str):
     """Parse a frame-range string into (first, last, frames_list).
@@ -769,149 +772,36 @@ class IngestionCore(object):
                 else:
                     print("[GLB] Skipping conversion for unsupported extension: {}".format(ext_lower))
 
-            preview_path = None
-            if self.config.get('generate_previews', True):
-                preview_filename = "{}_{}.png".format(
-                    target_list_id,
-                    element_hash
-                )
-                preview_path = os.path.normpath(os.path.join(self.preview_dir, preview_filename))
-                try:
-                    preview_max_size = int(self.config.get('preview_size', PreviewGenerator.PREVIEW_SIZE))
-                except (TypeError, ValueError):
-                    preview_max_size = PreviewGenerator.PREVIEW_SIZE
-
-                if is_sequence:
-                    PreviewGenerator.generate_sequence_preview(
-                        files_to_process,
-                        preview_path,
-                        max_size=preview_max_size
-                    )
-                elif asset_type == '2D':
-                    PreviewGenerator.generate_image_preview(
-                        source_path,
-                        preview_path,
-                        max_size=preview_max_size
-                    )
-            
-            # Generate animated GIF preview for videos and sequences
-            gif_preview_path = None
-
             # Check if it's a video file
             is_video = file_format.lower() in ['.mp4', '.mov', '.avi', '.mkv', '.mpg', '.mpeg', '.wmv', '.flv']
 
-            try:
-                gif_size = int(self.config.get('gif_size', 256))
-            except (TypeError, ValueError):
-                gif_size = 256
-
-            try:
-                gif_fps = int(self.config.get('gif_fps', 10))
-            except (TypeError, ValueError):
-                gif_fps = 10
-
-            gif_full_duration = bool(self.config.get('gif_full_duration', False))
-
-            if gif_full_duration:
-                gif_duration = None
-            else:
-                gif_duration_setting = self.config.get('gif_duration', 3.0)
-                try:
-                    gif_duration = float(gif_duration_setting)
-                except (TypeError, ValueError):
-                    gif_duration = 3.0
-            gif_max_frames = self.config.get('gif_max_frames', None)
-            if gif_full_duration:
-                gif_max_frames = None
-            elif gif_max_frames is not None:
-                try:
-                    gif_max_frames = int(gif_max_frames)
-                except (TypeError, ValueError):
-                    gif_max_frames = None
-            gif_loop_forever = self.config.get('gif_loop_forever', True)
-            try:
-                sequence_preview_fps = int(self.config.get('sequence_preview_fps', 24))
-            except (TypeError, ValueError):
-                sequence_preview_fps = 24
-            
+            # ---- Compute deterministic preview output paths ----
+            preview_path = gif_preview_path = video_preview_path = None
+            if self.config.get('generate_previews', True):
+                preview_path = os.path.normpath(os.path.join(
+                    self.preview_dir, "{}_{}.png".format(target_list_id, element_hash)))
             if is_video or (is_sequence and asset_type == '2D'):
-                print("[GIF] Generating GIF preview for {} (type: {}, is_video: {}, is_sequence: {})".format(
-                    name, asset_type, is_video, is_sequence))
-                gif_filename = "{}_{}.gif".format(
-                    target_list_id,
-                    element_hash
-                )
-                gif_preview_path = os.path.normpath(os.path.join(self.preview_dir, gif_filename))
-                print("[GIF] Output path: {}".format(gif_preview_path))
-                
-                # Determine input path for FFmpeg
-                if is_sequence:
-                    # Use sequence pattern for FFmpeg operations
-                    input_for_gif = sequence_pattern_path or SequenceDetector.get_sequence_path(sequence_info)
-                    print("[GIF] Input (sequence): {}".format(input_for_gif))
-                else:
-                    # Use video file (already normalized at function start)
-                    input_for_gif = source_path
-                    print("[GIF] Input (video): {}".format(input_for_gif))
-                
-                # Generate GIF (3 seconds, 256x256px square, 10fps)
-                ffmpeg = get_ffmpeg()
-                print("[GIF] Calling FFmpeg generate_gif_preview...")
-                
-                # Pass start_frame for sequences
-                start_frame_for_gif = None
-                if is_sequence and sequence_info:
-                    start_frame_for_gif = sequence_info.get('first_frame') or sequence_info.get('start_frame')
-                
-                gif_success = ffmpeg.generate_gif_preview(
-                    input_for_gif,
-                    gif_preview_path,
-                    max_duration=gif_duration,
-                    size=gif_size,
-                    fps=gif_fps,
-                    start_frame=start_frame_for_gif,
-                    is_sequence=is_sequence and asset_type == '2D',
-                    sequence_fps=sequence_preview_fps,
-                    max_frames=gif_max_frames,
-                    loop_forever=gif_loop_forever
-                )
-                
-                if gif_success and os.path.exists(gif_preview_path):
-                    print("[GIF] ✓ GIF generated successfully: {}".format(gif_preview_path))
-                else:
-                    print("[GIF] ✗ GIF generation failed")
-                    gif_preview_path = None
-            else:
-                print("[GIF] Skipping GIF generation for {} (type: {}, format: {})".format(
-                    name, asset_type, file_format))
-            
-            # Generate low-res video preview for sequences (MP4)
-            video_preview_path = None
+                gif_preview_path = os.path.normpath(os.path.join(
+                    self.preview_dir, "{}_{}.gif".format(target_list_id, element_hash)))
             if is_sequence and asset_type == '2D':
-                print("[VIDEO] Generating video preview for sequence: {}".format(name))
-                video_filename = "{}_{}.mp4".format(
-                    target_list_id,
-                    element_hash
-                )
-                video_preview_path = os.path.normpath(os.path.join(self.preview_dir, video_filename))
-                print("[VIDEO] Output path: {}".format(video_preview_path))
-                
-                # Generate low-res MP4 preview (~512px, first 100 frames or 4 seconds)
-                video_success = PreviewGenerator.generate_sequence_video_preview(
-                    sequence_info,
-                    video_preview_path,
-                    max_size=512,
-                    fps=sequence_preview_fps
-                )
-                
-                if video_success:
-                    print("[VIDEO] ✓ Video preview generated successfully: {}".format(video_preview_path))
-                else:
-                    print("[VIDEO] ✗ Video preview generation failed")
-                    video_preview_path = None
-            
-            # Create element in database
-            preview_db_path = preview_path if (preview_path and os.path.exists(preview_path)) else None
+                video_preview_path = os.path.normpath(os.path.join(
+                    self.preview_dir, "{}_{}.mp4".format(target_list_id, element_hash)))
+
+            # ---- Duplicate detection (before DB insert) ----
+            phash = None
+            if self.config.get('dedup_enabled', True):
+                phash = compute_phash(filepath_soft or source_path)
+                if phash:
+                    dupes = find_duplicates(
+                        self.db, phash,
+                        threshold=int(self.config.get('dedup_threshold', 8)))
+                    if dupes and self.config.get('dedup_skip_duplicates', False):
+                        self.db.log_ingestion(
+                            action='ingest', source_path=source_path,
+                            target_list=target_list['name'], status='skipped',
+                            message='Duplicate of element {}'.format(dupes[0].get('element_id')))
+                        return {'success': False, 'reason': 'duplicate_skipped',
+                                'message': 'Skipped — duplicate of existing asset.'}
 
             element_id = self.db.create_element(
                 list_id=target_list_id,
@@ -924,13 +814,42 @@ class IngestionCore(object):
                 format=file_format,
                 comment=comment,
                 tags=tags,
-                preview_path=preview_db_path,
+                preview_path=preview_path,
                 gif_preview_path=gif_preview_path,
                 video_preview_path=video_preview_path,
                 geometry_preview_path=geometry_preview_path,
                 file_size=file_size
             )
-            
+
+            # ---- Store phash (SP1: update_element_phash) ----
+            if phash and hasattr(self.db, 'update_element_phash'):
+                try:
+                    self.db.update_element_phash(element_id, phash)
+                except Exception as exc:
+                    log.debug("update_element_phash failed for %s: %s", element_id, exc)
+
+            # ---- Submit async preview job (replaces synchronous generation) ----
+            if self.config.get('generate_previews', True):
+                ffmpeg_pattern = sequence_pattern_path if is_sequence else None
+                first_frame = 1
+                if is_sequence and sequence_info:
+                    first_frame = sequence_info.get('first_frame') \
+                        or sequence_info.get('start_frame') or 1
+                get_preview_queue().submit(PreviewJob(
+                    element_id=element_id,
+                    source_path=filepath_soft or source_path,
+                    output_dir=self.preview_dir,
+                    asset_type=asset_type,
+                    frame_range=frame_range,
+                    config=self.config,
+                    thumb_path=preview_path,
+                    gif_path=gif_preview_path,
+                    video_path=video_preview_path,
+                    is_sequence=bool(is_sequence),
+                    ffmpeg_pattern=ffmpeg_pattern,
+                    first_frame=first_frame,
+                ))
+
             # Log ingestion
             self.db.log_ingestion(
                 action='ingest',
