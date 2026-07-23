@@ -16,8 +16,8 @@ building blocks where they replace bespoke code.
 
 | SP | Title | Spec | Plan | Impl | Issues |
 |----|-------|:----:|:----:|:----:|--------|
-| SP0 | Test harness & CI foundation | ☑ | ☑ | ☐ | (test-coverage gap) |
-| SP1 | Database consolidation & concurrency | ☑ | ☑ | ☐ | C1, H1, H3, M1, L6, L11 |
+| SP0 | Test harness & CI foundation | ☑ | ☑ | ☑ | (CI push + branch-protection deferred to human) |
+| SP1 | Database consolidation & concurrency | ☑ | ☑ | ☑ | C1, H1, H3, M1, L6, L11 — all fixed |
 | SP2 | Async ingestion & preview pipeline | ☑ | ☑ | ☐ | C4, H7, M12, L8, L5 |
 | SP3 | FFmpeg/media hardening & cross-platform | ☑ | ☑ | ☐ | H4, M8, M9, M10 |
 | SP4 | Security hardening | ☑ | ☑ | ☐ | C2, C3, H2, H6, M2, L9 |
@@ -34,27 +34,27 @@ building blocks where they replace bespoke code.
 Spec: [`specs/2026-07-22-sp0-test-harness-ci-design.md`](specs/2026-07-22-sp0-test-harness-ci-design.md) ·
 Plan: [`plans/2026-07-22-sp0-test-harness-ci.md`](plans/2026-07-22-sp0-test-harness-ci.md)
 
-- [ ] Task 1 — Restructure `tests/` into unit/gui/nuke tiers, archive scratch
-- [ ] Task 2 — Add dev dependencies (`pytest-qt`, `pytest-mock`, `pytest-cov`, `flask`)
-- [ ] Task 3 — Rewrite `conftest.py` around the real `DatabaseManager`
-- [ ] Task 4 — Update `pytest.ini` (testpaths, strict markers)
-- [ ] Task 5 — Characterization tests: SequenceDetector & Config
-- [ ] Task 6 — Characterization tests: PreviewCache & FileLockManager
-- [ ] Task 7 — Nuke-tier smoke: NukeBridge mock mode
-- [ ] Task 8 — GUI-tier smoke tests (strict `xfail` for C1)
-- [ ] Task 9 — GitHub Actions CI + branch protection
+- [x] Task 1 — Restructure `tests/` into unit/gui/nuke tiers, archive scratch
+- [x] Task 2 — Add dev dependencies (`pytest-qt`, `pytest-mock`, `pytest-cov`, `flask`)
+- [x] Task 3 — Rewrite `conftest.py` around the real `DatabaseManager`
+- [x] Task 4 — Update `pytest.ini` (testpaths, strict markers)
+- [x] Task 5 — Characterization tests: SequenceDetector & Config
+- [x] Task 6 — Characterization tests: PreviewCache & FileLockManager
+- [x] Task 7 — Nuke-tier smoke: NukeBridge mock mode
+- [x] Task 8 — GUI-tier smoke tests (strict `xfail` for C1)
+- [x] Task 9 — GitHub Actions CI workflow written + committed locally (push + branch protection pending human approval)
 
 ---
 
 ## SP1 — Database consolidation & concurrency
 Spec: [`specs/…-sp1-database-consolidation-design.md`](specs/2026-07-22-sp1-database-consolidation-design.md) · Plan: [`plans/…-sp1-database-consolidation.md`](plans/2026-07-22-sp1-database-consolidation.md)
 
-- [ ] **C1** — Merge the two DB layers into one `DatabaseManager`; single versioned migration runner; wire analytics/API/batch-edit; write `ingestion_history`/insertion log. Flip SP0's C1 `xfail` smoke tests to pass.
-- [ ] **H1** — Fix lock-file delete-on-release race; switch WAL→DELETE/TRUNCATE on network shares.
-- [ ] **H3** — Remove duplicated, signature-swapped favorite methods; single canonical signature.
-- [ ] **M1** — Whitelist column names in `search_elements` / `update_element` (kill SQL-format injection).
-- [ ] **L6** — Scope the external lock to writes; allow concurrent readers; reuse per-thread connection.
-- [ ] **L11** — Playlist migration: verify row counts, raise on mismatch (no silent data loss).
+- [x] **C1** — Merge the two DB layers into one `DatabaseManager`; single versioned migration runner; wire analytics/API/batch-edit; write `ingestion_history`/insertion log. Flip SP0's C1 `xfail` smoke tests to pass. _(migration runner + phash + insertion_log; analytics/count/metadata/phash methods; C1 smoke tests now real PASS)_
+- [x] **H1** — Fix lock-file delete-on-release race; switch WAL→DELETE/TRUNCATE on network shares.
+- [x] **H3** — Remove duplicated, signature-swapped favorite methods; single canonical signature.
+- [x] **M1** — Whitelist column names in `search_elements` / `update_element` (kill SQL-format injection).
+- [x] **L6** — Scope the external lock to writes; allow concurrent readers; reuse per-thread connection.
+- [x] **L11** — Playlist migration: verify row counts, raise on mismatch (no silent data loss).
 
 ---
 
