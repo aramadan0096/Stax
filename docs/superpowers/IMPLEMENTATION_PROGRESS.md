@@ -21,7 +21,7 @@ building blocks where they replace bespoke code.
 | SP2 | Async ingestion & preview pipeline | ☑ | ☑ | ☑ | C4, H7, M12, L8, L5 — all fixed |
 | SP3 | FFmpeg/media hardening & cross-platform | ☑ | ☑ | ☑ | H4, M8, M9, M10 — all fixed |
 | SP4 | Security hardening | ☑ | ☑ | ☑ | C2, C3, H2, H6, M2, L9 |
-| SP5 | Nuke integration & embedded-mode | ☑ | ☑ | ☐ | H5, H8, L1, L3, L7 |
+| SP5 | Nuke integration & embedded-mode | ☑ | ☑ | ☑ | H5, H8, L1, L3, L7 |
 | SP6 | UI correctness & memory | ☑ | ☑ | ☐ | M3, M4, M5, M6, M7, M13, L2 |
 | SP7 | Build, packaging & deployment | ☑ | ☑ | ☐ | M11, M14 |
 | SP8 | Code quality & consistency | ☑ | ☑ | ☐ | L4, L10 |
@@ -94,11 +94,11 @@ Spec: [`specs/…-sp4-security-hardening-design.md`](specs/2026-07-22-sp4-securi
 ## SP5 — Nuke integration & embedded-mode
 Spec: [`specs/…-sp5-nuke-integration-design.md`](specs/2026-07-22-sp5-nuke-integration-design.md) · Plan: [`plans/…-sp5-nuke-integration.md`](plans/2026-07-22-sp5-nuke-integration.md)
 
-- [ ] **H5** — `menu.py` commands must target the live `StaXPanel` (singleton), not a pane result.
-- [ ] **H8** — Scope stdout/stderr suppression to StaX; never swallow `stderr` in Nuke.
-- [ ] **L1** — `init.py`: add absolute plugin paths (`os.path.join(stax_root, subdir)`).
-- [ ] **L3** — Delete orphaned `nuke_bridge_patch.py`.
-- [ ] **L7** — Remove Python-2.7 claims/shims; state single interpreter.
+- [x] **H5** — `menu.py` commands target the live `StaXPanel` singleton via `get_stax_panel()`, not a pane result.
+- [x] **H8** — DebugManager scoped to the `stax` logger; never replaces/swallows stdout/stderr.
+- [x] **L1** — `init.py`: pure `build_plugin_paths(stax_root)` returns absolute normalized paths; imports cleanly without Nuke.
+- [x] **L3** — Deleted orphaned `nuke_bridge_patch.py` (+ regression guard).
+- [x] **L7** — Removed Python-2.7 claims/shims across 13 files; single Py3 interpreter (guard test enforces).
 
 ---
 
