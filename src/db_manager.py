@@ -1871,4 +1871,53 @@ class DatabaseManager(object):
             row = cursor.fetchone()
             return row[0] if row else 0
 
+    def count_elements_by_list(self, list_id):
+        """Count of non-deprecated elements in a list."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT COUNT(*) FROM elements "
+                "WHERE list_fk = ? AND is_deprecated = 0",
+                (list_id,),
+            )
+            row = cursor.fetchone()
+            return row[0] if row else 0
+
+    # Fields the batch editor / API PATCH may set.
+    METADATA_ELEMENT_COLUMNS = {
+        "name", "tags", "comment", "type", "is_deprecated", "list_fk",
+    }
+
+    def update_element_metadata(self, element_id, **kwargs):
+        """Update whitelisted metadata fields on an element (batch edit / API PATCH).
+
+        Unknown keys are ignored. Routes through the whitelisted update_element.
+        """
+        updates = {
+            k: v for k, v in kwargs.items() if k in self.METADATA_ELEMENT_COLUMNS
+        }
+        if not updates:
+            return False
+        return self.update_element(element_id, **updates)
+
+    def update_element_phash(self, element_id, phash):
+        """Store the perceptual hash for an element (SP2 duplicate detection)."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE elements SET phash = ? WHERE element_id = ?",
+                (phash, element_id),
+            )
+            return cursor.rowcount > 0
+
+    def get_elements_with_phash(self):
+        """All elements that have a stored phash (SP2 duplicate detection)."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT element_id, name, list_fk, format, phash, preview_path "
+                "FROM elements WHERE phash IS NOT NULL AND phash != ''"
+            )
+            return [dict(row) for row in cursor.fetchall()]
+
 
