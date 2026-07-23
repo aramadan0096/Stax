@@ -310,6 +310,10 @@ class GeometryViewerWidget(QtWidgets.QWidget):
     def shutdown(self):
         GeometryViewerServer.shutdown_instance()
 
+    def closeEvent(self, event):  # pylint: disable=invalid-name
+        self.shutdown()
+        super(GeometryViewerWidget, self).closeEvent(event)
+
     def _set_placeholder(self):
         self._stack.setCurrentIndex(0)
         self._status.setText("Drop or ingest geometry to generate a WebGL preview.")

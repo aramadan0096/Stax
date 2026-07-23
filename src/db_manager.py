@@ -1713,7 +1713,7 @@ class DatabaseManager(object):
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "UPDATE users SET password_hash = ? WHERE user_id = ?",
+                "UPDATE users SET password_hash = ?, must_change_password = 0 WHERE user_id = ?",
                 (password_hash, user_id)
             )
             conn.commit()
