@@ -49,6 +49,15 @@ def _norm(path):
     return os.path.normpath(os.path.abspath(path))
 
 
+def _is_within(base, target):
+    base_r = os.path.realpath(base)
+    target_r = os.path.realpath(target)
+    try:
+        return os.path.commonpath([base_r, target_r]) == base_r
+    except ValueError:
+        return False
+
+
 def _find_free_port():
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.bind(('127.0.0.1', 0))
@@ -61,10 +70,11 @@ class _ThreadingHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
 
 
-def _make_handler(viewer_dir, dependencies_root, project_root):
+def _make_handler(viewer_dir, dependencies_root, project_root, previews_root, allowed):
     viewer_dir = _norm(viewer_dir)
     dependencies_root = _norm(dependencies_root)
     project_root = _norm(project_root)
+    previews_root = _norm(previews_root)
 
     class GeometryRequestHandler(SimpleHTTPRequestHandler):
         server_version = "StaXGeometryHTTP/0.1"
@@ -86,8 +96,10 @@ def _make_handler(viewer_dir, dependencies_root, project_root):
                 target = os.path.join(dependencies_root, rel)
                 return _norm(target)
             rel = unquote(resource.lstrip('/'))
-            target = os.path.join(project_root, rel)
-            return _norm(target)
+            target = _norm(os.path.join(project_root, rel))
+            if not _is_within(project_root, target):
+                return _norm(os.path.join(project_root, 'viewer', 'index.html'))
+            return target
 
         def do_GET(self):  # pylint: disable=invalid-name
             parsed = urlparse(self.path)
@@ -110,6 +122,10 @@ def _make_handler(viewer_dir, dependencies_root, project_root):
                 model_path = _norm(model_path)
                 if not os.path.exists(model_path) or not os.path.isfile(model_path):
                     self.send_error(404, "Model not found")
+                    return
+
+                if model_path not in allowed or not _is_within(previews_root, model_path):
+                    self.send_error(403, "Model not permitted")
                     return
 
                 ext = os.path.splitext(model_path)[1].lower()
@@ -156,12 +172,12 @@ class GeometryViewerServer(object):
     _instance = None
     _lock = threading.Lock()
 
-    def __init__(self, project_root):  # pylint: disable=too-many-statements
-        self._project_root = _norm(project_root)
-        self._viewer_dir = os.path.join(self._project_root, 'resources', 'geometry_viewer')
-        self._dependencies_root = os.path.join(self._project_root, 'dependencies')
-
-        handler_cls = _make_handler(self._viewer_dir, self._dependencies_root, self._project_root)
+    def __init__(self, project_root, previews_root=None):  # pylint: disable=too-many-statements
+        self._init_registry(project_root, previews_root)
+        handler_cls = _make_handler(
+            self._viewer_dir, self._dependencies_root, self._project_root,
+            self._previews_root, self._allowed,
+        )
         self._port = _find_free_port()
         self._httpd = _ThreadingHTTPServer(('127.0.0.1', self._port), handler_cls)
 
@@ -169,11 +185,32 @@ class GeometryViewerServer(object):
         self._thread.daemon = True
         self._thread.start()
 
+    def _init_registry(self, project_root, previews_root):
+        self._project_root = _norm(project_root)
+        self._viewer_dir = os.path.join(self._project_root, 'resources', 'geometry_viewer')
+        self._dependencies_root = os.path.join(self._project_root, 'dependencies')
+        if previews_root:
+            self._previews_root = _norm(previews_root)
+        else:
+            self._previews_root = os.path.join(self._project_root, 'previews')
+        self._allowed = set()
+        self._reg_lock = threading.Lock()
+
+    def register_model(self, model_path):
+        if not model_path:
+            return None
+        resolved = _norm(model_path)
+        if not (os.path.isfile(resolved) and _is_within(self._previews_root, resolved)):
+            return None
+        with self._reg_lock:
+            self._allowed.add(resolved)
+        return resolved
+
     @classmethod
-    def instance(cls, project_root):
+    def instance(cls, project_root, previews_root=None):
         with cls._lock:
             if cls._instance is None:
-                cls._instance = cls(project_root)
+                cls._instance = cls(project_root, previews_root)
             return cls._instance
 
     def viewer_base_url(self):
@@ -182,8 +219,11 @@ class GeometryViewerServer(object):
     def model_endpoint(self, model_path):
         if not model_path:
             return None
+        resolved = self.register_model(model_path)
+        if not resolved:
+            return None
         try:
-            token = base64.urlsafe_b64encode(model_path.encode('utf-8')).rstrip(b'=')
+            token = base64.urlsafe_b64encode(resolved.encode('utf-8')).rstrip(b'=')
             quoted = quote(token.decode('ascii'))
             return 'http://127.0.0.1:{0}/model/{1}'.format(self._port, quoted)
         except Exception:
@@ -197,13 +237,33 @@ class GeometryViewerServer(object):
             return self.viewer_base_url()
         return '{0}?model={1}'.format(self.viewer_base_url(), quote(endpoint, safe=':/?=&'))
 
+    def shutdown(self):
+        try:
+            self._httpd.shutdown()
+            self._httpd.server_close()
+        except Exception:
+            pass
+        if self._thread is not None:
+            self._thread.join(timeout=3)
+
+    @classmethod
+    def shutdown_instance(cls):
+        with cls._lock:
+            if cls._instance is not None:
+                cls._instance.shutdown()
+                cls._instance = None
+
 
 class GeometryViewerWidget(QtWidgets.QWidget):
     """Widget that hosts the WebGL-based viewer or a fallback message."""
 
-    def __init__(self, project_root, parent=None):
+    def __init__(self, project_root, parent=None, previews_root=None):
         super(GeometryViewerWidget, self).__init__(parent)
         self._project_root = _norm(project_root)
+        if previews_root:
+            self._previews_root = _norm(previews_root)
+        else:
+            self._previews_root = os.path.join(self._project_root, 'previews')
         self._server = None
         self._current_model = None
         self._web_available = QWebEngineView is not None and QtWidgets is not None
@@ -245,8 +305,11 @@ class GeometryViewerWidget(QtWidgets.QWidget):
         if not self._web_available:
             return None
         if self._server is None:
-            self._server = GeometryViewerServer.instance(self._project_root)
+            self._server = GeometryViewerServer.instance(self._project_root, self._previews_root)
         return self._server
+
+    def shutdown(self):
+        GeometryViewerServer.shutdown_instance()
 
     def _set_placeholder(self):
         self._stack.setCurrentIndex(0)
