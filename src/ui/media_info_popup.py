@@ -9,6 +9,7 @@ from PySide2 import QtWidgets, QtCore, QtGui
 from src.ffmpeg_wrapper import FFmpegWrapper
 from src.icon_loader import get_icon
 from src.utils.paths import resolve_path
+from src.utils.formatting import human_size
 
 # Element type is 2D/3D/Toolset; playback mode is determined by format.
 VIDEO_EXTS = ('.mov', '.mp4', '.avi', '.mxf')
@@ -290,14 +291,7 @@ class MediaInfoPopup(QtWidgets.QDialog):
         
         # Format file size
         file_size = element_data.get('file_size', 0)
-        if file_size:
-            size_mb = file_size / (1024.0 * 1024.0)
-            if size_mb < 1024:
-                size_str = "{:.1f} MB".format(size_mb)
-            else:
-                size_str = "{:.2f} GB".format(size_mb / 1024.0)
-        else:
-            size_str = 'N/A'
+        size_str = human_size(file_size) if file_size else 'N/A'
         self.size_label.setText(size_str)
         
         # Get filepath

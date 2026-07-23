@@ -9,6 +9,7 @@ from PySide2 import QtWidgets, QtCore, QtGui
 from src.icon_loader import get_icon, get_pixmap
 from src.preview_cache import get_preview_cache
 from src.utils.paths import resolve_path
+from src.utils.formatting import human_size
 from src.ui.media_info_popup import MediaInfoPopup
 from src.ui.drag_gallery_view import DragGalleryView
 from src.ui.pagination_widget import PaginationWidget
@@ -650,13 +651,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             self.table_view.setItem(row, 2, QtWidgets.QTableWidgetItem(frame_display))
             self.table_view.setItem(row, 3, QtWidgets.QTableWidgetItem(element.get('type') or ''))
 
-            size_str = ''
-            if element.get('file_size'):
-                size_mb = element['file_size'] / (1024.0 * 1024.0)
-                if size_mb < 1024:
-                    size_str = "{:.1f} MB".format(size_mb)
-                else:
-                    size_str = "{:.2f} GB".format(size_mb / 1024.0)
+            size_str = human_size(element['file_size']) if element.get('file_size') else ''
             self.table_view.setItem(row, 4, QtWidgets.QTableWidgetItem(size_str))
 
             comment_text = element.get('comment') or ''

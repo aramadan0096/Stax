@@ -23,6 +23,7 @@ from PySide2 import QtWidgets, QtCore, QtGui
 import subprocess
 from src.icon_loader import get_pixmap
 from src.utils.paths import resolve_path
+from src.utils.formatting import human_size
 from src.geometry_viewer import GeometryViewerWidget
 
 
@@ -676,15 +677,14 @@ class VideoPlayerWidget(QtWidgets.QWidget):
                 size_bytes = os.path.getsize(geometry_path)
             except Exception:
                 size_bytes = 0
-            size_mb = size_bytes / (1024.0 * 1024.0) if size_bytes else 0.0
             ok, load_message = self.geometry_viewer.load_geometry(geometry_path)
             if not ok:
                 status = load_message or "Unable to load GLB preview."
                 self.geometry_status_label.setText(status)
             else:
                 status = "GLB preview ready: {}".format(display_name)
-                if size_mb:
-                    status += " ({:.2f} MB)".format(size_mb)
+                if size_bytes:
+                    status += " ({})".format(human_size(size_bytes))
                 self.geometry_status_label.setText(status)
         else:
             self.geometry_viewer.clear_geometry()
@@ -913,8 +913,7 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         # File size
         file_size = self.current_element.get('file_size', 0)
         if file_size:
-            size_mb = file_size / (1024.0 * 1024.0)
-            metadata_lines.append("<b>File Size:</b> {:.2f} MB".format(size_mb))
+            metadata_lines.append("<b>File Size:</b> {}".format(human_size(file_size)))
         
         # File path
         filepath = self.current_element.get('filepath_hard') or self.current_element.get('filepath_soft')
