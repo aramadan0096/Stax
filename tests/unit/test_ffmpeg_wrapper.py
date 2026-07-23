@@ -155,3 +155,51 @@ def test_encode_method_returns_false_on_timeout(wrapper, mocker):
     mocker.patch("ffmpeg_wrapper.subprocess.check_output",
                  side_effect=subprocess.TimeoutExpired(cmd="ffmpeg", timeout=1))
     assert wrapper.generate_video_preview("/in.mp4", "/out.mp4") is False
+
+
+# --- M8: per-call GIF palette temp dir --------------------------------------
+
+@pytest.mark.unit
+def test_gif_uses_unique_palette_per_call(wrapper, tmp_path, mocker):
+    import tempfile
+    captured = []
+
+    def fake(cmd, **kw):
+        captured.append(list(cmd))
+        return b""
+
+    mocker.patch("ffmpeg_wrapper.subprocess.check_output", side_effect=fake)
+
+    wrapper.generate_gif_preview("/in.mp4", str(tmp_path / "a.gif"))
+    wrapper.generate_gif_preview("/in.mp4", str(tmp_path / "b.gif"))
+
+    palette_paths = [c[-1] for c in captured
+                     if os.path.basename(c[-1]) == "palette.png"]
+    assert len(palette_paths) == 2                    # one palette pass per call
+    assert len(set(palette_paths)) == 2               # both unique
+    shared = os.path.join(tempfile.gettempdir(), "palette.png")
+    assert shared not in palette_paths                # not the old shared path
+
+
+@pytest.mark.unit
+def test_gif_cleans_up_temp_dir(wrapper, tmp_path, mocker):
+    captured = []
+
+    def fake(cmd, **kw):
+        captured.append(list(cmd))
+        return b""
+
+    mocker.patch("ffmpeg_wrapper.subprocess.check_output", side_effect=fake)
+    wrapper.generate_gif_preview("/in.mp4", str(tmp_path / "a.gif"))
+
+    palette_path = next(c[-1] for c in captured
+                        if os.path.basename(c[-1]) == "palette.png")
+    # finally: shutil.rmtree removed the per-call temp dir
+    assert not os.path.exists(os.path.dirname(palette_path))
+
+
+@pytest.mark.unit
+def test_gif_returns_false_on_timeout(wrapper, tmp_path, mocker):
+    mocker.patch("ffmpeg_wrapper.subprocess.check_output",
+                 side_effect=subprocess.TimeoutExpired(cmd="ffmpeg", timeout=1))
+    assert wrapper.generate_gif_preview("/in.mp4", str(tmp_path / "a.gif")) is False

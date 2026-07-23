@@ -420,8 +420,10 @@ class FFmpegWrapper(object):
         Returns:
             bool: True if successful, False otherwise
         """
-        # Generate palette first for better quality GIF
-        palette_path = os.path.join(tempfile.gettempdir(), 'palette.png')
+        # Generate palette in a per-call temp dir so concurrent jobs never
+        # collide on a shared palette.png (issue M8).
+        temp_dir = tempfile.mkdtemp(prefix='stax_gif_')
+        palette_path = os.path.join(temp_dir, 'palette.png')
         scale_filter = 'scale={0}:-1:flags=lanczos'.format(size)
         sequence_rate = sequence_fps or fps
         start_number = start_frame if (start_frame is not None) else 1
@@ -495,23 +497,21 @@ class FFmpegWrapper(object):
             gif_cmd.append(output_path)
             subprocess.check_output(gif_cmd, stderr=subprocess.STDOUT,
                                     timeout=self.ENCODE_TIMEOUT)
-            
-            # Cleanup palette
-            if os.path.exists(palette_path):
-                os.remove(palette_path)
-            
+
             return os.path.exists(output_path)
-            
+
+        except subprocess.TimeoutExpired:
+            logger.error("FFmpeg GIF generation timed out after %ss: %s",
+                         self.ENCODE_TIMEOUT, input_path)
+            return False
         except subprocess.CalledProcessError as e:
             print("FFmpeg GIF generation error: {}".format(str(e)))
-            if os.path.exists(palette_path):
-                os.remove(palette_path)
             return False
         except Exception as e:
             print("Error generating GIF preview: {}".format(str(e)))
-            if os.path.exists(palette_path):
-                os.remove(palette_path)
             return False
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
     
     def convert_sequence_to_video(self, sequence_pattern, output_path, fps=24, start_frame=1):
         """
