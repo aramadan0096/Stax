@@ -22,7 +22,7 @@ building blocks where they replace bespoke code.
 | SP3 | FFmpeg/media hardening & cross-platform | ☑ | ☑ | ☑ | H4, M8, M9, M10 — all fixed |
 | SP4 | Security hardening | ☑ | ☑ | ☑ | C2, C3, H2, H6, M2, L9 |
 | SP5 | Nuke integration & embedded-mode | ☑ | ☑ | ☑ | H5, H8, L1, L3, L7 |
-| SP6 | UI correctness & memory | ☑ | ☑ | ☐ | M3, M4, M5, M6, M7, M13, L2 |
+| SP6 | UI correctness & memory | ☑ | ☑ | ☑ | M3, M4, M5, M6, M7, M13, L2 |
 | SP7 | Build, packaging & deployment | ☑ | ☑ | ☐ | M11, M14 |
 | SP8 | Code quality & consistency | ☑ | ☑ | ☐ | L4, L10 |
 
@@ -84,8 +84,8 @@ Spec: [`specs/…-sp4-security-hardening-design.md`](specs/2026-07-22-sp4-securi
 
 - [x] **C2** — Restrict processor `exec()` to an admin-owned trusted dir; validate paths (realpath containment); drop "safe" claim. (Not sandboxed — path-restricted, per locked decision.)
 - [x] **C3** — Pin + checksum ffmpeg download; sanitize archive extraction (Zip-Slip). *(SHA-256 values deferred: empty placeholders fail closed; need a human-approved one-time download to populate.)*
-- [x] **H2** — Salted PBKDF2 (stdlib); eliminate default `admin/admin`; random seed + `must_change_password`. (Forced-reset dialog deferred to SP6.)
-- [x] **H6** — GeometryViewer: allow-list served files; reject paths outside previews root; server shutdown hook. (`closeEvent` wiring deferred to SP6.)
+- [x] **H2** — Salted PBKDF2 (stdlib); eliminate default `admin/admin`; random seed + `must_change_password`. (Forced-reset dialog delivered in SP6.)
+- [x] **H6** — GeometryViewer: allow-list served files; reject paths outside previews root; server shutdown hook. (`closeEvent` wiring delivered in SP6.)
 - [x] **M2** — API: `hmac.compare_digest` token check (both backends); ingest-path allowlist.
 - [x] **L9** — CLI: support HTTPS; prefer `STAX_API_TOKEN` env over `--token` in argv.
 
@@ -105,13 +105,14 @@ Spec: [`specs/…-sp5-nuke-integration-design.md`](specs/2026-07-22-sp5-nuke-int
 ## SP6 — UI correctness & memory
 Spec: [`specs/…-sp6-ui-correctness-design.md`](specs/2026-07-22-sp6-ui-correctness-design.md) · Plan: [`plans/…-sp6-ui-correctness.md`](plans/2026-07-22-sp6-ui-correctness.md)
 
-- [ ] **M3** — Admin bulk actions: read `is_admin` from `main_window`, not the splitter parent.
-- [ ] **M4** — Add `on_advanced_search_result` to `MainWindow` (or emit a signal).
-- [ ] **M5** — Bound/clear `gif_movies` and the icon cache; disconnect `frameChanged`.
-- [ ] **M6** — Video player config: use `Config.get/set`, not `isinstance(dict)`.
-- [ ] **M7** — MediaInfoPopup: detect video/sequence by extension, not a nonexistent `type`.
-- [ ] **M13** — SettingsPanel reset: delete old layout before rebuilding.
-- [ ] **L2** — Wire `BatchEditDialog` into the bulk menu (depends on SP1's DB methods).
+- [x] **M3** — Admin bulk actions: read `is_admin` from `main_window`, not the splitter parent.
+- [x] **M4** — Add `on_advanced_search_result` to `MainWindow` (or emit a signal).
+- [x] **M5** — Bound/clear `gif_movies` and the icon cache; disconnect `frameChanged`.
+- [x] **M6** — Video player config: use `Config.get/set`, not `isinstance(dict)`.
+- [x] **M7** — MediaInfoPopup: detect video/sequence by extension, not a nonexistent `type`.
+- [x] **M13** — SettingsPanel reset: delete old layout before rebuilding.
+- [x] **L2** — Wire `BatchEditDialog` into the bulk menu (depends on SP1's DB methods).
+- [x] **SP4 handoff** — Forced login reset flow for `must_change_password` + GeometryViewer `closeEvent` shutdown wiring.
 
 ---
 
