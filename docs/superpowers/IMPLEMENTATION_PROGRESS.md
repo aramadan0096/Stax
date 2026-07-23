@@ -23,7 +23,7 @@ building blocks where they replace bespoke code.
 | SP4 | Security hardening | ☑ | ☑ | ☑ | C2, C3, H2, H6, M2, L9 |
 | SP5 | Nuke integration & embedded-mode | ☑ | ☑ | ☑ | H5, H8, L1, L3, L7 |
 | SP6 | UI correctness & memory | ☑ | ☑ | ☑ | M3, M4, M5, M6, M7, M13, L2 |
-| SP7 | Build, packaging & deployment | ☑ | ☑ | ☐ | M11, M14 |
+| SP7 | Build, packaging & deployment | ☑ | ☑ | ◐ | M11, M14 |
 | SP8 | Code quality & consistency | ☑ | ☑ | ☐ | L4, L10 |
 
 **All specs and plans are written** (`docs/superpowers/specs/` and `plans/`). Execution has not started. See "Cross-SP reconciliation notes" at the bottom before executing.
@@ -119,8 +119,8 @@ Spec: [`specs/…-sp6-ui-correctness-design.md`](specs/2026-07-22-sp6-ui-correct
 ## SP7 — Build, packaging & deployment
 Spec: [`specs/…-sp7-packaging-design.md`](specs/2026-07-22-sp7-packaging-design.md) · Plan: [`plans/…-sp7-packaging.md`](plans/2026-07-22-sp7-packaging.md)
 
-- [ ] **M11** — Converge on one packager; remove absolute paths; declare build tool; `.ico` icon; single version source.
-- [ ] **M14** — Write logs/config to a per-user writable location; add rotation; init once.
+- [x] **M11** — Converge on one packager; remove absolute paths; declare build tool; `.ico` icon; single version source.
+- [x] **M14** — Write logs/config to a per-user writable location; add rotation; init once.
 - [ ] Linux packaging path (Win+Linux build).
 
 ---
