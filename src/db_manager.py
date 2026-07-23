@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import secrets
 import logging
+import re
 from contextlib import contextmanager
 from file_lock import FileLockManager
 
@@ -65,6 +66,10 @@ class DatabaseManager(object):
         "preview_path", "gif_preview_path", "video_preview_path",
         "geometry_preview_path", "is_deprecated", "file_size", "phash",
     }
+
+    # Label validation and whitelists
+    _COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
+    _LABEL_FIELDS = {"name", "color_hex", "meaning", "sort_order"}
 
     def __init__(self, db_path, enable_logging=False, use_file_lock=True):
         """
@@ -974,6 +979,69 @@ class DatabaseManager(object):
             cur.execute(
                 "UPDATE elements SET rating = ? WHERE element_id IN ({})".format(placeholders),
                 [rating] + list(element_ids),
+            )
+            return cur.rowcount
+
+    def get_labels(self):
+        """Return all labels ordered by sort_order."""
+        with self.get_connection(write=False) as conn:
+            rows = conn.execute(
+                "SELECT label_id, name, color_hex, meaning, sort_order "
+                "FROM labels ORDER BY sort_order, label_id"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def create_label(self, name, color_hex, meaning="", sort_order=0):
+        """Create a label. Returns the new label_id."""
+        if not self._COLOR_RE.match(color_hex or ""):
+            raise ValueError("color_hex must match #RRGGBB, got {!r}".format(color_hex))
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO labels (name, color_hex, meaning, sort_order) VALUES (?, ?, ?, ?)",
+                (name, color_hex, meaning, sort_order),
+            )
+            return cur.lastrowid
+
+    def update_label(self, label_id, **fields):
+        """Update whitelisted label fields."""
+        updates = {k: v for k, v in fields.items() if k in self._LABEL_FIELDS}
+        if "color_hex" in updates and not self._COLOR_RE.match(updates["color_hex"] or ""):
+            raise ValueError("color_hex must match #RRGGBB")
+        if not updates:
+            return
+        set_clause = ", ".join("{} = ?".format(k) for k in updates)
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "UPDATE labels SET {} WHERE label_id = ?".format(set_clause),
+                list(updates.values()) + [label_id],
+            )
+
+    def delete_label(self, label_id):
+        """Delete a label; null it out on any referencing elements (SET NULL)."""
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute("UPDATE elements SET label_fk = NULL WHERE label_fk = ?", (label_id,))
+            cur.execute("DELETE FROM labels WHERE label_id = ?", (label_id,))
+
+    def set_element_label(self, element_id, label_fk):
+        """Set (or clear with None) the label on an element."""
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "UPDATE elements SET label_fk = ? WHERE element_id = ?",
+                (label_fk, element_id),
+            )
+
+    def bulk_set_label(self, element_ids, label_fk):
+        """Set the label on many elements. Returns rows affected."""
+        if not element_ids:
+            return 0
+        placeholders = ",".join("?" for _ in element_ids)
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE elements SET label_fk = ? WHERE element_id IN ({})".format(placeholders),
+                [label_fk] + list(element_ids),
             )
             return cur.rowcount
 
