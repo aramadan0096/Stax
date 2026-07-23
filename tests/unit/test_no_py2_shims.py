@@ -14,9 +14,18 @@ _SKIP_DIRS = {".git", "lib", "dependencies", "docs", "tests", "examples", "bin",
               "__pycache__", ".venv", "venv", "build", "dist"}
 
 
+def _is_skipped(name):
+    """Third-party / generated trees are never first-party source.
+
+    Covers sibling virtualenvs (`.venv-dev`, `.venvPy3`, ...) and any vendored
+    `site-packages` tree, which legitimately still ship Py2 compat shims.
+    """
+    return name in _SKIP_DIRS or name.startswith(".venv") or name == "site-packages"
+
+
 def _iter_source_files():
     for dirpath, dirnames, filenames in os.walk(_REPO_ROOT):
-        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
+        dirnames[:] = [d for d in dirnames if not _is_skipped(d)]
         for fn in filenames:
             if fn.endswith(".py"):
                 yield os.path.join(dirpath, fn)
