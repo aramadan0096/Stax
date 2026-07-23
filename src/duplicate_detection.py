@@ -51,6 +51,9 @@ import logging
 
 log = logging.getLogger(__name__)
 
+_PHASH_PREFIX = "p:"
+_MD5_PREFIX = "m:"
+
 
 # ---------------------------------------------------------------------------
 # pHash computation
@@ -71,7 +74,7 @@ def compute_phash(path):
         from PIL import Image
         img  = Image.open(path).convert("RGB")
         h    = imagehash.phash(img)
-        return str(h)   # hex string, 16 chars for hash_size=8
+        return _PHASH_PREFIX + str(h)   # tagged perceptual hash
     except ImportError:
         log.debug(
             "imagehash not installed — falling back to basic MD5 hash. "
@@ -84,31 +87,39 @@ def compute_phash(path):
 
 
 def _md5_hash(path):
-    """Fallback: first 16 chars of MD5 of the file content."""
+    """Fallback: 'm:' + first 16 chars of the file's MD5."""
     try:
         import hashlib
         h = hashlib.md5()
         with open(path, "rb") as f:
             for chunk in iter(lambda: f.read(65536), b""):
                 h.update(chunk)
-        return h.hexdigest()[:16]
+        return _MD5_PREFIX + h.hexdigest()[:16]
     except Exception:
         return None
 
 
 def hamming_distance(hash_a, hash_b):
-    """
-    Return the Hamming distance between two pHash hex strings.
-    Lower = more similar.  0 = identical.
-    Falls back to 0 if hashes are equal, 999 on error.
+    """Hamming distance between two tagged hashes. 0 = identical.
+
+    MD5-fallback ('m:') hashes are compared by exact equality ONLY — they are
+    never routed through imagehash.hex_to_hash (which would yield garbage).
+    Only two perceptual ('p:') hashes get a true bit distance.
     """
     if hash_a == hash_b:
         return 0
+    if not hash_a or not hash_b:
+        return 999
+    a_is_p = hash_a.startswith(_PHASH_PREFIX)
+    b_is_p = hash_b.startswith(_PHASH_PREFIX)
+    if not (a_is_p and b_is_p):
+        # any MD5 / untagged / mixed pair: exact-equality already failed above
+        return 999
     try:
         import imagehash
-        return imagehash.hex_to_hash(hash_a) - imagehash.hex_to_hash(hash_b)
+        return imagehash.hex_to_hash(hash_a[len(_PHASH_PREFIX):]) \
+            - imagehash.hex_to_hash(hash_b[len(_PHASH_PREFIX):])
     except Exception:
-        # If imagehash is unavailable, treat non-equal MD5 as distance 999
         return 999
 
 
