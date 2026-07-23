@@ -502,48 +502,53 @@ class DatabaseManager(object):
                             UNIQUE(playlist_fk, element_fk)
                         )
                     """)
-                    # Try to copy existing data mapping older column names if present
-                    try:
-                        cursor.execute("PRAGMA table_info(playlist_items)")
-                        cols = [r[1] for r in cursor.fetchall()]
-                        select_cols = []
-                        if 'playlist_fk' in cols:
-                            select_cols.append('playlist_fk')
-                        else:
-                            select_cols.append('playlist')
-                        if 'element_fk' in cols:
-                            select_cols.append('element_fk')
-                        else:
-                            select_cols.append('element')
-                        if 'order_index' in cols:
-                            select_cols.append('order_index')
-                        elif 'sort_order' in cols:
-                            select_cols.append('sort_order')
-                        else:
-                            select_cols.append('0')
+                    # Count the source rows so we can verify nothing is lost.
+                    src_count = cursor.execute(
+                        "SELECT COUNT(*) FROM playlist_items"
+                    ).fetchone()[0]
 
-                        # Build copy statement defensively
-                        copy_sql = "INSERT INTO playlist_items_new (playlist_fk, element_fk, order_index, added_at) SELECT {cols}, COALESCE(created_at, CURRENT_TIMESTAMP) FROM playlist_items".format(cols=','.join(select_cols))
-                        try:
-                            cursor.execute(copy_sql)
-                        except Exception:
-                            # Fallback: naive copy of playlist_fk, element_fk
-                            try:
-                                cursor.execute("INSERT INTO playlist_items_new (playlist_fk, element_fk) SELECT playlist_fk, element_fk FROM playlist_items")
-                            except Exception:
-                                pass
+                    # Map older column names if present.
+                    cursor.execute("PRAGMA table_info(playlist_items)")
+                    cols = [r[1] for r in cursor.fetchall()]
+                    select_cols = []
+                    select_cols.append('playlist_fk' if 'playlist_fk' in cols else 'playlist')
+                    select_cols.append('element_fk' if 'element_fk' in cols else 'element')
+                    if 'order_index' in cols:
+                        select_cols.append('order_index')
+                    elif 'sort_order' in cols:
+                        select_cols.append('sort_order')
+                    else:
+                        select_cols.append('0')
 
-                    except Exception as e:
-                        self._log("Migration 6: Data copy failed: {}".format(str(e)))
+                    # INSERT OR IGNORE so a UNIQUE clash drops a row instead of
+                    # aborting mid-statement — the count guard below then catches it.
+                    copy_sql = (
+                        "INSERT OR IGNORE INTO playlist_items_new "
+                        "(playlist_fk, element_fk, order_index, added_at) "
+                        "SELECT {cols}, COALESCE(created_at, CURRENT_TIMESTAMP) "
+                        "FROM playlist_items".format(cols=','.join(select_cols))
+                    )
+                    cursor.execute(copy_sql)
 
-                    # Replace old table
-                    try:
-                        cursor.execute("ALTER TABLE playlist_items RENAME TO playlist_items_old")
-                        cursor.execute("ALTER TABLE playlist_items_new RENAME TO playlist_items")
-                        cursor.execute("DROP TABLE IF EXISTS playlist_items_old")
-                    except Exception as e:
-                        self._log("Migration 6: Table swap failed: {}".format(str(e)))
-                    self._log("Migration 6: Complete")
+                    # L11: verify row counts BEFORE the destructive swap. On
+                    # mismatch, raise so the get_connection context rolls back
+                    # (no commit) and the original playlist_items is preserved.
+                    new_count = cursor.execute(
+                        "SELECT COUNT(*) FROM playlist_items_new"
+                    ).fetchone()[0]
+                    if new_count != src_count:
+                        raise RuntimeError(
+                            "Migration 6: playlist_items copy lost rows "
+                            "(source={}, copied={}); aborting to avoid data loss".format(
+                                src_count, new_count
+                            )
+                        )
+
+                    # Counts match — safe to swap.
+                    cursor.execute("ALTER TABLE playlist_items RENAME TO playlist_items_old")
+                    cursor.execute("ALTER TABLE playlist_items_new RENAME TO playlist_items")
+                    cursor.execute("DROP TABLE IF EXISTS playlist_items_old")
+                    self._log("Migration 6: Complete ({} rows preserved)".format(src_count))
                 else:
                     self._log("Migration 6: playlist_items table does not exist; skipping")
 
