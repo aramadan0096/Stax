@@ -203,3 +203,40 @@ def test_gif_returns_false_on_timeout(wrapper, tmp_path, mocker):
     mocker.patch("ffmpeg_wrapper.subprocess.check_output",
                  side_effect=subprocess.TimeoutExpired(cmd="ffmpeg", timeout=1))
     assert wrapper.generate_gif_preview("/in.mp4", str(tmp_path / "a.gif")) is False
+
+
+# --- M10: ffplay DEVNULL + no-window ----------------------------------------
+
+@pytest.mark.unit
+def test_play_media_uses_devnull(wrapper, mocker):
+    popen = mocker.patch("ffmpeg_wrapper.subprocess.Popen")
+    wrapper.play_media("/tmp/clip.mp4")
+    args, kwargs = popen.call_args
+    assert args[0][0] == wrapper.ffplay_path
+    assert kwargs["stdout"] is subprocess.DEVNULL
+    assert kwargs["stderr"] is subprocess.DEVNULL
+
+
+@pytest.mark.unit
+def test_play_media_no_pipe(wrapper, mocker):
+    popen = mocker.patch("ffmpeg_wrapper.subprocess.Popen")
+    wrapper.play_media("/tmp/clip.mp4")
+    _, kwargs = popen.call_args
+    assert kwargs["stdout"] is not subprocess.PIPE
+    assert kwargs["stderr"] is not subprocess.PIPE
+
+
+@pytest.mark.unit
+def test_play_media_creationflags_match_platform(wrapper, mocker):
+    """CREATE_NO_WINDOW only on Windows; default (unset -> 0) elsewhere.
+
+    Asserts against the real sys.platform so the Windows-only constant is
+    never referenced on Linux.
+    """
+    popen = mocker.patch("ffmpeg_wrapper.subprocess.Popen")
+    wrapper.play_media("/tmp/clip.mp4")
+    _, kwargs = popen.call_args
+    if sys.platform.startswith("win"):
+        assert kwargs.get("creationflags", 0) == subprocess.CREATE_NO_WINDOW
+    else:
+        assert kwargs.get("creationflags", 0) == 0

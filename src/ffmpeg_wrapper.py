@@ -319,16 +319,20 @@ class FFmpegWrapper(object):
         
         cmd.append(filepath)
         
+        # Discard output so ffplay never blocks on an unread buffer (M10);
+        # hide the console window on Windows.
+        popen_kwargs = {
+            'stdout': subprocess.DEVNULL,
+            'stderr': subprocess.DEVNULL,
+        }
+        if sys.platform.startswith('win'):
+            popen_kwargs['creationflags'] = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+
         try:
-            # Start in background, return process handle
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
-            )
+            process = subprocess.Popen(cmd, **popen_kwargs)
             return process
         except Exception as e:
-            print("Error playing media: {}".format(str(e)))
+            logger.error("Error playing media %s: %s", filepath, e)
             return None
     
     def extract_frame(self, input_path, frame_number, output_path):
