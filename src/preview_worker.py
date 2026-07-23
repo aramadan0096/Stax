@@ -326,6 +326,8 @@ def get_preview_queue():
     global _GLOBAL_WORKER
     if _GLOBAL_WORKER is None:
         _GLOBAL_WORKER = PreviewWorker()
+    if not _GLOBAL_WORKER.isRunning():
+        _GLOBAL_WORKER.start()
     return _GLOBAL_WORKER
 
 

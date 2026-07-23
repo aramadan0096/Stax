@@ -791,11 +791,14 @@ class IngestionCore(object):
             phash = None
             if self.config.get('dedup_enabled', True):
                 phash = compute_phash(filepath_soft or source_path)
-                if phash:
+                # Only run the O(n) duplicate scan when its result will
+                # actually be used (i.e. skip-duplicates is enabled).
+                # phash is still computed/stored unconditionally below.
+                if phash and self.config.get('dedup_skip_duplicates', False):
                     dupes = find_duplicates(
                         self.db, phash,
                         threshold=int(self.config.get('dedup_threshold', 8)))
-                    if dupes and self.config.get('dedup_skip_duplicates', False):
+                    if dupes:
                         self.db.log_ingestion(
                             action='ingest', source_path=source_path,
                             target_list=target_list['name'], status='skipped',
