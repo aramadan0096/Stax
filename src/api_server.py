@@ -57,6 +57,7 @@ from __future__ import absolute_import, unicode_literals, print_function
 
 import os
 import json
+import hmac
 import logging
 import threading
 import secrets
@@ -67,6 +68,21 @@ from PySide2 import QtCore
 log = logging.getLogger(__name__)
 
 _GLOBAL_SERVER = None   # type: APIServer | None
+
+
+def path_within_roots(filepath, roots):
+    """True iff filepath resolves inside at least one of roots (realpath check)."""
+    if not filepath or not roots:
+        return False
+    target = os.path.realpath(filepath)
+    for root in roots:
+        base = os.path.realpath(root)
+        try:
+            if os.path.commonpath([base, target]) == base:
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +104,7 @@ def _build_flask_app(db, config):
         @wraps(f)
         def wrapper(*args, **kwargs):
             provided = request.headers.get("X-StaX-Token", "")
-            if not provided or provided != token:
+            if not token or not provided or not hmac.compare_digest(provided, token):
                 abort(401)
             return f(*args, **kwargs)
         return wrapper
@@ -160,6 +176,10 @@ def _build_flask_app(db, config):
         if not os.path.isfile(filepath):
             return jsonify({"error": "file not found"}), 404
 
+        roots = config.get("api_ingest_roots", []) or []
+        if not path_within_roots(filepath, roots):
+            return jsonify({"error": "filepath outside permitted ingest roots"}), 403
+
         try:
             from src.ingestion_core import IngestionCore
             core   = IngestionCore(db, config.get_all())
@@ -226,7 +246,8 @@ class _SimpleHandler(object):
         if path == "/api/v1/health":
             return respond("200 OK", {"status": "ok"})
 
-        if token != self.config.get("api_token", ""):
+        configured = self.config.get("api_token", "")
+        if not configured or not hmac.compare_digest(token, configured):
             return respond("401 Unauthorized", {"error": "invalid token"})
 
         return respond(
