@@ -11,6 +11,20 @@ import sys
 import subprocess
 import json
 import tempfile
+import shutil
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def _binary_name(stem):
+    """Return the platform-correct executable filename for an ffmpeg tool stem.
+
+    Appends '.exe' only on Windows (sys.platform starts with 'win'); POSIX
+    platforms use the bare stem, matching tools/ffmpeg_downloader.py's install
+    convention. Reads sys.platform at call time so tests can monkeypatch it.
+    """
+    return stem + '.exe' if sys.platform.startswith('win') else stem
 
 
 class FFmpegWrapper(object):
@@ -32,18 +46,31 @@ class FFmpegWrapper(object):
             project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             ffmpeg_bin_path = os.path.join(project_root, 'bin', 'ffmpeg', 'bin')
         
-        self.ffmpeg_path = os.path.join(ffmpeg_bin_path, 'ffmpeg.exe')
-        self.ffprobe_path = os.path.join(ffmpeg_bin_path, 'ffprobe.exe')
-        self.ffplay_path = os.path.join(ffmpeg_bin_path, 'ffplay.exe')
-        
-        # Verify binaries exist
-        if not os.path.exists(self.ffmpeg_path):
-            raise RuntimeError("FFmpeg not found at: {}".format(self.ffmpeg_path))
-        if not os.path.exists(self.ffprobe_path):
-            raise RuntimeError("FFprobe not found at: {}".format(self.ffprobe_path))
-        if not os.path.exists(self.ffplay_path):
-            raise RuntimeError("FFplay not found at: {}".format(self.ffplay_path))
-    
+        self.ffmpeg_path = self._resolve_binary(ffmpeg_bin_path, 'ffmpeg')
+        self.ffprobe_path = self._resolve_binary(ffmpeg_bin_path, 'ffprobe')
+        self.ffplay_path = self._resolve_binary(ffmpeg_bin_path, 'ffplay')
+
+        # Verify binaries resolved (bundled dir or PATH)
+        if not self.ffmpeg_path:
+            raise RuntimeError("FFmpeg not found in {} or on PATH".format(ffmpeg_bin_path))
+        if not self.ffprobe_path:
+            raise RuntimeError("FFprobe not found in {} or on PATH".format(ffmpeg_bin_path))
+        if not self.ffplay_path:
+            raise RuntimeError("FFplay not found in {} or on PATH".format(ffmpeg_bin_path))
+
+    @staticmethod
+    def _resolve_binary(bin_dir, stem):
+        """Locate an ffmpeg tool: prefer the bundled bin dir, then PATH via
+        shutil.which. Returns an absolute path string, or None if not found."""
+        name = _binary_name(stem)
+        bundled = os.path.join(bin_dir, name)
+        if os.path.exists(bundled):
+            return bundled
+        on_path = shutil.which(name)
+        if on_path:
+            return on_path
+        return None
+
     def get_media_info(self, filepath):
         """
         Extract media information using ffprobe.
