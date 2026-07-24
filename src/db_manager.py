@@ -1075,7 +1075,17 @@ class DatabaseManager(object):
             return [dict(row) for row in cursor.fetchall()]
 
     # Tag boundary match: normalize ", " to "," then wrap and LIKE %,tag,%
-    _TAG_MATCH = "(',' || REPLACE(IFNULL(tags,''), ', ', ',') || ',') LIKE '%,' || ? || ',%'"
+    # The bound value must be routed through _escape_like() so a literal
+    # '_' or '%' in a tag is matched literally rather than as a wildcard.
+    _TAG_MATCH = ("(',' || REPLACE(IFNULL(tags,''), ', ', ',') || ',') "
+                  "LIKE '%,' || ? || ',%' ESCAPE '\\'")
+
+    @staticmethod
+    def _escape_like(value):
+        """Escape LIKE wildcards so a tag matches literally."""
+        return (str(value).replace('\\', '\\\\')
+                          .replace('%', '\\%')
+                          .replace('_', '\\_'))
 
     @staticmethod
     def _build_filter_where(filter_spec):
@@ -1103,14 +1113,14 @@ class DatabaseManager(object):
 
         for tag in s["tags_all"]:
             clauses.append(DatabaseManager._TAG_MATCH)
-            params.append(tag)
+            params.append(DatabaseManager._escape_like(tag))
         if s["tags_any"]:
             ors = " OR ".join(DatabaseManager._TAG_MATCH for _ in s["tags_any"])
             clauses.append("(" + ors + ")")
-            params += s["tags_any"]
+            params += [DatabaseManager._escape_like(t) for t in s["tags_any"]]
         for tag in s["tags_exclude"]:
             clauses.append("NOT " + DatabaseManager._TAG_MATCH)
-            params.append(tag)
+            params.append(DatabaseManager._escape_like(tag))
 
         if s["rating_min"]:
             clauses.append("rating >= ?")
