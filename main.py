@@ -40,6 +40,7 @@ from src.ui.accessibility import apply_accessibility
 from src.video_player_widget import VideoPlayerWidget
 from src.ui.inspector_panel import InspectorPanel
 from src.ui.layout_manager import apply_preset, preset_names
+from src.ui.onboarding_checklist import OnboardingChecklist
 
 try:
     from src.preview_worker import get_preview_queue, shutdown_preview_queue
@@ -127,6 +128,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._start_api_server()
 
         apply_preset(self, self.config.get("layout_preset", "Browse"))
+
+        self.onboarding_checklist = None
+        if not self.config.get("onboarding_dismissed", False):
+            self.open_onboarding_checklist()
 
     # -------------------------------------------------------------------------
     # Background services
@@ -431,6 +436,9 @@ class MainWindow(QtWidgets.QMainWindow):
         shortcut_help_action = QtWidgets.QAction("Keyboard Shortcuts", self)
         shortcut_help_action.triggered.connect(self.open_shortcut_help)
         help_menu.addAction(shortcut_help_action)
+        onboarding_action = QtWidgets.QAction("Getting Started", self)
+        onboarding_action.triggered.connect(self.open_onboarding_checklist)
+        help_menu.addAction(onboarding_action)
 
     def setup_shortcuts(self):
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+2"), self, self.toggle_history)
@@ -476,6 +484,40 @@ class MainWindow(QtWidgets.QMainWindow):
             ("Shortcuts", "Keyboard shortcuts help", "?"),
         ]
         ShortcutHelpOverlay(pairs, self).exec_()
+
+    def open_onboarding_checklist(self):
+        """Show (or re-show) the first-run "Getting started" checklist
+        (design SS3.8). Reachable from Help -> "Getting Started" as well
+        as automatically at startup while `onboarding_dismissed` is unset.
+
+        Non-modal by construction: a plain `.show()` on a `Qt.Tool`-flagged
+        floating widget, never `exec_()`. Safe to call from the constructor
+        path -- it never blocks the event loop.
+        """
+        if self.onboarding_checklist is None:
+            oc = OnboardingChecklist(self.db, self.config, parent=self)
+            oc.setWindowFlags(QtCore.Qt.Tool)
+            oc.action_requested.connect(self._on_onboarding_action)
+            self.onboarding_checklist = oc
+        else:
+            self.onboarding_checklist.refresh()
+        self.onboarding_checklist.move(
+            self.geometry().center() - self.onboarding_checklist.rect().center()
+        )
+        self.onboarding_checklist.show()
+        self.onboarding_checklist.raise_()
+
+    def _on_onboarding_action(self, step):
+        """Wire an onboarding step's one-click action to its real entry
+        point. The checklist widget itself knows nothing about MainWindow;
+        it only emits the step name.
+        """
+        if step == "Create a stack":
+            self.stacks_panel.add_stack()
+        elif step == "Ingest files":
+            self.ingest_files()
+        else:
+            log.debug("Onboarding: no wired action for step %r", step)
 
     # -------------------------------------------------------------------------
     # Toggle handlers
