@@ -82,3 +82,78 @@ def test_ep1_list_empty_state_still_shown_on_its_own_path(
 
     assert win.media_display.current_empty_state is not None
     assert "empty" in win.media_display.current_empty_state.headline_label.text().lower()
+
+
+# ---------------------------------------------------------------------------
+# Finding 2: the Accessibility tab must not restyle the whole host
+# QApplication -- inside Nuke that is Nuke's own QApplication, so toggling
+# High contrast used to black out the entire DCC UI.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.gui
+def test_accessibility_target_widget_changes_without_touching_qapplication(
+    qtbot, stax_db, stax_config
+):
+    from PySide2 import QtWidgets
+
+    from ui.accessibility import reset_cache
+    from ui.settings_panel import SettingsPanel
+
+    app = QtWidgets.QApplication.instance()
+    reset_cache()
+    original_app_qss = app.styleSheet()
+    original_app_pt = app.font().pointSize()
+
+    target = QtWidgets.QWidget()
+    qtbot.addWidget(target)
+
+    panel = SettingsPanel(stax_config, stax_db, accessibility_target=target)
+    qtbot.addWidget(panel)
+
+    panel.a11y_high_contrast_checkbox.setChecked(True)
+
+    # The target widget picked up the high-contrast overlay...
+    assert "#000000" in target.styleSheet()
+    # ...but the QApplication -- Nuke's own, in the embedded shell -- is
+    # completely untouched.
+    assert app.styleSheet() == original_app_qss
+    assert app.font().pointSize() == original_app_pt
+
+
+@pytest.mark.nuke
+def test_staxpanel_applies_persisted_accessibility_at_startup_scoped_to_panel(
+    qtbot, mock_nuke, monkeypatch, tmp_path
+):
+    """nuke_launcher.StaXPanel must honor an already-persisted a11y
+    preference at startup (previously inert until the user re-toggled it
+    in Settings), and must apply it to the panel widget, not to Nuke's own
+    QApplication."""
+    from PySide2 import QtWidgets
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("STOCK_DB", str(tmp_path / "app.db"))
+    monkeypatch.setattr(QtWidgets.QMessageBox, "critical", lambda *a, **k: None)
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", lambda *a, **k: None)
+    monkeypatch.setattr(QtWidgets.QMessageBox, "information", lambda *a, **k: None)
+
+    import json
+    import os
+
+    os.makedirs(str(tmp_path / "config"), exist_ok=True)
+    with open(str(tmp_path / "config" / "config.json"), "w") as f:
+        json.dump({"a11y_high_contrast": True}, f)
+
+    from ui.accessibility import reset_cache
+    reset_cache()
+
+    app = QtWidgets.QApplication.instance()
+    original_app_qss = app.styleSheet()
+
+    import nuke_launcher
+
+    panel = nuke_launcher.StaXPanel()
+    qtbot.addWidget(panel)
+
+    assert "#000000" in panel.styleSheet()
+    assert app.styleSheet() == original_app_qss

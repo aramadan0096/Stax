@@ -18,12 +18,22 @@ class SettingsPanel(QtWidgets.QWidget):
     
     settings_changed = QtCore.Signal()
     
-    def __init__(self, config, db_manager, main_window=None, parent=None):
+    def __init__(self, config, db_manager, main_window=None, parent=None, accessibility_target=None):
         super(SettingsPanel, self).__init__(parent)
         self.config = config
         self.db = db_manager
         self.main_window = main_window  # For permission checks
         self._last_admin_status = None  # Track admin status for refresh logic
+        # Final review Finding 2: StaX runs in two shells sharing this same
+        # panel class -- the standalone app, and a dialog opened on top of
+        # an embedded Nuke panel (nuke_launcher.StaXPanel), where the live
+        # QApplication is Nuke's own. `accessibility_target` lets the host
+        # tell this panel what to restyle: the embedded shell passes its
+        # own StaXPanel widget so only the StaX subtree is affected, never
+        # the whole DCC. Left None (the standalone default) falls back to
+        # QApplication.instance() in _on_accessibility_changed, unchanged
+        # from prior behaviour.
+        self.accessibility_target = accessibility_target
         self.setup_ui()
     
     def setup_ui(self):
@@ -947,16 +957,26 @@ class SettingsPanel(QtWidgets.QWidget):
 
         Accessibility is a user preference: write straight to Config (no
         admin gate, no "Save All Settings" round trip) and re-apply to the
-        live QApplication so the change is visible right away.
+        live target so the change is visible right away.
+
+        Final review Finding 2: re-applying to `QApplication.instance()`
+        unconditionally used to restyle the *entire* host application --
+        inside Nuke that is Nuke's own QApplication, so toggling High
+        contrast blacked out the whole DCC UI, not just StaX's. Use
+        `self.accessibility_target` (set by the host at construction) when
+        given; only fall back to the QApplication when none was provided
+        (the standalone shell's behaviour, unchanged).
         """
         self.config.update({
             'a11y_high_contrast': self.a11y_high_contrast_checkbox.isChecked(),
             'a11y_text_scale': self.a11y_text_scale_spin.value(),
             'a11y_focus_assist': self.a11y_focus_assist_checkbox.isChecked(),
         })
-        app = QtWidgets.QApplication.instance()
-        if app is not None:
-            apply_accessibility(app, self.config)
+        target = self.accessibility_target
+        if target is None:
+            target = QtWidgets.QApplication.instance()
+        if target is not None:
+            apply_accessibility(target, self.config)
 
     def browse_database_path(self):
         """Browse for database file."""
