@@ -35,7 +35,21 @@ falls back to, kept here only as a shape-valid placeholder for the static
 table (and as the value used when the inspector's real minimum is smaller)
 -- the width `apply_preset()` actually requests always comes from
 `collapse_preview_pane()`, not from this dict.
+
+`preview_visible: True` means "this layout leaves room for the preview",
+not "force the preview visible right now". Whether `video_player_pane` is
+actually shown stays owned by `MainWindow.on_selection_changed()` (via
+`expand_preview_pane()` / `collapse_preview_pane()`), which only shows it
+once exactly one element is selected. `apply_preset()` never calls
+`video_player_pane.show()` / `.setVisible(True)` for that reason -- doing
+so used to force an empty "No preview available" pane onto every app
+launch (the default preset is Browse, `preview_visible: True`) even with
+nothing selected.
 """
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 LAYOUT_PRESETS = {
     "Browse": {
@@ -80,6 +94,11 @@ def apply_preset(main_window, name):
     """
     preset = LAYOUT_PRESETS.get(name)
     if not preset:
+        logger.warning(
+            "apply_preset() called with unknown layout preset name %r; "
+            "known presets are %s -- leaving the current layout unchanged.",
+            name, preset_names(),
+        )
         return
 
     main_splitter = getattr(main_window, "main_splitter", None)
@@ -88,10 +107,8 @@ def apply_preset(main_window, name):
 
     preview_visible = preset["preview_visible"]
     video_pane = getattr(main_window, "video_player_pane", None)
-    if video_pane is not None:
-        if preview_visible:
-            video_pane.setVisible(True)
-        elif hasattr(main_window, "collapse_preview_pane"):
+    if video_pane is not None and not preview_visible:
+        if hasattr(main_window, "collapse_preview_pane"):
             # Reuse the exact inspector-derived floor `collapse_preview_pane()`
             # already computes (EP3 Task 6) instead of duplicating a magic
             # number here -- this is what keeps the sticky inspector
@@ -99,6 +116,12 @@ def apply_preset(main_window, name):
             main_window.collapse_preview_pane()
         else:
             video_pane.setVisible(False)
+    # When `preview_visible` is True, deliberately do nothing to the pane's
+    # visibility: the preset only reserves splitter room for it via the
+    # `setSizes()` call above. Whether it's actually showing is selection
+    # logic's call (`on_selection_changed()`), both on a fresh launch
+    # (nothing selected -> stays hidden) and when a preview is already
+    # showing (stays shown -- this preset must not hide it either).
 
     docks = preset["docks"]
     for key, dock_attr in _DOCK_ATTRS:

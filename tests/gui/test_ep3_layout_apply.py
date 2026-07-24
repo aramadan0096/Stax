@@ -59,7 +59,15 @@ def test_apply_browse_preset_sets_exact_splitter_sizes_and_hides_docks(
     proportionally redistributes the *rendered* sizes once actually laid
     out, making a plain post-hoc `main_splitter.sizes()` equality check an
     unreliable signal (it would fail even though `apply_preset()` did the
-    right thing)."""
+    right thing).
+
+    `video_player_pane.isVisible()` is asserted `False` here, not `True`:
+    this window has nothing selected, and Browse's `preview_visible: True`
+    means "leave room for the preview", not "force it on". The original
+    version of this assertion (`is True`) encoded the bug this test file's
+    fix addresses -- it made an empty, unselected preview pane look like
+    correct behavior. See `test_fresh_mainwindow_hides_preview_after_startup_restore`
+    below for the dedicated regression test."""
     win = _mainwindow_with_temp_db(qtbot, tmp_path, monkeypatch)
     requested = []
     real_setSizes = win.main_splitter.setSizes
@@ -71,11 +79,65 @@ def test_apply_browse_preset_sets_exact_splitter_sizes_and_hides_docks(
     apply_preset(win, "Browse")
 
     assert requested[-1] == LAYOUT_PRESETS["Browse"]["main_sizes"]
-    assert win.video_player_pane.isVisible() is True
+    assert win.video_player_pane.isVisible() is False
     assert win.history_dock.isVisible() is False
     assert win.settings_dock.isVisible() is False
     if win.analytics_dock is not None:
         assert win.analytics_dock.isVisible() is False
+
+
+@pytest.mark.gui
+def test_fresh_mainwindow_hides_preview_after_startup_restore(
+    qtbot, mock_nuke, monkeypatch, tmp_path
+):
+    """Regression test for the Important review finding on Task 8: a fresh
+    `MainWindow` construction runs `apply_preset()` unconditionally at the
+    end of `__init__` to restore the saved layout (defaulting to Browse,
+    `preview_visible: True`). Before the fix, that call did
+    `video_player_pane.setVisible(True)` whenever the preset allowed a
+    preview, showing an empty "No preview available" pane on every launch
+    even with nothing selected. `video_player_pane` must stay exactly as
+    `setup_ui()` left it (`.hide()`-den) until a real selection triggers
+    `on_selection_changed()` -> `expand_preview_pane()`."""
+    win = _mainwindow_with_temp_db(qtbot, tmp_path, monkeypatch)
+
+    assert win.config.get("layout_preset", "Browse") == "Browse"
+    assert win.media_display.get_selected_element_ids() == []
+    assert win.video_player_pane.isVisible() is False
+
+
+@pytest.mark.gui
+@pytest.mark.parametrize("name", ["Review", "Curation"])
+def test_preview_visible_preset_does_not_force_show_without_selection(
+    qtbot, mock_nuke, monkeypatch, tmp_path, name
+):
+    """Same regression, exercised explicitly for the other two
+    `preview_visible: True` presets (Review, Curation) instead of relying
+    only on the Browse default."""
+    win = _mainwindow_with_temp_db(qtbot, tmp_path, monkeypatch)
+    assert win.video_player_pane.isVisible() is False
+
+    apply_preset(win, name)
+
+    assert LAYOUT_PRESETS[name]["preview_visible"] is True
+    assert win.video_player_pane.isVisible() is False
+
+
+@pytest.mark.gui
+def test_preview_visible_preset_leaves_already_shown_preview_visible(
+    qtbot, mock_nuke, monkeypatch, tmp_path
+):
+    """The flip side of the regression: a `preview_visible: True` preset
+    must not touch visibility at all -- neither forcing it on nor hiding
+    it. If the preview is already showing (e.g. the user has a single
+    element selected), applying Curation must leave it showing."""
+    win = _mainwindow_with_temp_db(qtbot, tmp_path, monkeypatch)
+    win.video_player_pane.show()
+    assert win.video_player_pane.isVisible() is True
+
+    apply_preset(win, "Curation")
+
+    assert win.video_player_pane.isVisible() is True
 
 
 @pytest.mark.gui

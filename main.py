@@ -38,6 +38,7 @@ from src.icon_loader import get_icon
 from src.dark_palette import apply_dark_palette
 from src.video_player_widget import VideoPlayerWidget
 from src.ui.inspector_panel import InspectorPanel
+from src.ui.layout_manager import apply_preset, preset_names
 
 try:
     from src.preview_worker import get_preview_queue, shutdown_preview_queue
@@ -124,7 +125,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._start_preview_worker()
         self._start_api_server()
 
-        from src.ui.layout_manager import apply_preset
         apply_preset(self, self.config.get("layout_preset", "Browse"))
 
     # -------------------------------------------------------------------------
@@ -405,7 +405,6 @@ class MainWindow(QtWidgets.QMainWindow):
             analytics_view_action.triggered.connect(self.toggle_analytics)
             view_menu.addAction(analytics_view_action)
 
-        from src.ui.layout_manager import preset_names, apply_preset
         layout_menu = view_menu.addMenu("Layout")
         for preset_name in preset_names():
             act = QtWidgets.QAction(preset_name, self)
