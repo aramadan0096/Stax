@@ -58,7 +58,11 @@ class MultiSelectActionTray(QtWidgets.QWidget):
         self._selection = list(element_ids)
         n = len(self._selection)
         self.count_label.setText("{} selected".format(n))
-        is_admin = bool(self.main_window.check_admin_permission())
+        # State query, not an action gate: read the flag directly rather than
+        # calling check_admin_permission(), which is interactive (pops a login
+        # dialog / warning box) and must never run on a selection-changed path
+        # (see MediaDisplayWidget._is_admin_user(); this hung the suite twice).
+        is_admin = bool(getattr(self.main_window, 'is_admin', False))
         self.delete_button.setEnabled(is_admin)
         self.deprecate_button.setEnabled(is_admin)
         self.setVisible(n >= 2)

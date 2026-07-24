@@ -17,9 +17,9 @@ class _FakeDB:
 
 class _FakeMain:
     def __init__(self, admin=True):
-        self._admin = admin
+        self.is_admin = admin
     def check_admin_permission(self):
-        return self._admin
+        return self.is_admin
 
 
 @pytest.mark.gui

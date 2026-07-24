@@ -159,7 +159,18 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         empty_state_layout.addWidget(self.hint_label)
         
         empty_state_layout.addStretch()
-        self.content_stack.addWidget(self.empty_state_widget)  # Index 0
+
+        # Nested stack for the empty page: keeps content_stack's index-0
+        # slot stable while EP1's context-aware empty states
+        # (_show_empty_state/_set_empty_page_widget) swap widgets in and
+        # out. The legacy self.empty_state_widget stays registered here
+        # permanently so external direct writers (main.py:599-601,
+        # load_elements, show_empty_state) never AttributeError -- their
+        # text just stops being what's on screen once an EP1 empty state
+        # replaces it as the visible page.
+        self._empty_page_stack = QtWidgets.QStackedWidget()
+        self._empty_page_stack.addWidget(self.empty_state_widget)
+        self.content_stack.addWidget(self._empty_page_stack)  # Index 0
         
         # Views container (index 1)
         views_widget = QtWidgets.QWidget()
@@ -216,7 +227,34 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.focus_mode_enabled = False
         self.setup_focus_button()
 
-    
+        # EP1: multi-select action tray, docked below the views. Built here
+        # (main_window is already assigned at construction, before
+        # setup_ui() runs) and fed by both views' selection-changed
+        # signals via _on_selection_changed_ep1.
+        from ui.multi_select_action_tray import MultiSelectActionTray
+        self.action_tray = MultiSelectActionTray(self.db, self.main_window)
+        layout.addWidget(self.action_tray)
+
+        self.action_tray.tag_requested.connect(
+            lambda: self.bulk_add_tag(self.get_selected_element_ids()))
+        self.action_tray.favorite_requested.connect(
+            lambda: self.bulk_add_to_favorites(self.get_selected_element_ids()))
+        self.action_tray.playlist_requested.connect(
+            lambda: self.bulk_add_to_playlist(self.get_selected_element_ids()))
+        self.action_tray.deprecate_requested.connect(
+            lambda: self.bulk_mark_deprecated(self.get_selected_element_ids()))
+        self.action_tray.delete_requested.connect(
+            lambda: self.bulk_delete(self.get_selected_element_ids()))
+        self.action_tray.edit_requested.connect(
+            lambda: self.open_batch_edit(self.get_selected_element_ids()))
+        # Rate/label are applied directly by the tray (bulk_set_rating/
+        # bulk_set_label write straight to the DB); just repaint afterwards.
+        self.action_tray.rate_requested.connect(lambda _stars: self.refresh_current_view())
+        self.action_tray.label_requested.connect(lambda _label_id: self.refresh_current_view())
+
+        self.gallery_view.itemSelectionChanged.connect(self._on_selection_changed_ep1)
+        self.table_view.itemSelectionChanged.connect(self._on_selection_changed_ep1)
+
     def setup_focus_button(self):
         """Create floating action button for focus mode."""
         self.focus_mode_button = QtWidgets.QToolButton(self)
@@ -425,7 +463,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             if lst:
                 self.info_label.setText("No elements in '{}'".format(lst['name']))
                 self.hint_label.setText("Drag files here or use 'Ingest Files' to add content")
-            self.content_stack.setCurrentIndex(0)  # Show empty state
+            self._show_empty_state("list", list_name=lst['name'] if lst else None)
         else:
             self.content_stack.setCurrentIndex(1)  # Show views
         
@@ -460,7 +498,15 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self._update_views_with_elements(page_elements)
     
     def show_empty_state(self, message=None, hint=None):
-        """Clear views and display placeholder message."""
+        """Clear views and display placeholder message.
+
+        Called with no arguments this is the generic "nothing selected
+        yet" state (e.g. main.py's restore_active_view fallback), which
+        EP1 renders as the "library" empty page. A custom message/hint
+        (the tag-filter prompts in load_elements_by_tags) doesn't map onto
+        any of the four fixed EP1 kinds, so it keeps rendering on the
+        legacy info_label/hint_label page instead.
+        """
         self.current_list_id = None
         self.current_elements = []
         self.current_tag_filter = []
@@ -469,7 +515,11 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.pagination.setVisible(False)
         self.info_label.setText(message or "Select a list to view elements")
         self.hint_label.setText(hint or "Browse stacks and lists in the navigation panel")
-        self.content_stack.setCurrentIndex(0)  # Show empty state
+        if message is None and hint is None:
+            self._show_empty_state("library")
+        else:
+            self._set_empty_page_widget(self.empty_state_widget)
+            self.content_stack.setCurrentIndex(0)
 
 
 
@@ -544,14 +594,25 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         
         # Store filtered elements for pagination
         self.current_elements = elements
-        
+
         # Setup pagination for filtered results
         if self.config.get('pagination_enabled', True):
             self.pagination.set_total_items(len(elements))
             self.pagination.setVisible(len(elements) > 0)
         else:
             self.pagination.setVisible(False)
-        
+
+        if not elements and text:
+            # A real query matched nothing: contextual "no matches" page
+            # instead of a blank grid.
+            self._update_views_with_elements([])
+            self._show_empty_state("search", query=text)
+            return
+
+        # A query was cleared or matched something: make sure the views
+        # (not a previously-shown search-empty page) are what's visible.
+        self.content_stack.setCurrentIndex(1)
+
         # Display current page
         self._display_current_page()
     
@@ -1414,6 +1475,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         actions = {}
         actions['fav'] = menu.addAction(get_icon('favorite', size=16), "Add All to Favorites")
         actions['playlist'] = menu.addAction(get_icon('playlist', size=16), "Add All to Playlist...")
+        actions['tag'] = menu.addAction(get_icon('add', size=16), "Add Tag to All…")
         actions['edit'] = menu.addAction(get_icon('edit', size=16), "Batch Edit Metadata...")
 
         menu.addSeparator()
@@ -1431,6 +1493,8 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             self.bulk_add_to_favorites(selected_ids)
         elif action == actions['playlist']:
             self.bulk_add_to_playlist(selected_ids)
+        elif action == actions['tag']:
+            self.bulk_add_tag(selected_ids)
         elif action == actions['edit']:
             self.open_batch_edit(selected_ids)
         elif action == actions['deprecate']:
@@ -1608,20 +1672,175 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             # Refresh display
             if self.current_list_id:
                 self.load_elements(self.current_list_id)
-    
+
+    def bulk_add_tag(self, element_ids):
+        """Prompt once for a tag, then append it to every selected element.
+
+        Tags are a per-element comma-separated string (the same `tags`
+        field EditElementDialog writes via db.update_element(..., tags=...));
+        there is no shared "bulk_set_tag" DB method, so each element is
+        read, updated, and written back individually -- modeled on the
+        neighbouring bulk_add_to_favorites/bulk_mark_deprecated methods.
+        """
+        if not element_ids:
+            return
+
+        tag, ok = QtWidgets.QInputDialog.getText(
+            self,
+            "Add Tag to All",
+            "Tag to add to {} element(s):".format(len(element_ids))
+        )
+        tag = tag.strip() if (ok and tag) else ""
+        if not ok or not tag:
+            return
+
+        updated_count = 0
+        for element_id in element_ids:
+            element = self.db.get_element_by_id(element_id)
+            if not element:
+                continue
+            existing = [t.strip() for t in (element.get('tags') or '').split(',') if t.strip()]
+            if tag in existing:
+                continue
+            existing.append(tag)
+            self.db.update_element(element_id, tags=', '.join(existing))
+            updated_count += 1
+
+        QtWidgets.QMessageBox.information(
+            self,
+            "Success",
+            "Added tag '{}' to {} element(s).".format(tag, updated_count)
+        )
+
+        # Refresh display
+        if self.current_list_id:
+            self.load_elements(self.current_list_id)
+
+    def refresh_current_view(self):
+        """Re-render whatever's currently on screen.
+
+        Used after a bulk rating/label change: MultiSelectActionTray's
+        apply_rating/apply_label already write straight to the DB before
+        emitting rate_requested/label_requested, so this just needs to
+        make the (now stale) rating/label badges on screen catch up.
+        """
+        if self.current_list_id:
+            self.load_elements(self.current_list_id)
+        elif self.current_tag_filter:
+            self.load_elements_by_tags(self.current_tag_filter)
+        elif self.current_elements:
+            # Favorites / playlist views: current_list_id/current_tag_filter
+            # are both unset, so re-pull each element directly for fresh
+            # rating/label values instead of a full reload.
+            ids = [e.get('element_id') for e in self.current_elements if e.get('element_id')]
+            refreshed = [self.db.get_element_by_id(eid) for eid in ids]
+            self.current_elements = [e for e in refreshed if e]
+            self._update_views_with_elements(self.current_elements)
+
+    def _on_selection_changed_ep1(self):
+        """Feed the multi-select action tray from either view's selection."""
+        self.action_tray.set_selection(self.get_selected_element_ids())
+
+    def _show_empty_state(self, kind_key, query=None, list_name=None):
+        """Install one of the four EP1 context-aware empty pages.
+
+        kind_key is one of "library" / "list" / "search" / "favorites".
+        """
+        from ui.empty_state_widget import EmptyStateWidget
+
+        specs = {
+            "library": (
+                "No assets yet",
+                "Ingest footage, sequences, or toolsets to get started.",
+                ("Ingest files…", self._request_ingest_files),
+                None,
+                "action",
+            ),
+            "list": (
+                "This list is empty",
+                "Add assets to {}.".format(list_name or "this list"),
+                ("Ingest into this list…", self._request_ingest_files),
+                None,
+                "action",
+            ),
+            "search": (
+                "No matches for '{}'".format(query or ""),
+                "Try fewer terms or clear filters.",
+                ("Clear filters", self._request_clear_filters),
+                None,
+                "informational",
+            ),
+            "favorites": (
+                "Nothing here yet",
+                "Star assets or add them to a playlist to collect them.",
+                ("Browse library", self._request_browse_library),
+                None,
+                "informational",
+            ),
+        }
+        headline, message, primary, secondary, kind = specs[kind_key]
+        self.current_empty_state = EmptyStateWidget(headline, message, primary, secondary, kind)
+        self._set_empty_page_widget(self.current_empty_state)
+
+    def _set_empty_page_widget(self, widget):
+        """Swap the widget shown on content_stack's empty page (index 0).
+
+        The legacy self.empty_state_widget (and its info_label/hint_label
+        children) stays registered as a permanent page of the nested
+        _empty_page_stack, so pre-existing direct writers (this widget's
+        own show_empty_state/load_elements, and main.py:599-601) keep
+        working without AttributeError -- their text just stops being
+        what's on screen once an EP1 empty state replaces it as the
+        visible page. Previously-installed EP1 pages (but never the
+        legacy one) are dropped so repeated calls don't accumulate.
+        """
+        previous = self._empty_page_stack.currentWidget()
+        if self._empty_page_stack.indexOf(widget) == -1:
+            self._empty_page_stack.addWidget(widget)
+        self._empty_page_stack.setCurrentWidget(widget)
+        if (previous is not None and previous is not widget
+                and previous is not self.empty_state_widget):
+            self._empty_page_stack.removeWidget(previous)
+            previous.deleteLater()
+        self.content_stack.setCurrentIndex(0)
+
+    def _request_ingest_files(self):
+        """Empty-state 'Ingest files…' CTA -> MainWindow.ingest_files()."""
+        if self.main_window and hasattr(self.main_window, 'ingest_files'):
+            self.main_window.ingest_files()
+        else:
+            logger.info("Ingest requested from empty state but no MainWindow.ingest_files() is available")
+
+    def _request_clear_filters(self):
+        """Empty-state 'Clear filters' CTA: clear this widget's own search box."""
+        self.search_box.clear()
+
+    def _request_browse_library(self):
+        """Empty-state 'Browse library' CTA.
+
+        No MainWindow handler exists today for "show the whole library"
+        (only per-list/per-stack/favorites/playlist/tag navigation), so
+        this is a logged no-op rather than inventing new navigation.
+        """
+        logger.info("Browse library requested from empty state; no whole-library navigation exists yet")
+
     def load_favorites(self):
         """Load and display favorite elements."""
         user = self.config.get('user_name')
         machine = self.config.get('machine_name')
-        
+
         favorites = self.db.get_favorites(user, machine)
-        
+
         self.current_list_id = None  # Clear current list
         self.current_tag_filter = []
         self.current_elements = favorites
         self.pagination.setVisible(False)
-        self.info_label.setText("Favorites ({} items)".format(len(favorites)))
-        self._update_views_with_elements(favorites)
+        if favorites:
+            self.content_stack.setCurrentIndex(1)
+            self.info_label.setText("Favorites ({} items)".format(len(favorites)))
+            self._update_views_with_elements(favorites)
+        else:
+            self._show_empty_state("favorites")
     
     def load_playlist(self, playlist_id):
         """Load and display playlist elements."""
