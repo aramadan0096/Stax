@@ -79,6 +79,9 @@ class SettingsPanel(QtWidgets.QWidget):
         # Tab 10: Metadata Fields (EP4 per-stack custom field admin)
         self.tab_widget.addTab(self._build_fields_tab(), "Metadata Fields")
 
+        # Tab 11: Automation (EP4 per-stack metadata templates + auto-tag rules)
+        self.tab_widget.addTab(self._build_automation_tab(), "Automation")
+
         layout.addWidget(self.tab_widget)
         
         # Bottom buttons
@@ -1079,6 +1082,169 @@ class SettingsPanel(QtWidgets.QWidget):
         if row < len(fields):
             self.db.delete_metadata_field(fields[row]["field_id"])
             self.select_fields_stack(self._fields_stack_id)
+            self.settings_changed.emit()
+
+    def _build_automation_tab(self):
+        """Build the Automation tab: per-stack metadata templates and
+        auto-tag rules, admin-gated Add/Delete controls for each."""
+        tab = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(tab)
+
+        layout.addWidget(QtWidgets.QLabel("Stack:"))
+        self.automation_stack_combo = QtWidgets.QComboBox()
+        for s in self.db.get_all_stacks():
+            self.automation_stack_combo.addItem(s["name"], s["stack_id"])
+        self.automation_stack_combo.currentIndexChanged.connect(
+            lambda _i: self.select_automation_stack(self.automation_stack_combo.currentData()))
+        layout.addWidget(self.automation_stack_combo)
+
+        layout.addWidget(QtWidgets.QLabel("Metadata Templates"))
+        self.templates_table = QtWidgets.QTableWidget(0, 1)
+        self.templates_table.setHorizontalHeaderLabels(["Name"])
+        self.templates_table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.templates_table)
+
+        template_controls = QtWidgets.QHBoxLayout()
+        self.add_template_button = QtWidgets.QPushButton("Add template…")
+        self.delete_template_button = QtWidgets.QPushButton("Delete")
+        template_controls.addWidget(self.add_template_button)
+        template_controls.addWidget(self.delete_template_button)
+        layout.addLayout(template_controls)
+
+        layout.addWidget(QtWidgets.QLabel("Auto-Tag Rules"))
+        self.rules_table = QtWidgets.QTableWidget(0, 3)
+        self.rules_table.setHorizontalHeaderLabels(["Pattern", "Type", "Tags"])
+        self.rules_table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.rules_table)
+
+        rule_controls = QtWidgets.QHBoxLayout()
+        self.add_rule_button = QtWidgets.QPushButton("Add rule…")
+        self.delete_rule_button = QtWidgets.QPushButton("Delete")
+        rule_controls.addWidget(self.add_rule_button)
+        rule_controls.addWidget(self.delete_rule_button)
+        layout.addLayout(rule_controls)
+
+        self.add_template_button.clicked.connect(self._on_add_template)
+        self.delete_template_button.clicked.connect(self._on_delete_template)
+        self.add_rule_button.clicked.connect(self._on_add_rule)
+        self.delete_rule_button.clicked.connect(self._on_delete_rule)
+
+        # State query only — must NOT call check_admin_permission() here, which
+        # prompts (login/permission-denied dialogs) and would block widget
+        # construction. Read the flag directly, as _build_fields_tab and
+        # _build_labels_tab / _build_search_tab do.
+        is_admin = bool(getattr(self.main_window, 'is_admin', False))
+        for b in (self.add_template_button, self.delete_template_button,
+                  self.add_rule_button, self.delete_rule_button):
+            b.setEnabled(is_admin)
+
+        self._automation_stack_id = None
+        if self.automation_stack_combo.count():
+            self.select_automation_stack(self.automation_stack_combo.itemData(0))
+        return tab
+
+    def select_automation_stack(self, stack_id):
+        """Repopulate templates_table and rules_table for stack_id."""
+        self._automation_stack_id = stack_id
+        templates = self.db.get_metadata_templates(stack_id)
+        self.templates_table.setRowCount(len(templates))
+        for row, t in enumerate(templates):
+            self.templates_table.setItem(row, 0, QtWidgets.QTableWidgetItem(t["name"]))
+
+        rules = self.db.get_autotag_rules(stack_id)
+        self.rules_table.setRowCount(len(rules))
+        for row, r in enumerate(rules):
+            self.rules_table.setItem(row, 0, QtWidgets.QTableWidgetItem(r["pattern"]))
+            self.rules_table.setItem(row, 1, QtWidgets.QTableWidgetItem(r["match_type"]))
+            self.rules_table.setItem(row, 2, QtWidgets.QTableWidgetItem(r.get("tags", "") or ""))
+
+    def _on_add_template(self):
+        """Prompt for a template name and a comma-separated key=value list of
+        field values (plus optional tags), then create the metadata template.
+
+        Button is already gated for non-admins, but this is a real user action
+        (they clicked), so re-check with check_admin_permission — which may
+        prompt for login/permission — as the actual authorization gate.
+        """
+        if self.main_window and not self.main_window.check_admin_permission("add a metadata template"):
+            return
+        name, ok = QtWidgets.QInputDialog.getText(self, "New template", "Name:")
+        if not ok or not name:
+            return
+        raw, ok2 = QtWidgets.QInputDialog.getText(
+            self, "Template values", "Comma-separated key=value pairs (e.g. cs=ACES, tags=plate):")
+        if not ok2:
+            return
+        values = {}
+        for pair in raw.split(","):
+            pair = pair.strip()
+            if not pair or "=" not in pair:
+                continue
+            key, val = pair.split("=", 1)
+            key = key.strip()
+            if key:
+                values[key] = val.strip()
+        self.db.create_metadata_template(self._automation_stack_id, name, values)
+        self.select_automation_stack(self._automation_stack_id)
+        self.settings_changed.emit()
+
+    def _on_delete_template(self):
+        """Delete the selected metadata template row, if any.
+
+        Button is already gated for non-admins, but this is a real user action
+        (they clicked), so re-check with check_admin_permission as the actual
+        authorization gate.
+        """
+        if self.main_window and not self.main_window.check_admin_permission("delete a metadata template"):
+            return
+        row = self.templates_table.currentRow()
+        if row < 0:
+            return
+        templates = self.db.get_metadata_templates(self._automation_stack_id)
+        if row < len(templates):
+            self.db.delete_metadata_template(templates[row]["template_id"])
+            self.select_automation_stack(self._automation_stack_id)
+            self.settings_changed.emit()
+
+    def _on_add_rule(self):
+        """Prompt for a pattern/type/tags, then create the auto-tag rule.
+
+        Button is already gated for non-admins, but this is a real user action
+        (they clicked), so re-check with check_admin_permission — which may
+        prompt for login/permission — as the actual authorization gate.
+        """
+        if self.main_window and not self.main_window.check_admin_permission("add an auto-tag rule"):
+            return
+        pattern, ok = QtWidgets.QInputDialog.getText(self, "New rule", "Pattern:")
+        if not ok or not pattern:
+            return
+        match_type, ok2 = QtWidgets.QInputDialog.getItem(
+            self, "New rule", "Type:", ["glob", "regex", "contains"], 0, False)
+        if not ok2:
+            return
+        tags, ok3 = QtWidgets.QInputDialog.getText(self, "New rule", "Tags (comma-separated):")
+        if not ok3:
+            return
+        self.db.create_autotag_rule(pattern, match_type, tags=tags, stack_fk=self._automation_stack_id)
+        self.select_automation_stack(self._automation_stack_id)
+        self.settings_changed.emit()
+
+    def _on_delete_rule(self):
+        """Delete the selected auto-tag rule row, if any.
+
+        Button is already gated for non-admins, but this is a real user action
+        (they clicked), so re-check with check_admin_permission as the actual
+        authorization gate.
+        """
+        if self.main_window and not self.main_window.check_admin_permission("delete an auto-tag rule"):
+            return
+        row = self.rules_table.currentRow()
+        if row < 0:
+            return
+        rules = self.db.get_autotag_rules(self._automation_stack_id)
+        if row < len(rules):
+            self.db.delete_autotag_rule(rules[row]["rule_id"])
+            self.select_automation_stack(self._automation_stack_id)
             self.settings_changed.emit()
 
     def browse_database_path(self):

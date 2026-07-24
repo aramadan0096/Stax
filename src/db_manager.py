@@ -2676,6 +2676,11 @@ class DatabaseManager(object):
                 cur.append(t)
         return ",".join(cur)
 
+    def delete_metadata_template(self, template_id):
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "DELETE FROM metadata_templates WHERE template_id = ?", (template_id,))
+
     # ======================
     # AUTOTAG RULES (EP4)
     # ======================
