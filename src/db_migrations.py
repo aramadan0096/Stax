@@ -16,7 +16,7 @@ import logging
 log = logging.getLogger(__name__)
 
 # Bump this every time a new _migrate_vN is appended below.
-CURRENT_SCHEMA_VERSION = 8
+CURRENT_SCHEMA_VERSION = 9
 
 # Default color-label palette (EP1). Seed order defines labels.sort_order.
 DEFAULT_LABELS = [
@@ -245,6 +245,23 @@ def _migrate_v8(conn):
     conn.commit()
 
 
+def _migrate_v9(conn):
+    """v8 -> v9: create metadata_templates table for per-stack metadata
+    templates that can be applied to elements in one shot (EP4)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS metadata_templates (
+            template_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            stack_fk    INTEGER NOT NULL,
+            name        TEXT NOT NULL,
+            values_json TEXT NOT NULL
+        )
+        """
+    )
+    log.info("Migration v9: created metadata_templates table")
+    conn.commit()
+
+
 # Index N upgrades schema version N-1 -> N.
 _MIGRATIONS = [
     None,          # index 0 — unused placeholder
@@ -256,6 +273,7 @@ _MIGRATIONS = [
     _migrate_v6,   # 5 -> 6
     _migrate_v7,   # 6 -> 7
     _migrate_v8,   # 7 -> 8
+    _migrate_v9,   # 8 -> 9
 ]
 
 

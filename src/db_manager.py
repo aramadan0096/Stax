@@ -2624,4 +2624,55 @@ class DatabaseManager(object):
                 result[key] = val
             return result
 
+    # ======================
+    # METADATA TEMPLATES (EP4)
+    # ======================
+
+    def create_metadata_template(self, stack_fk, name, values):
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO metadata_templates (stack_fk, name, values_json) VALUES (?, ?, ?)",
+                (stack_fk, name, json.dumps(values)))
+            return cur.lastrowid
+
+    def get_metadata_templates(self, stack_fk):
+        with self.get_connection(write=False) as conn:
+            rows = conn.execute(
+                "SELECT * FROM metadata_templates WHERE stack_fk = ? ORDER BY name",
+                (stack_fk,)).fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                d["values"] = json.loads(d["values_json"])
+                out.append(d)
+            return out
+
+    def apply_template(self, element_id, template_id):
+        with self.get_connection(write=True) as conn:
+            row = conn.execute(
+                "SELECT values_json FROM metadata_templates WHERE template_id = ?",
+                (template_id,)).fetchone()
+            if not row:
+                return
+            values = json.loads(row[0])
+            tmpl_tags = values.pop("tags", "")
+            for key, val in values.items():
+                conn.execute(
+                    "INSERT INTO element_metadata (element_fk, field_key, value) VALUES (?, ?, ?) "
+                    "ON CONFLICT(element_fk, field_key) DO UPDATE SET value = excluded.value",
+                    (element_id, key, str(val)))
+            if tmpl_tags:
+                cur = conn.execute("SELECT tags FROM elements WHERE element_id = ?", (element_id,))
+                existing = (cur.fetchone()[0] or "")
+                merged = self._merge_tags(existing, tmpl_tags)
+                conn.execute("UPDATE elements SET tags = ? WHERE element_id = ?", (merged, element_id))
+
+    @staticmethod
+    def _merge_tags(existing, added):
+        cur = [t.strip() for t in (existing or "").split(",") if t.strip()]
+        for t in [x.strip() for x in (added or "").split(",") if x.strip()]:
+            if t not in cur:
+                cur.append(t)
+        return ",".join(cur)
 
