@@ -664,18 +664,24 @@ class StaXPanel(QtWidgets.QWidget):
         if all_elements:
             self.media_display.content_stack.setCurrentIndex(1)
         else:
+            # Route through the widget's own public entry point so the
+            # nested empty-page stack is actually reset to the legacy
+            # page (a bare content_stack.setCurrentIndex(0) only flips
+            # the outer index and can leave a stale EP1 empty page --
+            # e.g. from a prior search or tag filter -- on screen). Call
+            # it on both branches -- as the old unconditional
+            # setCurrentIndex(0) did -- so a stack that vanished between
+            # selection and this lookup still lands on the empty page
+            # instead of leaving stale elements on screen.
             stack = self.db.get_stack_by_id(stack_id)
             if stack:
-                # Route through the widget's own public entry point so the
-                # nested empty-page stack is actually reset to the legacy
-                # page (a bare content_stack.setCurrentIndex(0) only flips
-                # the outer index and can leave a stale EP1 empty page --
-                # e.g. from a prior search or tag filter -- on screen).
                 self.media_display.show_empty_state(
                     "No elements in stack '{}'".format(stack['name']),
                     "Add lists and elements to this stack",
                 )
-        
+            else:
+                self.media_display.show_empty_state()
+
         self.media_display._display_current_page()
         
         stack = self.db.get_stack_by_id(stack_id)
