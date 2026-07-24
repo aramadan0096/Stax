@@ -1013,6 +1013,17 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 # _lazy_load_gallery_item behaviour is unchanged; replacing
                 # that with a skeleton would throw away the 2D/3D/Toolset
                 # type hint for every such item, a regression.
+                #
+                # Whole-branch review Finding 1: a bare skeleton in the
+                # no-file branch is just as much a regression, because for
+                # three real populations (toolsets registered with
+                # preview_path=None, any library ingested with
+                # generate_previews off, a previews dir that's missing/
+                # offline) on_preview_ready NEVER fires -- the tile would
+                # stay a featureless grey square forever. Fix: composite the
+                # skeleton BEHIND the type-hint icon instead of replacing
+                # it, so the tile still says what kind of asset it is while
+                # its skeleton framing still reads as "possibly pending".
                 preview_path = self._resolve_path(element.get('preview_path'))
                 has_preview_file = bool(preview_path and os.path.exists(preview_path))
                 if has_preview_file:
@@ -1022,8 +1033,11 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 else:
                     # Nothing on disk to decode yet -- on_preview_ready
                     # (fired later by SP2's async PreviewWorker) is what
-                    # replaces this icon with the real thumbnail.
-                    item.setIcon(QtGui.QIcon(self._skeleton_pixmap(icon_size)))
+                    # replaces this icon with the real thumbnail, but if it
+                    # never fires the type hint must still be legible.
+                    item.setIcon(QtGui.QIcon(
+                        self._pending_skeleton_pixmap(element.get('type'), icon_size)
+                    ))
 
             self.gallery_view.addItem(item)
 
@@ -1155,6 +1169,51 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         painter.drawRect(0, 0, edge - 1, edge - 1)
         painter.end()
         return pixmap
+
+    def _pending_skeleton_pixmap(self, element_type, size):
+        """Skeleton placeholder with the type-hint glyph composited on top
+        (whole-branch review Finding 1).
+
+        Used for every "no GIF, no preview file on disk yet" tile. Some of
+        those genuinely resolve once SP2's async PreviewWorker emits
+        preview_ready; others never will (toolset registered with no
+        preview, generate_previews disabled at ingest time, a previews
+        directory that's missing/offline). Since this widget cannot tell
+        those cases apart at render time, the tile must satisfy both: it
+        keeps the skeleton's pending framing (fill + border, unchanged at
+        the corners) *and* keeps the 2D/3D/Toolset type hint legible,
+        instead of the type hint only surviving for elements that already
+        have a preview file to lazily decode.
+        """
+        canvas = self._skeleton_pixmap(size)
+
+        normalized_type = (element_type or '').strip().lower()
+        icon_name = {'2d': 'film', '3d': 'cube', 'toolset': 'nuke'}.get(normalized_type)
+        if icon_name is None:
+            return canvas
+
+        edge = canvas.width()
+        icon = get_icon(icon_name, size=max(edge, 24))
+        if icon.isNull():
+            return canvas
+
+        # Smaller than the full tile so the skeleton's fill/border still
+        # reads at the edges -- this is a "pending" tile with a type hint,
+        # not a full type-fallback icon.
+        glyph_edge = max(1, int(edge * 0.5))
+        glyph = icon.pixmap(glyph_edge, glyph_edge)
+        if glyph.isNull():
+            return canvas
+
+        painter = QtGui.QPainter(canvas)
+        try:
+            painter.setOpacity(0.55)
+            dx = (edge - glyph.width()) // 2
+            dy = (edge - glyph.height()) // 2
+            painter.drawPixmap(dx, dy, glyph)
+        finally:
+            painter.end()
+        return canvas
 
     def _build_fixed_thumbnail(self, pixmap, size):
         """Center a preview inside a square background for consistent thumbnails."""

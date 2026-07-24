@@ -140,6 +140,21 @@ def test_scroll_capture_restore_round_trip_table_view(qtbot, stax_db, stax_confi
 
 @pytest.mark.gui
 def test_no_preview_file_gets_skeleton_not_type_fallback(qtbot, stax_db, stax_config):
+    """CORRECTED per whole-branch review Finding 1: the original version of
+    this test asserted the tile was a *bare* skeleton -- pure fill colour
+    with no type hint at all. That encoded the defect: for elements whose
+    preview file will never arrive (toolset registered without a preview,
+    generate_previews off, previews dir offline/missing, ...) that bare
+    skeleton is never replaced by on_preview_ready and the tile stays a
+    featureless grey square forever, indistinguishable from an empty tile
+    and a regression from the pre-EP3 type-fallback icon.
+
+    Fix: composite the skeleton *behind* the type-hint icon instead of
+    replacing it, so a "no preview file yet" tile still reads "this is a
+    2D/3D/Toolset asset" while its skeleton framing still reads as pending.
+    This test now asserts both halves of that: skeleton framing at the
+    corner, type-hint glyph visibly composited at the center.
+    """
     w = _widget(qtbot, stax_db, stax_config)
     elements = [{
         "element_id": 1,
@@ -155,13 +170,40 @@ def test_no_preview_file_gets_skeleton_not_type_fallback(qtbot, stax_db, stax_co
     icon_size = w.gallery_view.iconSize()
     image = item.icon().pixmap(icon_size).toImage()
 
-    # _skeleton_pixmap's fill colour, sampled well inside the border stroke.
+    # _skeleton_pixmap's fill colour, sampled well inside the border stroke:
+    # the corner still reads as skeleton (pending framing is preserved).
     assert image.pixelColor(4, 4) == QtGui.QColor("#26282b")
+
+    # The type-hint glyph (film icon for '2D') is composited on top, so the
+    # center of the tile is no longer the bare skeleton fill -- the type
+    # hint survives even though the preview file doesn't exist yet.
+    center = image.width() // 2
+    assert image.pixelColor(center, center) != QtGui.QColor("#26282b")
 
     # There is nothing on disk to lazily decode yet -- on_preview_ready
     # (fired later by SP2's async worker) is what will replace this icon,
     # not the lazy-decode stash used by the "file exists" branch.
     assert item.data(QtCore.Qt.UserRole + 1) is None
+
+
+@pytest.mark.gui
+def test_pending_skeleton_type_hint_differs_by_type(qtbot, stax_db, stax_config):
+    """The composited type-hint glyph must actually vary with element type
+    (not just always draw the same fallback icon) -- 2D and 3D pending
+    tiles must not render identically, or the "type hint" claim is empty."""
+    w = _widget(qtbot, stax_db, stax_config)
+    elements = [
+        {"element_id": 1, "name": "e2d", "type": "2D", "preview_path": None, "gif_preview_path": None},
+        {"element_id": 2, "name": "e3d", "type": "3D", "preview_path": None, "gif_preview_path": None},
+    ]
+
+    w._update_views_with_elements(elements)
+
+    icon_size = w.gallery_view.iconSize()
+    image_2d = w.gallery_view.item(0).icon().pixmap(icon_size).toImage()
+    image_3d = w.gallery_view.item(1).icon().pixmap(icon_size).toImage()
+
+    assert image_2d != image_3d
 
 
 @pytest.mark.gui
