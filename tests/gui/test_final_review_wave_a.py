@@ -165,15 +165,99 @@ def test_staxpanel_applies_persisted_accessibility_at_startup_scoped_to_panel(
     # __init__ schedules in standalone/mock mode -- left live, it fires
     # ~100ms later, possibly after this test (and its panel) has already
     # torn down, tripping a RuntimeError in a later test's event-loop
-    # processing. Irrelevant to what this test covers (accessibility
-    # scoping at startup), so just prevent it from being scheduled at all.
-    monkeypatch.setattr(nuke_launcher.QtCore.QTimer, "singleShot", lambda *a, **k: None)
+    # processing (confirmed by temporarily removing all neutralization:
+    # with none at all, that exact RuntimeError is raised against this
+    # panel's already-deleted widgets, attributed to an unrelated *later*
+    # test since Qt only surfaces it once something else pumps the event
+    # loop).
+    #
+    # Whole-branch re-review Minor: a bare class-wide
+    # `monkeypatch.setattr(QtCore.QTimer, "singleShot", lambda *a, **k:
+    # None)` (this line's previous form) is too blunt -- it silently
+    # swallows every OTHER deferred callback scheduled anywhere in the
+    # process while active too, e.g. MediaDisplayWidget's own gallery
+    # `refresh_visible` kick, not just this one login modal. The suggested
+    # narrower fix -- patching `StaXPanel.show_login` directly to a no-op
+    # and leaving `singleShot` itself alone -- turns out to trade that
+    # problem for a different one: it still lets a real QTimer object get
+    # scheduled (it only neutralizes what fires 100ms later, not whether
+    # anything gets scheduled at all), and that dangling live timer was
+    # observed to intermittently destabilize *other*, unrelated tests
+    # later in this same file when run in the same process -- its
+    # harmless no-op firing during a later test's own event-loop pump
+    # reproducibly tripped pytest-qt's "Exceptions caught in Qt event
+    # loop" teardown machinery in a handful of runs out of a dozen.
+    #
+    # Wrapping `singleShot` to skip scheduling *only* calls whose target
+    # is `StaXPanel.show_login` gets both properties at once: no real
+    # timer for the login callback is ever created (matching the original
+    # blunt patch's safety), while every unrelated `singleShot` call --
+    # present or future, e.g. the gallery kick -- still runs through the
+    # real implementation, untouched.
+    _real_single_shot = nuke_launcher.QtCore.QTimer.singleShot
+
+    def _skip_show_login_timer(msec, callback, *args, **kwargs):
+        if getattr(callback, "__func__", None) is nuke_launcher.StaXPanel.show_login:
+            return None
+        return _real_single_shot(msec, callback, *args, **kwargs)
+
+    monkeypatch.setattr(nuke_launcher.QtCore.QTimer, "singleShot", _skip_show_login_timer)
 
     panel = nuke_launcher.StaXPanel()
     qtbot.addWidget(panel)
 
     assert "#000000" in panel.styleSheet()
     assert app.styleSheet() == original_app_qss
+
+
+@pytest.mark.gui
+def test_login_timer_neutralization_does_not_suppress_other_singleshot_callbacks(
+    qtbot, monkeypatch
+):
+    """Regression guard for the scoping fix above: the neutralization
+    must skip scheduling *only* the `StaXPanel.show_login` callback --
+    every other `QtCore.QTimer.singleShot` call, present or future (e.g.
+    MediaDisplayWidget's own gallery `refresh_visible` kick), must still
+    run through the real Qt implementation."""
+    from PySide2 import QtCore
+
+    import nuke_launcher
+
+    _real_single_shot = nuke_launcher.QtCore.QTimer.singleShot
+
+    def _skip_show_login_timer(msec, callback, *args, **kwargs):
+        if getattr(callback, "__func__", None) is nuke_launcher.StaXPanel.show_login:
+            return None
+        return _real_single_shot(msec, callback, *args, **kwargs)
+
+    monkeypatch.setattr(nuke_launcher.QtCore.QTimer, "singleShot", _skip_show_login_timer)
+
+    # The show_login target: bound via types.MethodType directly against
+    # the wrapper function (not through QtCore.QTimer.singleShot, and
+    # never actually invoked) so this assertion can't accidentally run
+    # the real dialog-opening body.
+    import types
+
+    class _Dummy(object):
+        pass
+
+    bound_show_login = types.MethodType(nuke_launcher.StaXPanel.show_login, _Dummy())
+    assert _skip_show_login_timer(100, bound_show_login) is None, (
+        "a singleShot call targeting StaXPanel.show_login must be "
+        "skipped (never scheduled), not merely neutered once it fires"
+    )
+
+    # Any other callback -- unrelated to show_login -- must still be
+    # scheduled and fire normally through the real Qt implementation.
+    fired = []
+    QtCore.QTimer.singleShot(0, lambda: fired.append(True))
+    qtbot.wait(50)
+
+    assert fired == [True], (
+        "an unrelated QtCore.QTimer.singleShot callback must still fire "
+        "-- the scoped neutralization must not collaterally suppress it "
+        "the way the old class-wide stub did"
+    )
 
 
 # ---------------------------------------------------------------------------
