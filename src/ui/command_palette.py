@@ -73,6 +73,9 @@ class CommandPalette(QtWidgets.QDialog):
     def __init__(self, entries, parent=None):
         super(CommandPalette, self).__init__(parent)
         self.setWindowFlags(QtCore.Qt.Popup)
+        # Repeated Ctrl+K opens must not accumulate hidden widgets for the
+        # life of the app: close() destroys the dialog instead of just hiding it.
+        self.setAttribute(QtCore.Qt.WA_DeleteOnClose)
         self._entries = list(entries)   # [(label, target)]
         layout = QtWidgets.QVBoxLayout(self)
         self.search_box = QtWidgets.QLineEdit()
@@ -83,9 +86,36 @@ class CommandPalette(QtWidgets.QDialog):
         self.search_box.textChanged.connect(self.filter_text)
         self.search_box.returnPressed.connect(self.run_current)
         self.results_list.itemActivated.connect(lambda _i: self.run_current())
+        # Focus always lands in search_box (see MainWindow.open_command_palette),
+        # so Up/Down must be caught there and translated into results_list
+        # movement rather than relying on keyPressEvent/focus on the list itself.
+        self.search_box.installEventFilter(self)
         self._visible = []
         self.filter_text("")
         self.resize(480, 360)
+
+    def eventFilter(self, obj, event):
+        if obj is self.search_box and event.type() == QtCore.QEvent.KeyPress:
+            key = event.key()
+            if key == QtCore.Qt.Key_Down:
+                self._move_selection(1)
+                return True
+            if key == QtCore.Qt.Key_Up:
+                self._move_selection(-1)
+                return True
+        return super(CommandPalette, self).eventFilter(obj, event)
+
+    def _move_selection(self, delta):
+        """Move results_list's current row by delta, clamped to [0, count-1].
+
+        No-op when the list is empty (currentRow() stays -1).
+        """
+        count = self.results_list.count()
+        if count == 0:
+            return
+        row = self.results_list.currentRow()
+        new_row = min(max(row + delta, 0), count - 1)
+        self.results_list.setCurrentRow(new_row)
 
     def filter_text(self, text):
         labels = [lbl for lbl, _ in self._entries]
@@ -108,3 +138,48 @@ class CommandPalette(QtWidgets.QDialog):
             target.trigger()
         else:
             target()
+
+
+def build_jump_targets(db, config, on_list_selected, on_stack_selected):
+    """Build "Go to list/stack" palette entries that always do something real.
+
+    Returns a ``list[(label, callable)]`` in the same shape as
+    ``harvest_actions()``/``CommandRegistry.entries()``, so callers can just
+    concatenate them.
+
+    - One "Go to list: <stack name> / <list name>" entry per **top-level**
+      list of every stack, targeting ``on_list_selected(list_id)``. Lists are
+      nestable, but ``on_list_selected`` has no config gate and always
+      navigates regardless of nesting depth, so only top-level lists are
+      enumerated here to keep the palette flat and labels unambiguous —
+      sub-lists are reachable by drilling in from their parent list in the
+      normal UI.
+    - One "Go to stack: <name>" entry per stack, targeting
+      ``on_stack_selected(stack_id)`` — but **only** when
+      ``config.get("show_entire_stack_elements", False)`` is true, since
+      ``on_stack_selected`` is a silent no-op when that setting is off. A
+      dead command must never appear in the palette.
+
+    ``db`` is a ``DatabaseManager`` (``get_all_stacks()``,
+    ``get_lists_by_stack(stack_id)``); ``config`` is anything with
+    ``.get(key, default)`` (``src.config.Config`` or a test stub);
+    ``on_list_selected``/``on_stack_selected`` are callables taking a single
+    id argument (typically bound ``MainWindow`` methods).
+    """
+    entries = []
+    show_stacks = config.get("show_entire_stack_elements", False)
+    for stack in db.get_all_stacks():
+        stack_id = stack["stack_id"]
+        stack_name = stack["name"]
+        if show_stacks:
+            entries.append((
+                "Go to stack: {}".format(stack_name),
+                lambda sid=stack_id: on_stack_selected(sid),
+            ))
+        for lst in db.get_lists_by_stack(stack_id):
+            list_id = lst["list_id"]
+            entries.append((
+                "Go to list: {} / {}".format(stack_name, lst["name"]),
+                lambda lid=list_id: on_list_selected(lid),
+            ))
+    return entries

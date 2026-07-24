@@ -407,13 +407,14 @@ class MainWindow(QtWidgets.QMainWindow):
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+K"), self, self.open_command_palette)
 
     def open_command_palette(self):
-        from src.ui.command_palette import CommandPalette, harvest_actions, CommandRegistry
+        from src.ui.command_palette import CommandPalette, harvest_actions, build_jump_targets
         entries = harvest_actions(self.menuBar(), self.toolbar)
-        reg = CommandRegistry()
-        for stack in self.db.get_all_stacks():
-            reg.register("Go to stack: {}".format(stack["name"]),
-                         lambda s=stack: self.on_stack_selected(s["stack_id"]))
-        entries = entries + reg.entries()
+        try:
+            entries = entries + build_jump_targets(
+                self.db, self.config, self.on_list_selected, self.on_stack_selected
+            )
+        except Exception:
+            log.warning("Failed to build command-palette jump targets", exc_info=True)
         pal = CommandPalette(entries, self)
         pal.move(self.geometry().center() - pal.rect().center())
         pal.show()
