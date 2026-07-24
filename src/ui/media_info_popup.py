@@ -10,7 +10,7 @@ from src.ffmpeg_wrapper import FFmpegWrapper
 from src.icon_loader import get_icon
 from src.utils.paths import resolve_path
 from src.utils.formatting import human_size
-from src.ui.metadata_format import VIDEO_EXTS, SEQUENCE_EXTS, detect_playback_mode
+from src.ui.metadata_format import detect_playback_mode
 
 # Element type is 2D/3D/Toolset; playback mode is determined by format
 # (see src/ui/metadata_format.py:detect_playback_mode).

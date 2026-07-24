@@ -93,7 +93,11 @@ def apply_accessibility(app, config):
         return
 
     high_contrast = bool(config.get("a11y_high_contrast", False))
-    text_scale = int(config.get("a11y_text_scale", 100))
+    # Only the Settings spinbox range (100-150) used to bound this value --
+    # a hand-edited or corrupted config value outside that range (e.g.
+    # 1000) made the app font unusable and would never self-correct.
+    # Clamp on every read (final whole-branch review "also fix").
+    text_scale = max(100, min(150, int(config.get("a11y_text_scale", 100))))
     focus_assist = bool(config.get("a11y_focus_assist", False))
 
     baseline = _get_baseline(app)

@@ -111,6 +111,24 @@ def test_apply_accessibility_tolerates_missing_app(stax_config):
     apply_accessibility(None, stax_config)
 
 
+@pytest.mark.gui
+def test_apply_accessibility_clamps_out_of_range_text_scale(a11y_app, stax_config):
+    """Final whole-branch review 'also fix': only the Settings spinbox
+    range (100-150) bounded a11y_text_scale -- a hand-edited or corrupted
+    config value outside that range (e.g. 1000) made the app font
+    unusable and would never self-correct. apply_accessibility() must
+    clamp on read."""
+    _set_a11y(stax_config, text_scale=1000)
+    apply_accessibility(a11y_app, stax_config)
+    assert a11y_app.font().pointSize() == scaled_point_size(10, 150)
+
+    accessibility.reset_cache(a11y_app)
+    a11y_app.setFont(QtGui.QFont(a11y_app.font().family(), 10))
+    _set_a11y(stax_config, text_scale=1)
+    apply_accessibility(a11y_app, stax_config)
+    assert a11y_app.font().pointSize() == scaled_point_size(10, 100)
+
+
 class _FakeMain(object):
     """Minimal main_window stand-in; accessibility must not require admin."""
     def __init__(self):
