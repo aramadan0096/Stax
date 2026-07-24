@@ -1181,15 +1181,27 @@ class DatabaseManager(object):
             "label":  self._facet_count_query(filter_spec, "label_fks", "label_fk"),
             "status": {},
         }
-        # status: deprecated / hard-copy tallies against the full active filter
-        where, params = self._build_filter_where(filter_spec)
+        # status: active/deprecated tally, with is_deprecated's own clause
+        # dropped so both buckets are always present and each reflects what
+        # selecting it would yield (no hard-copy tally -- outside this facet's
+        # interface)
+        status_spec = normalize(filter_spec)
+        status_spec["is_deprecated"] = None
+        where, params = self._build_filter_where(status_spec)
         with self.get_connection(write=False) as conn:
             dep = conn.execute(
                 "SELECT is_deprecated, COUNT(*) FROM elements WHERE {} GROUP BY is_deprecated".format(where),
                 params).fetchall()
             counts["status"] = {("deprecated" if k else "active"): v for k, v in dep}
-        # tag facet: parse comma-joined tags of the filtered set
-        rows = self.search_elements_advanced(filter_spec)
+        # tag facet: parse comma-joined tags of the sibling-filtered set --
+        # the tag clauses (tags_any/tags_all/tags_exclude) are dropped so an
+        # active tags_any doesn't OR-widen the rows a sibling tag is counted
+        # against
+        tag_spec = normalize(filter_spec)
+        tag_spec["tags_any"] = []
+        tag_spec["tags_all"] = []
+        tag_spec["tags_exclude"] = []
+        rows = self.search_elements_advanced(tag_spec)
         tag_counts = {}
         for r in rows:
             for t in [x.strip() for x in (r.get("tags") or "").split(",") if x.strip()]:
