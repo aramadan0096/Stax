@@ -10,10 +10,10 @@ from src.ffmpeg_wrapper import FFmpegWrapper
 from src.icon_loader import get_icon
 from src.utils.paths import resolve_path
 from src.utils.formatting import human_size
+from src.ui.metadata_format import detect_playback_mode
 
-# Element type is 2D/3D/Toolset; playback mode is determined by format.
-VIDEO_EXTS = ('.mov', '.mp4', '.avi', '.mxf')
-SEQUENCE_EXTS = ('.exr', '.dpx', '.tif', '.tiff', '.png', '.jpg', '.jpeg', '.tga', '.bmp')
+# Element type is 2D/3D/Toolset; playback mode is determined by format
+# (see src/ui/metadata_format.py:detect_playback_mode).
 
 
 class MediaInfoPopup(QtWidgets.QDialog):
@@ -304,12 +304,9 @@ class MediaInfoPopup(QtWidgets.QDialog):
         self.comment_label.setText(comment or 'No comment')
         
         # Determine playback mode from extension + frame range, not element type.
-        fmt = (element_data.get('format') or '').lower()
-        if fmt and not fmt.startswith('.'):
-            fmt = '.' + fmt
-        frame_range = element_data.get('frame_range')
-        self.is_video = fmt in VIDEO_EXTS
-        self.is_sequence = bool(frame_range) and fmt in SEQUENCE_EXTS
+        self.is_video, self.is_sequence = detect_playback_mode(
+            element_data.get('format'), element_data.get('frame_range')
+        )
         
         # Show/hide video controls
         if self.is_video or self.is_sequence:

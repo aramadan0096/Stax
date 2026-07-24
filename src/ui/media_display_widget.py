@@ -213,6 +213,15 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self._empty_page_stack = QtWidgets.QStackedWidget()
         self._empty_page_stack.addWidget(self.empty_state_widget)
         self.content_stack.addWidget(self._empty_page_stack)  # Index 0
+
+        # Pages that must never be deleteLater()'d when evicted from the
+        # nested empty-page stack -- the legacy self.empty_state_widget
+        # (see _set_empty_page_widget's docstring) plus anything registered
+        # via register_persistent_empty_page (e.g. main.py's StartPage:
+        # Final review Finding 1 -- the StartPage used to be destroyed the
+        # first time an EP1 empty state replaced it, with nothing ever
+        # re-installing it afterwards).
+        self._persistent_empty_pages = {self.empty_state_widget}
         
         # Views container (index 1)
         views_widget = QtWidgets.QWidget()
@@ -233,6 +242,10 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.gallery_view.itemDoubleClicked.connect(self.on_item_double_clicked)
         self.gallery_view.setMouseTracking(True)  # Enable hover tracking
         self.gallery_view.viewport().installEventFilter(self)  # Install event filter
+        # EP3 Task 3: separate filter target from the viewport above --
+        # mouse events (Alt+Hover) land on the viewport, but key events
+        # (Space for quicklook) are delivered to the view itself.
+        self.gallery_view.installEventFilter(self)
         self.view_stack.addWidget(self.gallery_view)
         
         # List view (table)
@@ -247,6 +260,8 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.table_view.itemDoubleClicked.connect(self.on_table_item_double_clicked)
         self.table_view.setMouseTracking(True)  # Enable hover tracking
         self.table_view.viewport().installEventFilter(self)  # Install event filter
+        # EP3 Task 3: see the matching comment on gallery_view above.
+        self.table_view.installEventFilter(self)
         self.view_stack.addWidget(self.table_view)
         
         views_layout.addWidget(self.view_stack)
@@ -762,12 +777,20 @@ class MediaDisplayWidget(QtWidgets.QWidget):
     def show_empty_state(self, message=None, hint=None):
         """Clear views and display placeholder message.
 
-        Called with no arguments this is the generic "nothing selected
-        yet" state (e.g. main.py's restore_active_view fallback), which
-        EP1 renders as the "library" empty page. A custom message/hint
-        (the tag-filter prompts in load_elements_by_tags) doesn't map onto
-        any of the four fixed EP1 kinds, so it keeps rendering on the
-        legacy info_label/hint_label page instead.
+        Called with no arguments this is the generic "nothing selected at
+        all" state (e.g. main.py's restore_active_view fallback). Final
+        review Finding 1: that is the StartPage's domain, not EP1's -- EP1's
+        context-aware empty states (_show_empty_state) own "you selected
+        something and it is empty". When main_window exposes a live
+        start_page (the standalone shell), re-install and refresh() it;
+        shells that don't have one (e.g. nuke_launcher.StaXPanel) fall back
+        to EP1's generic "library" empty page, same as before this fix.
+
+        A custom message/hint (the tag-filter prompts in
+        load_elements_by_tags, or a caller-supplied "no elements in stack"
+        message) doesn't map onto any of the four fixed EP1 kinds nor onto
+        the StartPage, so it keeps rendering on the legacy
+        info_label/hint_label page instead.
         """
         self.current_list_id = None
         self.current_elements = []
@@ -778,7 +801,25 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.info_label.setText(message or "Select a list to view elements")
         self.hint_label.setText(hint or "Browse stacks and lists in the navigation panel")
         if message is None and hint is None:
-            self._show_empty_state("library")
+            start_page = getattr(self.main_window, 'start_page', None)
+            if start_page is not None:
+                try:
+                    start_page.refresh()
+                except RuntimeError:
+                    # Deleted C++ object (shouldn't happen now that
+                    # register_persistent_empty_page protects it, but stay
+                    # defensive rather than propagate a crash from a
+                    # selection-clearing path).
+                    logger.exception(
+                        "show_empty_state: main_window.start_page is a "
+                        "deleted C++ object; falling back to the library "
+                        "empty page"
+                    )
+                    start_page = None
+            if start_page is not None:
+                self._set_empty_page_widget(start_page, persistent=True)
+            else:
+                self._show_empty_state("library")
         else:
             self._set_empty_page_widget(self.empty_state_widget)
 
@@ -906,6 +947,23 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             return
         self.run_text_search(text)
 
+    @staticmethod
+    def _gallery_caption(element):
+        """Gallery item caption: name + up to 3 tags.
+
+        Single source of truth for this formatting, shared by the initial
+        render (_update_views_with_elements) and by _refresh_item's
+        in-place caption update (whole-branch review Finding 3) so a
+        name/tags edit refresh can never drift out of sync with what a
+        full reload would show.
+        """
+        display_name = element['name']
+        if element.get('tags'):
+            tag_list = [t.strip() for t in element['tags'].split(',') if t.strip()]
+            if tag_list:
+                display_name += " [" + ", ".join(tag_list[:3]) + "]"
+        return display_name
+
     def _update_views_with_elements(self, elements):
         """Update gallery and table views with given elements."""
         self.stop_current_gif()
@@ -927,13 +985,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 }
 
             item = QtWidgets.QListWidgetItem()
-            display_name = element['name']
-            if element.get('tags'):
-                tag_list = [t.strip() for t in element['tags'].split(',') if t.strip()]
-                if tag_list:
-                    display_name += " [" + ", ".join(tag_list[:3]) + "]"
-
-            item.setText(display_name)
+            item.setText(self._gallery_caption(element))
             item.setData(QtCore.Qt.UserRole, element_id)
             if element_id:
                 self.element_items[element_id] = item
@@ -963,74 +1015,46 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                     has_gif = False
 
             if not has_gif:
-                # Defer decode to the lazy loader; show the type fallback now.
-                item.setIcon(self._get_default_icon_for_type(element.get('type'), icon_size))
-                item.setData(QtCore.Qt.UserRole + 1, element)
+                # EP3 Task 7 skeleton placement rule: a neutral skeleton is
+                # shown ONLY while a preview is genuinely pending -- no GIF
+                # and no preview file on disk yet (design SS3.5's "SP2's
+                # async worker hasn't emitted preview_ready" case). If a
+                # preview file already exists, it's merely awaiting lazy
+                # decode, so the existing type-fallback + stash-for-
+                # _lazy_load_gallery_item behaviour is unchanged; replacing
+                # that with a skeleton would throw away the 2D/3D/Toolset
+                # type hint for every such item, a regression.
+                #
+                # Whole-branch review Finding 1: a bare skeleton in the
+                # no-file branch is just as much a regression, because for
+                # three real populations (toolsets registered with
+                # preview_path=None, any library ingested with
+                # generate_previews off, a previews dir that's missing/
+                # offline) on_preview_ready NEVER fires -- the tile would
+                # stay a featureless grey square forever. Fix: composite the
+                # skeleton BEHIND the type-hint icon instead of replacing
+                # it, so the tile still says what kind of asset it is while
+                # its skeleton framing still reads as "possibly pending".
+                preview_path = self._resolve_path(element.get('preview_path'))
+                has_preview_file = bool(preview_path and os.path.exists(preview_path))
+                if has_preview_file:
+                    # Defer decode to the lazy loader; show the type fallback now.
+                    item.setIcon(self._get_default_icon_for_type(element.get('type'), icon_size))
+                    item.setData(QtCore.Qt.UserRole + 1, element)
+                else:
+                    # Nothing on disk to decode yet -- on_preview_ready
+                    # (fired later by SP2's async PreviewWorker) is what
+                    # replaces this icon with the real thumbnail, but if it
+                    # never fires the type hint must still be legible.
+                    item.setIcon(QtGui.QIcon(
+                        self._pending_skeleton_pixmap(element.get('type'), icon_size)
+                    ))
 
             self.gallery_view.addItem(item)
 
         self.table_view.setRowCount(len(elements))
         for row, element in enumerate(elements):
-            element_id = element.get('element_id')
-            flags = self.element_flags.get(element_id, {})
-
-            name_item = QtWidgets.QTableWidgetItem(element['name'])
-            if flags.get('favorite'):
-                name_item.setIcon(get_icon('favorite', size=16))
-            if flags.get('deprecated'):
-                name_item.setForeground(QtGui.QColor('#d88400'))
-            self.table_view.setItem(row, 0, name_item)
-
-            self.table_view.setItem(row, 1, QtWidgets.QTableWidgetItem(element.get('format') or ''))
-            
-            # Display frame count for sequences (parse frame_range like "1-7" -> "7")
-            frame_display = ''
-            frame_range = element.get('frame_range')
-            if frame_range and '-' in str(frame_range):
-                try:
-                    parts = str(frame_range).split('-')
-                    if len(parts) == 2:
-                        start_frame = int(parts[0])
-                        end_frame = int(parts[1])
-                        frame_count = end_frame - start_frame + 1
-                        frame_display = str(frame_count)
-                    else:
-                        # Malformed range, display as-is
-                        frame_display = str(frame_range)
-                except (ValueError, IndexError):
-                    frame_display = str(frame_range)
-            elif frame_range:
-                frame_display = str(frame_range)
-            
-            self.table_view.setItem(row, 2, QtWidgets.QTableWidgetItem(frame_display))
-            self.table_view.setItem(row, 3, QtWidgets.QTableWidgetItem(element.get('type') or ''))
-
-            size_str = human_size(element['file_size']) if element.get('file_size') else ''
-            self.table_view.setItem(row, 4, QtWidgets.QTableWidgetItem(size_str))
-
-            comment_text = element.get('comment') or ''
-            if element.get('tags'):
-                comment_text += " [Tags: " + element['tags'] + "]"
-            self.table_view.setItem(row, 5, QtWidgets.QTableWidgetItem(comment_text))
-
-            rating_item = QtWidgets.QTableWidgetItem(self._rating_cell_text(element.get('rating', 0)))
-            rating_item.setFlags(rating_item.flags() & ~QtCore.Qt.ItemIsEditable)
-            self.table_view.setItem(row, 6, rating_item)
-
-            label_item = QtWidgets.QTableWidgetItem("")
-            label_item.setFlags(label_item.flags() & ~QtCore.Qt.ItemIsEditable)
-            label_fk = element.get('label_fk')
-            if label_fk:
-                name = self._label_name(label_fk)
-                color = self._label_color(label_fk)
-                if name:
-                    label_item.setToolTip(name)
-                    label_item.setData(QtCore.Qt.AccessibleTextRole, name)
-                if color:
-                    label_item.setBackground(QtGui.QBrush(QtGui.QColor(color)))
-            self.table_view.setItem(row, 7, label_item)
-
-            self.table_view.item(row, 0).setData(QtCore.Qt.UserRole, element_id)
+            self._populate_table_row(row, element)
 
         if hasattr(self.gallery_view, "set_item_loader"):
             self.gallery_view.set_item_loader(self._lazy_load_gallery_item)
@@ -1076,6 +1100,72 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 thumbnail = self._apply_status_badges(thumbnail, element_id, element)
             return thumbnail
         return None
+
+    def _skeleton_pixmap(self, size):
+        """Neutral placeholder tile for an item whose preview generation is
+        still pending (EP3 Task 7 / design SS3.5).
+
+        Follows `_build_fixed_thumbnail`'s dual int/QSize idiom since
+        callers pass either a raw pixel size or `self.gallery_view.iconSize()`
+        (a QSize).
+        """
+        if isinstance(size, QtCore.QSize):
+            edge = max(size.width(), size.height())
+        else:
+            edge = int(size)
+        edge = max(1, edge)
+        pixmap = QtGui.QPixmap(edge, edge)
+        pixmap.fill(QtGui.QColor('#26282b'))
+        painter = QtGui.QPainter(pixmap)
+        painter.setPen(QtGui.QColor('#3a3d41'))
+        painter.drawRect(0, 0, edge - 1, edge - 1)
+        painter.end()
+        return pixmap
+
+    def _pending_skeleton_pixmap(self, element_type, size):
+        """Skeleton placeholder with the type-hint glyph composited on top
+        (whole-branch review Finding 1).
+
+        Used for every "no GIF, no preview file on disk yet" tile. Some of
+        those genuinely resolve once SP2's async PreviewWorker emits
+        preview_ready; others never will (toolset registered with no
+        preview, generate_previews disabled at ingest time, a previews
+        directory that's missing/offline). Since this widget cannot tell
+        those cases apart at render time, the tile must satisfy both: it
+        keeps the skeleton's pending framing (fill + border, unchanged at
+        the corners) *and* keeps the 2D/3D/Toolset type hint legible,
+        instead of the type hint only surviving for elements that already
+        have a preview file to lazily decode.
+        """
+        canvas = self._skeleton_pixmap(size)
+
+        normalized_type = (element_type or '').strip().lower()
+        icon_name = {'2d': 'film', '3d': 'cube', 'toolset': 'nuke'}.get(normalized_type)
+        if icon_name is None:
+            return canvas
+
+        edge = canvas.width()
+        icon = get_icon(icon_name, size=max(edge, 24))
+        if icon.isNull():
+            return canvas
+
+        # Smaller than the full tile so the skeleton's fill/border still
+        # reads at the edges -- this is a "pending" tile with a type hint,
+        # not a full type-fallback icon.
+        glyph_edge = max(1, int(edge * 0.5))
+        glyph = icon.pixmap(glyph_edge, glyph_edge)
+        if glyph.isNull():
+            return canvas
+
+        painter = QtGui.QPainter(canvas)
+        try:
+            painter.setOpacity(0.55)
+            dx = (edge - glyph.width()) // 2
+            dy = (edge - glyph.height()) // 2
+            painter.drawPixmap(dx, dy, glyph)
+        finally:
+            painter.end()
+        return canvas
 
     def _build_fixed_thumbnail(self, pixmap, size):
         """Center a preview inside a square background for consistent thumbnails."""
@@ -1243,6 +1333,92 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         """Render a rating (0-5, possibly None) as a star string for the table."""
         return "★" * int(rating or 0)
 
+    def _populate_table_row(self, row, element):
+        """Build (or rebuild) one table row for `element`.
+
+        Single source of truth for table-row formatting, shared by the
+        initial render (_update_views_with_elements) and by
+        _refresh_table_row's in-place update (whole-branch review
+        Finding 3) so an edit refresh can never drift out of sync with
+        what a full reload would produce.
+        """
+        element_id = element.get('element_id')
+        flags = self.element_flags.get(element_id, {})
+
+        name_item = QtWidgets.QTableWidgetItem(element['name'])
+        if flags.get('favorite'):
+            name_item.setIcon(get_icon('favorite', size=16))
+        if flags.get('deprecated'):
+            name_item.setForeground(QtGui.QColor('#d88400'))
+        self.table_view.setItem(row, 0, name_item)
+
+        self.table_view.setItem(row, 1, QtWidgets.QTableWidgetItem(element.get('format') or ''))
+
+        # Display frame count for sequences (parse frame_range like "1-7" -> "7")
+        frame_display = ''
+        frame_range = element.get('frame_range')
+        if frame_range and '-' in str(frame_range):
+            try:
+                parts = str(frame_range).split('-')
+                if len(parts) == 2:
+                    start_frame = int(parts[0])
+                    end_frame = int(parts[1])
+                    frame_count = end_frame - start_frame + 1
+                    frame_display = str(frame_count)
+                else:
+                    # Malformed range, display as-is
+                    frame_display = str(frame_range)
+            except (ValueError, IndexError):
+                frame_display = str(frame_range)
+        elif frame_range:
+            frame_display = str(frame_range)
+
+        self.table_view.setItem(row, 2, QtWidgets.QTableWidgetItem(frame_display))
+        self.table_view.setItem(row, 3, QtWidgets.QTableWidgetItem(element.get('type') or ''))
+
+        size_str = human_size(element['file_size']) if element.get('file_size') else ''
+        self.table_view.setItem(row, 4, QtWidgets.QTableWidgetItem(size_str))
+
+        comment_text = element.get('comment') or ''
+        if element.get('tags'):
+            comment_text += " [Tags: " + element['tags'] + "]"
+        self.table_view.setItem(row, 5, QtWidgets.QTableWidgetItem(comment_text))
+
+        rating_item = QtWidgets.QTableWidgetItem(self._rating_cell_text(element.get('rating', 0)))
+        rating_item.setFlags(rating_item.flags() & ~QtCore.Qt.ItemIsEditable)
+        self.table_view.setItem(row, 6, rating_item)
+
+        label_item = QtWidgets.QTableWidgetItem("")
+        label_item.setFlags(label_item.flags() & ~QtCore.Qt.ItemIsEditable)
+        label_fk = element.get('label_fk')
+        if label_fk:
+            name = self._label_name(label_fk)
+            color = self._label_color(label_fk)
+            if name:
+                label_item.setToolTip(name)
+                label_item.setData(QtCore.Qt.AccessibleTextRole, name)
+            if color:
+                label_item.setBackground(QtGui.QBrush(QtGui.QColor(color)))
+        self.table_view.setItem(row, 7, label_item)
+
+        self.table_view.item(row, 0).setData(QtCore.Qt.UserRole, element_id)
+
+    def _refresh_table_row(self, element_id, element):
+        """Find `element_id`'s row in table_view (if currently rendered on
+        this page) and rebuild it via _populate_table_row.
+
+        Whole-branch review Finding 3: element_updated -> refresh_item_badge
+        previously only ever touched the gallery item, so a rating/label
+        edit in list/table view produced no visible change until a full
+        reload. No-ops (like _refresh_item) when the element isn't part of
+        the currently rendered page.
+        """
+        for row in range(self.table_view.rowCount()):
+            cell = self.table_view.item(row, 0)
+            if cell is not None and cell.data(QtCore.Qt.UserRole) == element_id:
+                self._populate_table_row(row, element)
+                return
+
     def quick_set_rating(self, element_id, stars):
         """Write-through rating setter for the grid's hover quick-edit."""
         self.db.set_element_rating(element_id, stars)
@@ -1254,12 +1430,31 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self._label_color_cache = None  # force re-resolve
         self._refresh_item(element_id)
 
-    def _refresh_item(self, element_id):
-        """Repaint a single gallery item's icon after a rating/label change.
+    def refresh_item_badge(self, element_id):
+        """Public entry point for external widgets (e.g. the EP3 sticky
+        inspector) to ask for a single item's rating/label badge to be
+        repainted in place. Delegates to `_refresh_item`; callers outside
+        this class should use this instead of reaching into the
+        underscore-prefixed method directly."""
+        self._refresh_item(element_id)
 
-        Minimal per-item update modeled on on_preview_ready; deliberately a
-        no-op when the element has no current gallery item and never
-        triggers a full view rebuild (see SP2 in-place-update work).
+    def _refresh_item(self, element_id):
+        """Repaint a single element's gallery icon + caption and its
+        matching table row in place after a rating/label/name/tags/comment
+        change.
+
+        Originally scoped to the gallery icon only (modeled on
+        on_preview_ready) because its only caller was the gallery hover
+        quick-edit. Whole-branch review Finding 3: the sticky
+        InspectorPanel is view-mode agnostic and also exposes name/tags/
+        comment edits, so a rating/label edit while in list/table view
+        produced no visible change at all, and a rename/retag left the
+        gallery caption and the table's Name/Comment cells stale. Reuses
+        _gallery_caption/_populate_table_row (the same formatting the
+        initial render uses) so this can never drift out of sync with a
+        full reload. Still a no-op when the element has no current gallery
+        item and never triggers a full view rebuild (see SP2
+        in-place-update work).
         """
         item = self.element_items.get(element_id)
         if item is None:
@@ -1275,8 +1470,25 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         element_stub = dict(element)
         element_stub["element_id"] = element_id
         pixmap = self._load_preview_pixmap(element_stub, icon_size)
+        if pixmap is None:
+            # No GIF and no preview file on disk -- EP3 Task 7's
+            # pending-skeleton population (a toolset registered with no
+            # preview, a library ingested with generate_previews off, an
+            # offline previews dir, ...). _load_preview_pixmap always
+            # returns None for these, so without this fallback a rating/
+            # label edit here never repainted the gallery tile at all.
+            # Rebuild the same skeleton+badges tile _update_views_with_
+            # elements renders so the edit's badge actually shows.
+            pixmap = self._apply_status_badges(
+                self._pending_skeleton_pixmap(element.get('type'), icon_size),
+                element_id,
+                element,
+            )
         if pixmap:
             item.setIcon(QtGui.QIcon(pixmap))
+        item.setText(self._gallery_caption(element))
+
+        self._refresh_table_row(element_id, element)
 
     @QtCore.Slot(int, str, str)
     def on_preview_ready(self, element_id, preview_path, preview_type):
@@ -1330,11 +1542,23 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.element_double_clicked.emit(element_id)
     
     def eventFilter(self, watched, event):
-        """Event filter to handle Alt+Hover."""
+        """Event filter to handle Alt+Hover and the EP3 Space quicklook trigger."""
         # Check if widgets are initialized
         if not hasattr(self, 'gallery_view') or not hasattr(self, 'table_view'):
             return super(MediaDisplayWidget, self).eventFilter(watched, event)
-        
+
+        # EP3 Task 3: Space opens quicklook for the current selection.
+        # Watched on gallery_view/table_view themselves (not their
+        # viewports, which is where the Alt+Hover block below listens for
+        # MouseMove/Leave) because key events target the focused view, not
+        # its viewport. Swallow the event so QAbstractItemView's own Space
+        # handling (which would otherwise touch selection) never runs.
+        if watched in (self.gallery_view, self.table_view):
+            if event.type() == QtCore.QEvent.KeyPress and event.key() == QtCore.Qt.Key_Space:
+                self._open_quicklook()
+                return True
+            return super(MediaDisplayWidget, self).eventFilter(watched, event)
+
         if watched in [self.gallery_view.viewport(), self.table_view.viewport()]:
             if event.type() == QtCore.QEvent.MouseMove:
                 # Check if Alt is pressed
@@ -1849,9 +2073,244 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                     element_id = item.data(QtCore.Qt.UserRole)
                     if element_id:
                         selected_ids.append(element_id)
-        
+
         return selected_ids
-    
+
+    # ------------------------------------------------------------------
+    # EP3 Task 3: spacebar quicklook overlay
+    # ------------------------------------------------------------------
+
+    def _get_selected_element(self):
+        """Return the element dict (from current_elements) for the current
+        view's selection, or None if nothing is selected."""
+        index = self._current_element_index()
+        if index is None:
+            return None
+        return self.current_elements[index]
+
+    def _current_element_index(self):
+        """Return the current_elements index of the selected element, or
+        None if nothing is selected or the selected id isn't in the
+        currently loaded result set."""
+        selected_ids = self.get_selected_element_ids()
+        if not selected_ids:
+            return None
+        return self._index_of_element_id(selected_ids[0])
+
+    def _index_of_element_id(self, element_id):
+        """Return the current_elements index of `element_id`, or None if
+        it isn't in the currently loaded result set."""
+        for index, element in enumerate(self.current_elements):
+            if element.get('element_id') == element_id:
+                return index
+        return None
+
+    def _resolve_element_preview(self, element):
+        """Resolve the best available large-preview asset for `element` and
+        report which rendering mechanism the caller should use.
+
+        Precedence: animated GIF (`gif_preview_path`) first -- an animated
+        preview is the richest quicklook representation when one exists --
+        then the static preview thumbnail (`preview_path`), then the
+        low-res sequence video preview (`video_preview_path`) as a
+        best-effort static-image attempt. `geometry_preview_path` (3D/GLB)
+        is intentionally excluded: EP3's quicklook does not host the 3D
+        viewer (out of scope, see design SS3.2 / review finding 1).
+
+        Returns (path, kind) where kind is 'gif' or 'image', or
+        (None, None) if no preview asset exists on disk. Mirrors the
+        os.path.exists guard idiom used by the thumbnail loader
+        (_load_preview_pixmap).
+        """
+        gif_path = self._resolve_path(element.get('gif_preview_path'))
+        if gif_path and os.path.exists(gif_path):
+            return gif_path, 'gif'
+
+        preview_path = self._resolve_path(element.get('preview_path'))
+        if preview_path and os.path.exists(preview_path):
+            return preview_path, 'image'
+
+        video_path = self._resolve_path(element.get('video_preview_path'))
+        if video_path and os.path.exists(video_path):
+            return video_path, 'image'
+
+        return None, None
+
+    def _select_element_in_view(self, element):
+        """Sync the active view's selection to `element`, without touching
+        the other (currently hidden) view.
+
+        Pagination-aware (review finding 2): the gallery/table only render
+        the *current* pagination page, while callers (select_next_element /
+        select_previous_element) walk the full current_elements list. If
+        `element`'s index falls outside the rendered page, switch to the
+        page containing it first (via pagination.go_to_page, which
+        synchronously re-renders through on_page_changed) so the item
+        actually exists in the view before we try to select it.
+
+        `element_selected` fires only when the view selection actually
+        lands on `element` -- never speculatively -- so the gallery/table
+        highlight, the pagination widget, and anything listening to
+        element_selected can never disagree about the current selection.
+        """
+        element_id = element.get('element_id')
+
+        if self.config.get('pagination_enabled', True):
+            index = self._index_of_element_id(element_id)
+            if index is not None:
+                items_per_page = self.pagination.items_per_page or 1
+                # No-ops if already on that page or the page is out of
+                # range -- relying on go_to_page's own bounds check rather
+                # than duplicating it here.
+                self.pagination.go_to_page(index // items_per_page)
+
+        selected = False
+        if self.view_mode == 'gallery':
+            item = self.element_items.get(element_id)
+            if item is not None:
+                self.gallery_view.clearSelection()
+                self.gallery_view.setCurrentItem(item)
+                item.setSelected(True)
+                self.gallery_view.scrollToItem(item)
+                selected = True
+        else:
+            for row in range(self.table_view.rowCount()):
+                cell = self.table_view.item(row, 0)
+                if cell is not None and cell.data(QtCore.Qt.UserRole) == element_id:
+                    self.table_view.clearSelection()
+                    self.table_view.selectRow(row)
+                    self.table_view.scrollToItem(cell)
+                    selected = True
+                    break
+
+        if selected:
+            self.element_selected.emit(element_id)
+        else:
+            logger.debug(
+                "Could not select element %s in view after navigation "
+                "(not present in the currently rendered page)", element_id
+            )
+
+    def _move_selection(self, step):
+        """Move the selection by `step` positions within current_elements,
+        clamping at both ends. Returns the newly-selected element dict, or
+        None if the result set is empty or nothing is currently selected."""
+        if not self.current_elements:
+            return None
+        index = self._current_element_index()
+        if index is None:
+            return None
+        new_index = max(0, min(index + step, len(self.current_elements) - 1))
+        element = self.current_elements[new_index]
+        self._select_element_in_view(element)
+        return element
+
+    def select_next_element(self):
+        """Advance the selection to the next element in the current result
+        set (current_elements). Clamps at the last item; no-op (returns
+        None) if the result set is empty or nothing is selected."""
+        return self._move_selection(1)
+
+    def select_previous_element(self):
+        """Move the selection to the previous element in the current result
+        set (current_elements). Clamps at the first item; no-op (returns
+        None) if the result set is empty or nothing is selected."""
+        return self._move_selection(-1)
+
+    def _active_scroll_view(self):
+        """Return whichever of gallery_view/table_view is currently shown,
+        per self.view_mode."""
+        return self.gallery_view if self.view_mode == 'gallery' else self.table_view
+
+    def capture_scroll(self):
+        """Remember the currently active view's vertical scroll position
+        before a quicklook/detail transition disrupts it (EP3 Task 7,
+        design SS3.5: "capture the gallery/table scrollbar position before
+        opening quicklook ... and restore it on return").
+
+        Mode-aware rather than gallery-only: quicklook's Space trigger is
+        wired on both gallery_view and table_view (see eventFilter), and
+        next/prev navigation's _select_element_in_view scrollToItem()s
+        whichever view is currently active. Capturing gallery_view
+        unconditionally would silently do nothing while browsing in
+        table/list mode.
+        """
+        bar = self._active_scroll_view().verticalScrollBar()
+        self._saved_scroll = bar.value() if bar is not None else 0
+
+    def restore_scroll(self):
+        """Restore the vertical scroll position captured by capture_scroll()."""
+        bar = self._active_scroll_view().verticalScrollBar()
+        if bar is not None:
+            bar.setValue(getattr(self, "_saved_scroll", 0))
+
+    def _open_quicklook(self):
+        """Open the spacebar quicklook overlay for the current view's
+        selection. No-op if nothing is selected."""
+        element = self._get_selected_element()
+        if not element:
+            return
+        self.capture_scroll()
+        # Whole-branch review Finding 2: remember which element the
+        # quicklook session opened on, so the destroyed handler can tell
+        # whether </> navigation moved the selection while the overlay was
+        # open (see _on_quicklook_closed).
+        self._quicklook_anchor_id = element.get('element_id')
+        from ui.quicklook_overlay import QuickLookOverlay
+        self._quicklook = QuickLookOverlay(self)
+        self._quicklook.next_requested.connect(self._quicklook_show_next)
+        self._quicklook.prev_requested.connect(self._quicklook_show_previous)
+        # QuickLookOverlay is WA_DeleteOnClose (Space/Esc call close()),
+        # so `destroyed` fires exactly once per quicklook session -- the
+        # natural hook for restoring the scroll position "on return".
+        self._quicklook.destroyed.connect(self._on_quicklook_closed)
+        preview_path, preview_kind = self._resolve_element_preview(element)
+        self._quicklook.show_element(element, preview_path, preview_kind)
+
+    def _on_quicklook_closed(self):
+        """Restore the pre-quicklook scroll position -- but only if the
+        selection is still the element the session opened on (whole-branch
+        review Finding 2).
+
+        Task 7's capture_scroll/restore_scroll pair assumed quicklook is a
+        read-only overlay that never disturbs the gallery/table selection,
+        so restoring on close always meant "put the view back exactly how
+        the user left it". Task 3's </> navigation breaks that assumption:
+        it deliberately moves the selection (and can switch the pagination
+        page) while the overlay is open. If we restored unconditionally,
+        Space/Esc would scroll back to the pre-open offset while the
+        selection now lives somewhere else -- off-screen, or meaningless if
+        the page changed -- the exact opposite of "don't lose your place".
+        Comparing the anchor id to the current selection lets the plain
+        open-then-close case (no navigation) keep restoring exactly as
+        before, while a session that navigated leaves the view where
+        _select_element_in_view already scrolled it.
+        """
+        selected_ids = self.get_selected_element_ids()
+        current_id = selected_ids[0] if selected_ids else None
+        if current_id == getattr(self, "_quicklook_anchor_id", None):
+            self.restore_scroll()
+
+    def _quicklook_advance(self, select_method):
+        """Shared body for _quicklook_show_next/_quicklook_show_previous:
+        move the selection via `select_method` (select_next_element or
+        select_previous_element) and, if it moved, refresh the open
+        overlay's preview to match (review Minor: collapse duplication)."""
+        element = select_method()
+        if element is not None:
+            preview_path, preview_kind = self._resolve_element_preview(element)
+            self._quicklook.show_element(element, preview_path, preview_kind)
+
+    def _quicklook_show_next(self):
+        """Handle the overlay's next_requested: advance the selection and
+        refresh the overlay's preview to match."""
+        self._quicklook_advance(self.select_next_element)
+
+    def _quicklook_show_previous(self):
+        """Handle the overlay's prev_requested: move the selection back and
+        refresh the overlay's preview to match."""
+        self._quicklook_advance(self.select_previous_element)
+
     def bulk_add_to_favorites(self, element_ids):
         """Add multiple elements to favorites."""
         user = self.config.get('user_name')
@@ -2071,7 +2530,17 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.current_empty_state = EmptyStateWidget(headline, message, primary, secondary, kind)
         self._set_empty_page_widget(self.current_empty_state)
 
-    def _set_empty_page_widget(self, widget):
+    def register_persistent_empty_page(self, widget):
+        """Exempt `widget` from the deleteLater() eviction that
+        `_set_empty_page_widget` normally applies to a previously-installed
+        page. Used by main.py for the StartPage (Final review Finding 1):
+        it must survive being swapped out by an EP1 empty state so it can
+        be re-installed later on the "nothing selected" path instead of
+        being a dangling reference to a deleted C++ object.
+        """
+        self._persistent_empty_pages.add(widget)
+
+    def _set_empty_page_widget(self, widget, persistent=False):
         """Swap the widget shown on content_stack's empty page (index 0).
 
         The legacy self.empty_state_widget (and its info_label/hint_label
@@ -2080,15 +2549,21 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         own show_empty_state/load_elements, and main.py:599-601) keep
         working without AttributeError -- their text just stops being
         what's on screen once an EP1 empty state replaces it as the
-        visible page. Previously-installed EP1 pages (but never the
-        legacy one) are dropped so repeated calls don't accumulate.
+        visible page. Previously-installed EP1 pages (but never a
+        persistent one -- see register_persistent_empty_page) are dropped
+        so repeated calls don't accumulate.
+
+        `persistent=True` registers `widget` itself (e.g. main.py's
+        StartPage) so it is never deleteLater()'d by a later swap.
         """
+        if persistent:
+            self.register_persistent_empty_page(widget)
         previous = self._empty_page_stack.currentWidget()
         if self._empty_page_stack.indexOf(widget) == -1:
             self._empty_page_stack.addWidget(widget)
         self._empty_page_stack.setCurrentWidget(widget)
         if (previous is not None and previous is not widget
-                and previous is not self.empty_state_widget):
+                and previous not in self._persistent_empty_pages):
             self._empty_page_stack.removeWidget(previous)
             previous.deleteLater()
         self.content_stack.setCurrentIndex(0)

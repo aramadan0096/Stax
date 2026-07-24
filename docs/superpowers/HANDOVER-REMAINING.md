@@ -108,7 +108,7 @@ Read these before any batch, then follow the batch block.
 - **Test imports are flat** (`from ui.x import Y`, `from utils.paths import ...`) — see the import-order landmine in §State.
 - **Adapt names, don't guess:** if a plan references a local method/name that differs from the real code, read the file and adapt (plans flag these). Report anything you can't reconcile.
 - **Tracker:** tick each task box in `docs/superpowers/IMPLEMENTATION_PROGRESS.md`; set the sub-project's `Impl` to ☑ when complete.
-- **Outward-facing actions need explicit human approval:** never `git push`, open a PR, change branch protection, add a new pip dependency that downloads large artifacts, or delete/merge onto `main` without asking. Commit locally and pause.
+- **Outward-facing actions need explicit human approval:** never `git push`, open a PR, change branch protection, add a new pip dependency that downloads large artifacts, or delete/merge onto `main` without asking. Commit locally and pause. **Exception:** a batch block may carry an explicit pre-authorization for the local end-of-batch merge (Batch 7 does). `git push` is never pre-authorized.
 - **Between sub-projects and at batch end:** report a summary and wait for the human before proceeding past the batch or merging.
 
 ---
@@ -252,6 +252,111 @@ Watch-outs:
 - Pure rule logic lives in `src/metadata_rules.py` (Qt/DB-free) — keep it testable in isolation.
 
 Done when: per-stack typed custom fields (EAV) + inheritance, templates, auto-tag at ingest, quality checker + Health dock, naming assistant, relationships — all live. Full suite green.
+
+> **Merge authorization (Batch 7 only):** the human has pre-approved the
+> **local** merge of `exec/ep4` into `main` at batch end, conditional on a green
+> suite. This is a documented exception to §Common Execution Rules' "never merge
+> onto `main` without asking". **`git push` is still NOT authorized** — the merge
+> stays local (and note `main` is already ahead 107 / behind 1 vs `origin/main`;
+> reconciling that is a separate human decision).
+
+### Ready-to-copy prompt — Batch 7 (EP4)
+
+Paste verbatim into a fresh Claude Code session opened at `e:\Scripts\Stax`.
+**Only run this after Batch 6 (EP3) has landed on `main`.**
+
+````text
+Execute Batch 7 (EP4 — metadata schema & automation) of the StaX enhancement
+program. This is the largest plan in the program: 15 tasks.
+
+First, confirm the prerequisites are in place:
+- EP1 and EP3 must already be merged to main (EP4 hosts its custom-field UI in
+  EP3's inspector panel, and its rating/label surfaces come from EP1). Check
+  docs/superpowers/IMPLEMENTATION_PROGRESS.md shows EP1 and EP3 Impl = done.
+  SP1 (DB consolidation) and SP2 (async ingest) are also required and already
+  landed. If EP1 or EP3 is NOT landed, STOP and tell me — do not start EP4 on
+  top of missing dependencies.
+
+Read these first, in this order, before doing anything else:
+1. CLAUDE.md
+2. docs/superpowers/HANDOVER-REMAINING.md — especially "§State on main" and
+   "§Common Execution Rules"
+3. docs/superpowers/CROSS_PLAN_REVIEW.md §6-§7
+4. docs/superpowers/specs/2026-07-23-ep4-metadata-schema-design.md
+5. docs/superpowers/plans/2026-07-23-ep4-metadata-schema.md
+
+Method: use the superpowers:subagent-driven-development skill — one fresh
+subagent per plan task, strict TDD (failing test -> confirm red -> implement ->
+confirm green -> conventional commit), tasks in written order. Never weaken or
+delete a test to make it pass. 15 tasks; the plan groups them 4A schema /
+4B templates+auto-tag / 4C rules+links — pause with a short summary at each
+cluster boundary so I can follow along.
+
+Setup:
+- Branch off main: git checkout -b exec/ep4
+- Test command (the repo's .venv does NOT have pytest-qt; do not `uv sync` it):
+      .venv-dev\Scripts\python.exe -m pytest -m "not manual and not slow" -q
+  If .venv-dev is missing, create it:
+      uv venv --python 3.9 .venv-dev
+      uv pip install --python .venv-dev\Scripts\python.exe -e ".[dev,build]"
+- Record the pass count before Task 1 and never let it drop. Any new unplanned
+  xfail is a regression to fix, not to accept.
+
+EP4-specific watch-outs:
+- Ingest hook layering: Task 9's auto-tag/derived-field hook must be applied on
+  top of SP2's REWRITTEN async ingest_file, not a pre-SP2 version
+  (CROSS_PLAN_REVIEW §4.5). Read the current ingest_file before editing it.
+- Seven new tables: all of them go through the versioned migration runner in
+  src/db_manager.py as new numbered migrations. Never hand-edit _create_schema
+  alone, and never target the orphaned capitalized Stacks/Elements tables — the
+  live schema is lowercase.
+- Upserts (ON CONFLICT ... DO UPDATE) need SQLite >= 3.24, which ships with
+  Python 3.9 on Win/Linux. Verify with
+  `python -c "import sqlite3; print(sqlite3.sqlite_version)"` before relying on
+  them; fall back to SELECT-then-write if the runtime is older.
+- Pure rule logic (auto-tag eval, quality checks, naming suggestions, value
+  coercion) lives in src/metadata_rules.py with NO Qt and NO DB imports, so it
+  is unit-testable in the tests/unit tier. Keep that boundary clean.
+- EP6 (Batch 8) layers ingest recipes on the same ingest_file — leave the hook
+  point additive and obvious.
+
+Repo-specific rules that override habit:
+- Tests import flat: `from ui.media_display_widget import MediaDisplayWidget`,
+  `from metadata_rules import ...`. Importing `src.ui.*` in a test that runs
+  standalone raises a circular-import ImportError.
+- A shared size formatter already exists at src/utils/formatting.py::human_size
+  and a path resolver at src/utils/paths.py::resolve_path — reuse, don't re-add.
+- New bulk/context menu actions go in MediaDisplayWidget._populate_bulk_menu /
+  _dispatch_bulk_action, not in show_context_menu / show_bulk_menu.
+- SettingsPanel(config, db_manager, main_window=None, parent=None) — append new
+  tabs inside setup_ui.
+- Admin gating uses check_admin_permission for now (EP8 later swaps in granular
+  roles behind a shim).
+- Use logging, never print. Keep the media_display_widget god-module split
+  deferred. Do not remove the PySide2.QtQml/QtQuick excludes in setup_freeze.py.
+
+Tracker: tick each task box in docs/superpowers/IMPLEMENTATION_PROGRESS.md and
+set EP4 Impl = done when complete.
+
+MERGE TO MAIN WHEN DONE — pre-authorized for this batch, no need to ask:
+After all 15 tasks are complete and committed, do this without waiting for me:
+  1. Run the full suite one more time and confirm 0 failures and no new xfails.
+     If anything is red, STOP and report — do not merge a red branch.
+  2. Also run the packaging smoke test, since EP4 adds modules that must be
+     included in the frozen build:
+       .venv-dev\Scripts\python.exe -m pytest tests/manual/test_freeze_smoke.py -m slow --override-ini="testpaths=tests/manual" -q
+  3. git checkout main
+  4. git merge exec/ep4          (expect a fast-forward)
+  5. Re-run the suite on merged main to confirm still green.
+  6. git branch -d exec/ep4      (only after the merge succeeded)
+  7. Report the final commit hash and pass counts.
+DO NOT `git push` and do not open a PR — the merge stays local. main is already
+ahead 107 / behind 1 versus origin/main; reconciling that with the remote is my
+decision, not yours.
+
+Still stop and ask before: any git push, opening a PR, adding a new pip
+dependency, or deviating from a plan step.
+````
 
 ---
 

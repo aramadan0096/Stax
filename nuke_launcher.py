@@ -183,6 +183,7 @@ try:
         HistoryPanel,
         SettingsPanel,
     )
+    from src.ui.accessibility import apply_accessibility
     if logger:
         logger.info("Imported all UI modules from src.ui")
     print("[nuke_launcher]   [OK] All UI modules imported (16 widgets)")
@@ -385,7 +386,20 @@ class StaXPanel(QtWidgets.QWidget):
             if logger:
                 logger.exception("Failed to setup UI")
             raise
-        
+
+        # Final review Finding 2: apply the persisted accessibility
+        # preference at startup, same as main.py's standalone shell does --
+        # previously this only ever ran when the user happened to open
+        # Settings and toggle something, leaving the preference inert on
+        # launch. Scoped to `self` (this StaXPanel widget), never to
+        # QApplication.instance() -- that is Nuke's own QApplication here,
+        # and restyling it would black out the whole host DCC UI.
+        try:
+            apply_accessibility(self, self.config)
+        except Exception:
+            if logger:
+                logger.exception("Failed to apply accessibility settings")
+
         # Skip login dialog in Nuke mode - auto-login as admin
         if NUKE_MODE:
             print("[StaXPanel.__init__] NUKE_MODE: Skipping login dialog, running as guest until elevated")
@@ -867,7 +881,10 @@ class StaXPanel(QtWidgets.QWidget):
         dialog.resize(900, 600)
         
         dialog_layout = QtWidgets.QVBoxLayout(dialog)
-        settings_panel = SettingsPanel(self.config, self.db, main_window=self)
+        # Final review Finding 2: scope accessibility restyling to this
+        # embedded StaX widget subtree, not Nuke's own QApplication -- see
+        # SettingsPanel.__init__'s accessibility_target docstring.
+        settings_panel = SettingsPanel(self.config, self.db, main_window=self, accessibility_target=self)
         settings_panel.settings_changed.connect(self.on_settings_changed)
         dialog_layout.addWidget(settings_panel)
         

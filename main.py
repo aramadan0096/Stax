@@ -36,7 +36,12 @@ from src.nuke_bridge import NukeBridge, NukeIntegration
 from src.extensibility_hooks import ProcessorManager
 from src.icon_loader import get_icon
 from src.dark_palette import apply_dark_palette
+from src.ui.accessibility import apply_accessibility
 from src.video_player_widget import VideoPlayerWidget
+from src.ui.inspector_panel import InspectorPanel
+from src.ui.layout_manager import apply_preset, preset_names
+from src.ui.onboarding_checklist import OnboardingChecklist
+from src.ui.start_page import StartPage
 
 try:
     from src.preview_worker import get_preview_queue, shutdown_preview_queue
@@ -122,6 +127,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setup_shortcuts()
         self._start_preview_worker()
         self._start_api_server()
+
+        apply_preset(self, self.config.get("layout_preset", "Browse"))
+
+        self.onboarding_checklist = None
+        if not self.config.get("onboarding_dismissed", False):
+            self.open_onboarding_checklist()
 
     # -------------------------------------------------------------------------
     # Background services
@@ -232,19 +243,63 @@ class MainWindow(QtWidgets.QMainWindow):
         self.media_display.setObjectName("media_display")
         self.media_display.element_double_clicked.connect(self.on_element_double_clicked)
 
+        # EP3 Task 11: minimal personalized start page (Recent / Favorites /
+        # Most-used), installed as the widget shown on the nested empty-page
+        # stack (media_display._empty_page_stack, index 0 of content_stack)
+        # via the same _set_empty_page_widget seam EP1's context-aware empty
+        # states use. Installed here, once, at startup, with persistent=True
+        # (Final review Finding 1) so it is never deleteLater()'d when an
+        # EP1 empty state (list/search/favorites/library) evicts it as the
+        # visible page -- MediaDisplayWidget.show_empty_state()'s no-args
+        # "nothing selected at all" path re-installs and refresh()es this
+        # same live instance, so it comes back once the user clears their
+        # selection instead of staying gone after the first empty state.
+        # EP1's own empty-state paths are otherwise untouched: they still
+        # install their own widget via _show_empty_state/_set_empty_page_widget.
+        #
+        # Favorites/Most-used are keyed off the same user_name/machine_name
+        # Config values every other favorites write/read in the app uses
+        # (see MediaDisplayWidget.bulk_add_to_favorites) -- NOT
+        # self.current_user, which favorites rows are never written against.
+        self.start_page = StartPage(
+            self.db,
+            self.config.get('user_name'),
+            self.config.get('machine_name'),
+            parent=self.media_display,
+        )
+        self.start_page.element_activated.connect(self.on_start_page_element_activated)
+        self.media_display._set_empty_page_widget(self.start_page, persistent=True)
+
         # EP2 Task 9: Saved Searches / Smart Collections nav <-> media display.
         self.stacks_panel.filter_selected.connect(self.media_display.apply_filter)
         self.media_display.saved_search_created.connect(self.stacks_panel.refresh_saved_searches)
         self.main_splitter.addWidget(self.media_display)
         self.main_splitter.setStretchFactor(1, 1)
 
-        # RIGHT
+        # RIGHT (EP3 Task 6: preview + persistent editable inspector, stacked
+        # in their own vertical splitter so main_splitter keeps exactly 3
+        # direct children -- every main_splitter.sizes()/setSizes() index
+        # elsewhere (toggle_focus_mode, expand/collapse_preview_pane) still
+        # addresses [left, center, right] unchanged.)
         self.video_player_pane = VideoPlayerWidget(self.db, self.config, self)
         self.video_player_pane.setObjectName("video_player_pane")
         self.video_player_pane.closed.connect(self.on_preview_pane_closed)
         self.video_player_pane.hide()
         self._force_panel_palette(self.video_player_pane, "#191a1a")
-        self.main_splitter.addWidget(self.video_player_pane)
+
+        self.inspector = InspectorPanel(self.db)
+        self.inspector.setObjectName("inspector_panel")
+        self._force_panel_palette(self.inspector, "#191a1a")
+        # Rating/label edits repaint that one gallery/table row's badge in
+        # place, reusing the grid's own quick-edit refresh hook (design SS3.4).
+        self.inspector.element_updated.connect(self.media_display.refresh_item_badge)
+
+        self.right_splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
+        self.right_splitter.setChildrenCollapsible(False)
+        self.right_splitter.addWidget(self.video_player_pane)
+        self.right_splitter.addWidget(self.inspector)
+        self.right_splitter.setSizes([500, 260])
+        self.main_splitter.addWidget(self.right_splitter)
         self.preview_pane_expanded_width = 360
 
         self.main_splitter.setSizes([280, 920, 360])
@@ -384,6 +439,14 @@ class MainWindow(QtWidgets.QMainWindow):
             analytics_view_action.triggered.connect(self.toggle_analytics)
             view_menu.addAction(analytics_view_action)
 
+        layout_menu = view_menu.addMenu("Layout")
+        for preset_name in preset_names():
+            act = QtWidgets.QAction(preset_name, self)
+            act.triggered.connect(
+                lambda checked=False, n=preset_name: apply_preset(self, n)
+            )
+            layout_menu.addAction(act)
+
         help_menu = menubar.addMenu("Help")
         doc_action = QtWidgets.QAction("Documentation", self)
         doc_action.triggered.connect(
@@ -398,12 +461,91 @@ class MainWindow(QtWidgets.QMainWindow):
         install_nuke_action = QtWidgets.QAction("Install to Nuke...", self)
         install_nuke_action.triggered.connect(self.show_nuke_installer)
         help_menu.addAction(install_nuke_action)
+        shortcut_help_action = QtWidgets.QAction("Keyboard Shortcuts", self)
+        shortcut_help_action.triggered.connect(self.open_shortcut_help)
+        help_menu.addAction(shortcut_help_action)
+        onboarding_action = QtWidgets.QAction("Getting Started", self)
+        onboarding_action.triggered.connect(self.open_onboarding_checklist)
+        help_menu.addAction(onboarding_action)
 
     def setup_shortcuts(self):
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+2"), self, self.toggle_history)
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+3"), self, self.toggle_settings)
         if _ANALYTICS_AVAILABLE:
             QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+4"), self, self.toggle_analytics)
+        QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+K"), self, self.open_command_palette)
+        QtWidgets.QShortcut(QtGui.QKeySequence("?"), self, self.open_shortcut_help)
+
+    def open_command_palette(self):
+        from src.ui.command_palette import CommandPalette, harvest_actions, build_jump_targets
+        entries = harvest_actions(self.menuBar(), self.toolbar)
+        try:
+            entries = entries + build_jump_targets(
+                self.db, self.config, self.on_list_selected, self.on_stack_selected
+            )
+        except Exception:
+            log.warning("Failed to build command-palette jump targets", exc_info=True)
+        pal = CommandPalette(entries, self)
+        pal.move(self.geometry().center() - pal.rect().center())
+        pal.show()
+        pal.search_box.setFocus()
+
+    def open_shortcut_help(self):
+        """Show the read-only keyboard-shortcut cheat sheet (design SS3.3).
+
+        Harvests every bound `QAction` shortcut from the live menu bar,
+        grouped by the menu it lives under, and appends a short static
+        block for the EP3 keys that aren't backed by a `QAction` (raw
+        `QShortcut`s and overlay-local key handling): the command palette
+        (open + in-palette navigation/run), quicklook (open + prev/next),
+        and this dialog's own Esc-to-close / `?`-to-open.
+        """
+        from src.ui.shortcut_help_overlay import ShortcutHelpOverlay, collect_shortcuts_grouped
+        pairs = collect_shortcuts_grouped(self.menuBar())
+        pairs += [
+            ("Shortcuts", "Command palette", "Ctrl+K"),
+            ("Shortcuts", "Move selection in palette", "↑ / ↓"),
+            ("Shortcuts", "Run selected command", "Enter"),
+            ("Shortcuts", "Quicklook selected element", "Space"),
+            ("Shortcuts", "Quicklook previous / next element", "← / →"),
+            ("Shortcuts", "Close quicklook / palette / this dialog", "Esc"),
+            ("Shortcuts", "Keyboard shortcuts help", "?"),
+        ]
+        ShortcutHelpOverlay(pairs, self).exec_()
+
+    def open_onboarding_checklist(self):
+        """Show (or re-show) the first-run "Getting started" checklist
+        (design SS3.8). Reachable from Help -> "Getting Started" as well
+        as automatically at startup while `onboarding_dismissed` is unset.
+
+        Non-modal by construction: a plain `.show()` on a `Qt.Tool`-flagged
+        floating widget, never `exec_()`. Safe to call from the constructor
+        path -- it never blocks the event loop.
+        """
+        if self.onboarding_checklist is None:
+            oc = OnboardingChecklist(self.db, self.config, parent=self)
+            oc.setWindowFlags(QtCore.Qt.Tool)
+            oc.action_requested.connect(self._on_onboarding_action)
+            self.onboarding_checklist = oc
+        else:
+            self.onboarding_checklist.refresh()
+        self.onboarding_checklist.move(
+            self.geometry().center() - self.onboarding_checklist.rect().center()
+        )
+        self.onboarding_checklist.show()
+        self.onboarding_checklist.raise_()
+
+    def _on_onboarding_action(self, step):
+        """Wire an onboarding step's one-click action to its real entry
+        point. The checklist widget itself knows nothing about MainWindow;
+        it only emits the step name.
+        """
+        if step == "Create a stack":
+            self.stacks_panel.add_stack()
+        elif step == "Ingest files":
+            self.ingest_files()
+        else:
+            log.debug("Onboarding: no wired action for step %r", step)
 
     # -------------------------------------------------------------------------
     # Toggle handlers
@@ -473,6 +615,16 @@ class MainWindow(QtWidgets.QMainWindow):
     # Preview pane helpers
     # -------------------------------------------------------------------------
 
+    def _right_column_collapsed_width(self):
+        """Narrowest `main_splitter`'s 3rd column (video preview +
+        `InspectorPanel`, EP3 Task 6) may go while the preview is
+        collapsed -- just wide enough to keep the sticky inspector
+        (design SS3.4), including its "No selection" state, usable.
+        Derived from the inspector's own `minimumSizeHint()` rather than a
+        bare magic number so it stays correct if the inspector's layout
+        changes."""
+        return max(self.inspector.minimumSizeHint().width(), 240)
+
     def expand_preview_pane(self):
         sizes = self.main_splitter.sizes()
         if len(sizes) < 3:
@@ -480,7 +632,18 @@ class MainWindow(QtWidgets.QMainWindow):
         total = sum(sizes)
         left_width = max(self.stacks_panel.minimumWidth(), sizes[0])
         available = max(0, total - left_width)
-        preview_width = min(self.preview_pane_expanded_width, max(320, available // 3))
+        # An explicitly-remembered preset width (apply_preset(), EP3 Task 6
+        # fix) must be able to raise this cap, not just be clipped by it --
+        # otherwise Review's 860px column snaps right back to ~1/3 of
+        # available space at realistic window sizes (e.g. the app's own
+        # 1400x800 default), which is byte-identical to the pre-fix
+        # behavior. The `available - 420` center-floor guard a few lines
+        # down still applies afterwards, so the center pane's protection is
+        # unchanged.
+        preview_width = min(
+            self.preview_pane_expanded_width,
+            max(320, available // 3, self.preview_pane_expanded_width),
+        )
         preview_width = max(280, preview_width)
         if preview_width > available - 420:
             preview_width = max(240, available - 420)
@@ -496,15 +659,35 @@ class MainWindow(QtWidgets.QMainWindow):
             self.video_player_pane.show()
 
     def collapse_preview_pane(self):
+        """Hide the video preview, but keep the right column -- and the
+        sticky inspector living inside it (design SS3.4) -- visible at a
+        narrow, usable width.
+
+        Earlier code drove `main_splitter`'s 3rd column straight to width
+        0. That was correct back when the 3rd column WAS the preview; now
+        that `right_splitter` nests `video_player_pane` and
+        `InspectorPanel` together in that column (EP3 Task 6), collapsing
+        it to 0 also hid the always-should-be-reachable inspector,
+        including its "No selection" state.
+
+        `video_player_pane.hide()` runs before the width is computed so
+        the floor below reflects the column's real minimum once the
+        preview is gone, not the still-visible video widget's (larger)
+        minimum -- otherwise `main_splitter` (which has
+        `setChildrenCollapsible(False)`) would refuse to shrink the column
+        past the video widget's own minimum size on this same call.
+        """
         sizes = self.main_splitter.sizes()
         if len(sizes) < 3:
             return
-        if sizes[2] > 0:
-            self.preview_pane_expanded_width = sizes[2]
-        sizes[1] += sizes[2]
-        sizes[2] = 0
-        self.main_splitter.setSizes(sizes)
         self.video_player_pane.hide()
+        floor = self._right_column_collapsed_width()
+        if sizes[2] > floor:
+            self.preview_pane_expanded_width = sizes[2]
+        if sizes[2] != floor:
+            sizes[1] = max(0, sizes[1] + (sizes[2] - floor))
+            sizes[2] = floor
+            self.main_splitter.setSizes(sizes)
 
     # -------------------------------------------------------------------------
     # Auth
@@ -639,6 +822,31 @@ class MainWindow(QtWidgets.QMainWindow):
         self.active_view = ("playlist", playlist_id)
         self._view_before_tags = None
 
+    def on_start_page_element_activated(self, element_id):
+        """StartPage card activation (EP3 Task 11 / final review "also
+        fix"): select the element and reveal its list, per spec Sec3.9
+        ("clicking a card should select the element / open its list") --
+        NOT insert it into Nuke the way a gallery double-click does. A
+        Recent/Favorites/Most-used card is a navigation shortcut, not an
+        "add this to my script" action, and the start page is shown
+        precisely when nothing is selected yet -- silently inserting a
+        node the user only meant to look at would be a surprising,
+        hard-to-undo side effect.
+
+        Reuses the existing list-selection and in-view-selection paths
+        (MainWindow.on_list_selected, MediaDisplayWidget.
+        _select_element_in_view -- the same helper select_next_element/
+        select_previous_element already rely on) rather than inventing a
+        new one.
+        """
+        element = self.db.get_element_by_id(element_id)
+        if not element:
+            return
+        list_id = element.get('list_fk')
+        if list_id:
+            self.on_list_selected(list_id)
+        self.media_display._select_element_in_view(element)
+
     def on_element_double_clicked(self, element_id):
         try:
             self.nuke_integration.insert_element(element_id)
@@ -669,12 +877,15 @@ class MainWindow(QtWidgets.QMainWindow):
         if len(selected_ids) == 1:
             self.expand_preview_pane()
             self.video_player_pane.load_element(selected_ids[0])
+            self.inspector.show_element(selected_ids[0])
         elif len(selected_ids) > 1:
             self.video_player_pane.clear()
             self.collapse_preview_pane()
+            self.inspector.clear()
         else:
             if self.video_player_pane.isVisible():
                 self.video_player_pane.clear()
+            self.inspector.clear()
 
     def on_preview_pane_closed(self):
         self.video_player_pane.clear()
@@ -874,6 +1085,18 @@ def main():
             app.setStyleSheet(stylesheet)
         except Exception as e:
             print("Failed to load stylesheet: {}".format(e))
+
+    # STEP 3.5 — Accessibility overlay (high contrast / text scale / focus
+    # assist). MUST come after STEP 3's app.setStyleSheet(stylesheet): that
+    # call replaces the app stylesheet outright, so applying accessibility
+    # any earlier would (a) get wiped by it, and (b) cause accessibility.py
+    # to cache the empty pre-QSS string as the "base" stylesheet, permanently
+    # losing the dark theme on every later toggle. Must also come before
+    # STEP 4, so the window is built with accessibility already in effect.
+    try:
+        apply_accessibility(app, config)
+    except Exception:
+        logging.getLogger(__name__).exception("Failed to apply accessibility settings")
 
     # STEP 4 — Create window (palette and QSS are already in effect)
     window = MainWindow(config=config)
