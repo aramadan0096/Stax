@@ -162,7 +162,7 @@ Feature-expansion program derived from [`STAX_FEATURE_ENHANCEMENT_REPORT.md`](..
 
 | EP | Theme | Spec | Plan | Impl | Report features |
 |----|-------|:----:|:----:|:----:|-----------------|
-| EP1 | Curation primitives | ☑ | ☑ | ☐ | F013, F014, F052, F053 |
+| EP1 | Curation primitives | ☑ | ☑ | ☑ | F013, F014, F052, F053 |
 | EP2 | Search & discovery UX (non-AI) | ☑ | ☑ | ☐ | F007–F012, facets |
 | EP3 | Browse productivity shell | ☑ | ☑ | ☐ | F049–F058 |
 | EP4 | Metadata schema & automation | ☑ | ☑ | ☐ | F015, F016, F018–F022 |
@@ -177,15 +177,15 @@ Feature-expansion program derived from [`STAX_FEATURE_ENHANCEMENT_REPORT.md`](..
 ### EP1 — Curation primitives
 Spec: [`specs/…-ep1-curation-primitives-design.md`](specs/2026-07-23-ep1-curation-primitives-design.md) · Plan: [`plans/…-ep1-curation-primitives.md`](plans/2026-07-23-ep1-curation-primitives.md) · **Depends on SP1 + SP6.**
 
-- [ ] Task 1 — Schema: rating + label_fk columns, labels table, seeded palette
-- [ ] Task 2 — DB API: rating methods (validated)
-- [ ] Task 3 — DB API: label methods + labels CRUD (SET NULL on delete)
-- [ ] Task 4 — `EmptyStateWidget`
-- [ ] Task 5 — `MultiSelectActionTray`
-- [ ] Task 6 — Grid badges + hover quick-edit
-- [ ] Task 7 — Table Rating/Label columns
-- [ ] Task 8 — Admin-gated Labels settings tab
-- [ ] Task 9 — Wire tray + empty states into MediaDisplayWidget
+- [x] Task 1 — Schema: rating + label_fk columns, labels table, seeded palette
+- [x] Task 2 — DB API: rating methods (validated)
+- [x] Task 3 — DB API: label methods + labels CRUD (SET NULL on delete)
+- [x] Task 4 — `EmptyStateWidget`
+- [x] Task 5 — `MultiSelectActionTray`
+- [x] Task 6 — Grid badges + hover quick-edit
+- [x] Task 7 — Table Rating/Label columns
+- [x] Task 8 — Admin-gated Labels settings tab
+- [x] Task 9 — Wire tray + empty states into MediaDisplayWidget
 
 ### EP2 — Search & discovery UX
 Spec: [`specs/…-ep2-search-discovery-design.md`](specs/2026-07-23-ep2-search-discovery-design.md) · Plan: [`plans/…-ep2-search-discovery.md`](plans/2026-07-23-ep2-search-discovery.md) · **Depends on EP1 + SP1.** Clusters: 2A facets · 2B persistence · 2C text-quality (trimmable).
