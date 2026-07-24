@@ -16,7 +16,7 @@ import logging
 log = logging.getLogger(__name__)
 
 # Bump this every time a new _migrate_vN is appended below.
-CURRENT_SCHEMA_VERSION = 7
+CURRENT_SCHEMA_VERSION = 8
 
 # Default color-label palette (EP1). Seed order defines labels.sort_order.
 DEFAULT_LABELS = [
@@ -201,6 +201,50 @@ def _migrate_v7(conn):
     conn.commit()
 
 
+def _migrate_v8(conn):
+    """v7 -> v8: create metadata_fields/element_metadata/metadata_defaults
+    EAV tables for stack-defined custom metadata (EP4)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS metadata_fields (
+            field_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+            stack_fk     INTEGER NOT NULL,
+            key          TEXT NOT NULL,
+            label        TEXT NOT NULL,
+            field_type   TEXT NOT NULL,
+            choices_json TEXT,
+            required     INTEGER NOT NULL DEFAULT 0,
+            sort_order   INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(stack_fk, key)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS element_metadata (
+            element_fk INTEGER NOT NULL,
+            field_key  TEXT NOT NULL,
+            value      TEXT,
+            PRIMARY KEY (element_fk, field_key)
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS metadata_defaults (
+            default_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            scope_type TEXT NOT NULL,
+            scope_id   INTEGER NOT NULL,
+            field_key  TEXT NOT NULL,
+            value      TEXT,
+            UNIQUE(scope_type, scope_id, field_key)
+        )
+        """
+    )
+    log.info("Migration v8: created metadata_fields/element_metadata/metadata_defaults tables")
+    conn.commit()
+
+
 # Index N upgrades schema version N-1 -> N.
 _MIGRATIONS = [
     None,          # index 0 — unused placeholder
@@ -211,6 +255,7 @@ _MIGRATIONS = [
     _migrate_v5,   # 4 -> 5
     _migrate_v6,   # 5 -> 6
     _migrate_v7,   # 6 -> 7
+    _migrate_v8,   # 7 -> 8
 ]
 
 
