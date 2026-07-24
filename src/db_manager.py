@@ -2411,4 +2411,64 @@ class DatabaseManager(object):
                     seen.add(t); out.append(t)
             return out
 
+    def suggest_correction(self, query):
+        """Return the closest tag/name term to `query`, or None.
+
+        Uses difflib to find a near match in the vocabulary of all tags
+        and element names. Returns None if the query exactly matches a
+        vocabulary term or if no match is close enough (cutoff=0.7).
+
+        Args:
+            query (str): The search query to check
+
+        Returns:
+            str: The suggested correction, or None if no match found or already exact
+        """
+        import difflib
+        q = (query or "").strip().lower()
+        if not q:
+            return None
+        vocab = set(t.lower() for t in self.get_all_tags())
+        with self.get_connection(write=False) as conn:
+            for r in conn.execute("SELECT name FROM elements").fetchall():
+                if r[0]:
+                    vocab.add(r[0].lower())
+        if q in vocab:
+            return None
+        matches = difflib.get_close_matches(q, list(vocab), n=1, cutoff=0.7)
+        return matches[0] if matches else None
+
+    def add_recent_search(self, user_name, query_text, cap=20):
+        """Record a search query and trim older searches to cap per user.
+
+        Args:
+            user_name (str): User who ran the search
+            query_text (str): The search query text
+            cap (int): Maximum number of searches to retain per user (default 20)
+        """
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute("INSERT INTO recent_searches (user_name, query_text) VALUES (?, ?)",
+                        (user_name, query_text))
+            # trim to cap most-recent per user
+            cur.execute(
+                "DELETE FROM recent_searches WHERE user_name = ? AND recent_id NOT IN "
+                "(SELECT recent_id FROM recent_searches WHERE user_name = ? "
+                " ORDER BY recent_id DESC LIMIT ?)",
+                (user_name, user_name, cap))
+
+    def get_recent_searches(self, user_name):
+        """Get recent search queries for a user, most recent first.
+
+        Args:
+            user_name (str): User to query
+
+        Returns:
+            list: List of query strings, most recent first
+        """
+        with self.get_connection(write=False) as conn:
+            return [r[0] for r in conn.execute(
+                "SELECT query_text FROM recent_searches WHERE user_name = ? "
+                "ORDER BY recent_id DESC", (user_name,)).fetchall()]
+
 

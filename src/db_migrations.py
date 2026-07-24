@@ -16,7 +16,7 @@ import logging
 log = logging.getLogger(__name__)
 
 # Bump this every time a new _migrate_vN is appended below.
-CURRENT_SCHEMA_VERSION = 6
+CURRENT_SCHEMA_VERSION = 7
 
 # Default color-label palette (EP1). Seed order defines labels.sort_order.
 DEFAULT_LABELS = [
@@ -185,6 +185,22 @@ def _migrate_v6(conn):
     conn.commit()
 
 
+def _migrate_v7(conn):
+    """v6 -> v7: create recent_searches table for capped per-user search history (EP2)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS recent_searches (
+            recent_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_name  TEXT NOT NULL,
+            query_text TEXT NOT NULL,
+            ran_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    log.info("Migration v7: created recent_searches table")
+    conn.commit()
+
+
 # Index N upgrades schema version N-1 -> N.
 _MIGRATIONS = [
     None,          # index 0 — unused placeholder
@@ -194,6 +210,7 @@ _MIGRATIONS = [
     _migrate_v4,   # 3 -> 4
     _migrate_v5,   # 4 -> 5
     _migrate_v6,   # 5 -> 6
+    _migrate_v7,   # 6 -> 7
 ]
 
 
