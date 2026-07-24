@@ -1470,6 +1470,20 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         element_stub = dict(element)
         element_stub["element_id"] = element_id
         pixmap = self._load_preview_pixmap(element_stub, icon_size)
+        if pixmap is None:
+            # No GIF and no preview file on disk -- EP3 Task 7's
+            # pending-skeleton population (a toolset registered with no
+            # preview, a library ingested with generate_previews off, an
+            # offline previews dir, ...). _load_preview_pixmap always
+            # returns None for these, so without this fallback a rating/
+            # label edit here never repainted the gallery tile at all.
+            # Rebuild the same skeleton+badges tile _update_views_with_
+            # elements renders so the edit's badge actually shows.
+            pixmap = self._apply_status_badges(
+                self._pending_skeleton_pixmap(element.get('type'), icon_size),
+                element_id,
+                element,
+            )
         if pixmap:
             item.setIcon(QtGui.QIcon(pixmap))
         item.setText(self._gallery_caption(element))

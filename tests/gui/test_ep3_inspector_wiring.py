@@ -351,3 +351,47 @@ def test_inspector_comment_edit_updates_table_comment_column(qtbot, stax_db, sta
     ip.comment_edit.editingFinished.emit()
 
     assert w.table_view.item(row, 5).text() == "new comment [Tags: orig_tag]"
+
+
+# ---------------------------------------------------------------------------
+# Final fix-pass Minor: _refresh_item's `pixmap = self._load_preview_pixmap
+# (...)` returns None for an element with no GIF and no preview file on
+# disk (EP3 Task 7's pending-skeleton population -- a toolset registered
+# with no preview, a library ingested with generate_previews off, an
+# offline previews dir, ...). The old `if pixmap: item.setIcon(...)` guard
+# then skipped the repaint entirely, so a rating/label edit on exactly
+# that population never moved the gallery badge. _refresh_item must fall
+# back to the same skeleton-with-badges tile _update_views_with_elements
+# would render, so the edit's badge actually repaints.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.gui
+def test_inspector_rating_edit_repaints_gallery_badge_when_no_preview_file(
+    qtbot, stax_db, stax_config
+):
+    eid = _one_element(stax_db)  # rating=2, preview_path/gif_preview_path NULL
+    # A label's badge is a solid-colour fillRect (unlike the star strip,
+    # which is drawn text and can be a no-op under the offscreen platform's
+    # missing font directory) -- assert against that so the test isolates
+    # the fallback wiring itself, not font rendering.
+    labels = stax_db.get_labels()
+    assert labels, "expected default labels to be seeded"
+    stax_db.set_element_label(eid, labels[0]["label_id"])
+
+    w, ip = _wired_widget(qtbot, stax_db, stax_config)
+    w.load_elements(1)
+    ip.show_element(eid)
+
+    item = w.element_items[eid]
+    icon_size = w.gallery_view.iconSize()
+    before_image = item.icon().pixmap(icon_size).toImage()
+
+    ip.set_rating(4)
+
+    after_image = item.icon().pixmap(icon_size).toImage()
+    assert after_image != before_image, (
+        "the gallery badge for a no-preview-file element must repaint "
+        "after an inspector rating edit (on the pending-skeleton tile), "
+        "not stay frozen at its pre-edit rendering"
+    )
