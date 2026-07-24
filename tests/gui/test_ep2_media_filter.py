@@ -136,3 +136,39 @@ def test_clear_filters_resets_facet_only_zero_result_filter(qtbot, stax_db, stax
     assert w.current_filter == normalize(empty_filter())
     assert w.chip_bar.chip_count() == 0
     assert len(w.current_elements) == 2
+
+
+@pytest.mark.gui
+def test_clear_filters_after_zero_match_search_stays_in_same_list(qtbot, stax_db, stax_config):
+    """Fix pass 2 regression test for the navigation bug introduced by the
+    previous fix pass (39f0dd6).
+
+    A per-list browse search (on_search, driven by search_box.textChanged
+    while current_list_id is set) that matches nothing shows the same
+    "Clear filters" CTA as a facet/chip zero-result filter -- but recovery
+    must be different: the user must stay in the list they were browsing,
+    not get ejected into the unscoped cross-list view.
+
+    Before this fix, _request_clear_filters unconditionally called
+    apply_filter(empty_filter()), and apply_filter always nulls
+    current_list_id (it's the cross-list search entry point) -- so this
+    assertion on current_list_id fails against 39f0dd6.
+    """
+    _seed(stax_db)
+    w = _widget(qtbot, stax_db, stax_config)
+
+    w.load_elements(1)
+    assert w.current_list_id == 1
+    assert len(w.current_elements) == 2
+
+    w.search_box.setText("no-such-element-name-anywhere")
+    assert w.current_elements == []
+
+    w._request_clear_filters()
+
+    assert w.current_list_id == 1, (
+        "must stay in the same list -- not be ejected to the cross-list view"
+    )
+    assert w.search_box.text() == ""
+    assert w.chip_bar.chip_count() == 0
+    assert len(w.current_elements) == 2

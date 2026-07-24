@@ -1937,28 +1937,74 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             logger.info("Ingest requested from empty state but no MainWindow.ingest_files() is available")
 
     def _request_clear_filters(self):
-        """Empty-state 'Clear filters' CTA: clear the search box AND reset
-        the active filter -- drawer/chip facets included -- back to an
-        unfiltered view.
+        """Empty-state 'Clear filters' CTA.
 
-        Fix pass: previously this only cleared the search box, which did
-        nothing when the zero rows came from a drawer/chip facet filter
-        (the search box was already empty, so no textChanged fired and
-        nothing re-ran) -- a dead button for that case.
+        Reached from two different zero-result callers that share the same
+        "search" empty page (_show_empty_state's "search" entry), and they
+        need different recoveries:
 
-        self.search_box.textChanged is connected to self.on_search(), which
-        only acts when self.current_list_id is set (a per-list browse
-        search); it plays no part in the facet/chip filter path apply_filter
-        drives (that path always clears current_list_id to None -- see
-        apply_filter above). Blocking signals around the clear() call below
-        means on_search() never runs here at all, so the single
-        apply_filter(empty_filter()) call below is the only repaint this
-        method triggers -- no double-fire, and nothing for it to recurse
-        into (neither on_search nor apply_filter calls back into this
-        method).
+        (b) Per-list browse search: on_search() only acts "if
+            self.current_list_id:" and never clears that attribute itself,
+            so a zero-match search leaves current_list_id still set to the
+            list the user was browsing. Recovery must reset the search/
+            filter state and reload that SAME list -- not eject the user
+            into the unscoped cross-list view.
+        (a) Facet/chip filter: apply_filter() unconditionally sets
+            current_list_id = None (it's the cross-list search entry
+            point -- same as load_favorites/load_playlist/
+            load_elements_by_tags), so by the time this CTA is reachable
+            through that path current_list_id is already None. Recovery
+            here is the unfiltered cross-list view apply_filter(empty_filter())
+            produces.
+
+        Fix pass 2: the prior fix pass (39f0dd6) always ran
+        apply_filter(empty_filter()) here regardless of which caller reached
+        it. Since apply_filter always nulls current_list_id, that silently
+        ejected a per-list search (b) user out of the list they were
+        browsing into the cross-list view -- a real navigation regression on
+        a path that worked before 39f0dd6. Branching on current_list_id
+        restores case (b) while keeping case (a) exactly as 39f0dd6 fixed it.
         """
         from filter_spec import empty_filter
 
+        if self.current_list_id is not None:
+            # Case (b): reset the filter spec and reconcile the drawer/chip
+            # bar to it so no facet selection or chip lingers into the
+            # reload below -- this can be reached with a still-armed facet
+            # filter underneath an in-list search (apply_filter never
+            # touches current_list_id, and load_elements never touches
+            # current_filter/facet_drawer/chip_bar, so the two can go out of
+            # sync across a list switch). sync_from_filter() never emits
+            # filter_changed (see its docstring / Fix 1 above), so this
+            # cannot re-enter apply_filter through that connection.
+            self.current_filter = empty_filter()
+            self.facet_drawer.sync_from_filter(self.current_filter)
+            self.facet_drawer.setVisible(False)
+
+            # Clear the search box with signals blocked so on_search() does
+            # not also fire and repaint redundantly -- load_elements() below
+            # is the single reload this branch performs.
+            self.search_box.blockSignals(True)
+            try:
+                self.search_box.clear()
+            finally:
+                self.search_box.blockSignals(False)
+            self.search_hint_label.hide()
+
+            # Reload the SAME list the user was browsing. current_list_id is
+            # deliberately left untouched here (load_elements reassigns it
+            # to the same value anyway) -- this is the one call in this
+            # branch that repaints, so there is no double-load.
+            self.load_elements(self.current_list_id)
+
+            # Bring the chip bar's result count back in sync with the
+            # reloaded list now that current_elements reflects it (set_filter
+            # above would have shown a stale "0 results" until this).
+            self.chip_bar.set_filter(self.current_filter, len(self.current_elements))
+            return
+
+        # Case (a): current_list_id is already None here, so this is exactly
+        # 39f0dd6's fix, unchanged.
         self.search_box.blockSignals(True)
         try:
             self.search_box.clear()
