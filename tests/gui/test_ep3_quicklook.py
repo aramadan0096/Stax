@@ -324,3 +324,100 @@ def test_navigation_works_when_pagination_disabled(qtbot, stax_db, stax_config):
     assert nxt["name"] == "b"
     assert w.get_selected_element_ids() == [w.current_elements[1]["element_id"]]
     assert received[-1] == w.current_elements[1]["element_id"]
+
+
+# ---------------------------------------------------------------------------
+# Whole-branch review Finding 2: quicklook prev/next navigation and scroll
+# retention fight each other. _open_quicklook captures the pre-open scroll
+# offset and restores it on close, but </> inside the overlay deliberately
+# move the selection (and can switch the pagination page) -- so restoring
+# unconditionally on close snaps the view back to a stale offset while the
+# selection now lives somewhere else, possibly off-screen or on a different
+# page. Fix: only restore when the selection is unchanged from when the
+# quicklook session opened.
+# ---------------------------------------------------------------------------
+
+def _make_scrollable(qtbot, stax_db, stax_config, count=60):
+    _seed_elements(stax_db, [f"e{i:03d}" for i in range(count)])
+    w = _widget(qtbot, stax_db, stax_config)
+    w.resize(500, 400)
+    w.show()
+    w.load_elements(1)
+    qtbot.wait(50)
+    return w
+
+
+@pytest.mark.gui
+def test_quicklook_close_without_navigation_still_restores_scroll(qtbot, stax_db, stax_config):
+    """The plain open-then-close case (Task 7's original goal) must keep
+    working: no navigation happened inside the overlay, so the pre-open
+    scroll offset should come back exactly."""
+    w = _make_scrollable(qtbot, stax_db, stax_config)
+
+    first_id = w.current_elements[0]["element_id"]
+    first_item = w.element_items[first_id]
+    w.gallery_view.setCurrentItem(first_item)
+    first_item.setSelected(True)
+
+    bar = w.gallery_view.verticalScrollBar()
+    assert bar.maximum() > 0
+    known_position = bar.maximum() // 2
+    bar.setValue(known_position)
+
+    w._open_quicklook()
+    assert w._quicklook.isVisible()
+
+    # Simulate any incidental scroll while the overlay is open (e.g. the
+    # overlay itself never touches the gallery scrollbar, but nothing
+    # should assume that -- restore_scroll is what's supposed to fix it up).
+    bar.setValue(0)
+
+    with qtbot.waitSignal(w._quicklook.destroyed, timeout=1000):
+        w._quicklook.close()
+
+    assert w.get_selected_element_ids() == [first_id]
+    assert bar.value() == known_position
+
+
+@pytest.mark.gui
+def test_quicklook_navigation_keeps_new_selection_on_screen_not_stale_offset(qtbot, stax_db, stax_config):
+    """Navigating with next_requested inside the overlay moves the
+    selection. Closing the overlay afterwards must NOT snap the scrollbar
+    back to the pre-open offset -- that would defeat the navigation and
+    potentially leave the new selection off-screen."""
+    w = _make_scrollable(qtbot, stax_db, stax_config)
+
+    first_id = w.current_elements[0]["element_id"]
+    first_item = w.element_items[first_id]
+    w.gallery_view.setCurrentItem(first_item)
+    first_item.setSelected(True)
+
+    bar = w.gallery_view.verticalScrollBar()
+    assert bar.maximum() > 0
+    known_position = bar.maximum() // 2
+    bar.setValue(known_position)
+
+    w._open_quicklook()
+    assert w._quicklook.isVisible()
+
+    # Navigate forward inside the overlay -- moves the gallery selection
+    # and scrolls the newly-selected item into view.
+    w._quicklook.next_requested.emit()
+    new_id = w.current_elements[1]["element_id"]
+    assert w.get_selected_element_ids() == [new_id]
+
+    scroll_after_nav = bar.value()
+    assert scroll_after_nav != known_position, (
+        "test precondition: navigation must actually move the scrollbar "
+        "away from the pre-open offset for this test to prove anything"
+    )
+
+    with qtbot.waitSignal(w._quicklook.destroyed, timeout=1000):
+        w._quicklook.close()
+
+    # Selection stays on the element the user navigated to ...
+    assert w.get_selected_element_ids() == [new_id]
+    # ... and the scroll position is NOT snapped back to the stale
+    # pre-quicklook offset.
+    assert bar.value() != known_position
+    assert bar.value() == scroll_after_nav

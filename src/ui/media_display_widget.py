@@ -2185,6 +2185,11 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         if not element:
             return
         self.capture_scroll()
+        # Whole-branch review Finding 2: remember which element the
+        # quicklook session opened on, so the destroyed handler can tell
+        # whether </> navigation moved the selection while the overlay was
+        # open (see _on_quicklook_closed).
+        self._quicklook_anchor_id = element.get('element_id')
         from ui.quicklook_overlay import QuickLookOverlay
         self._quicklook = QuickLookOverlay(self)
         self._quicklook.next_requested.connect(self._quicklook_show_next)
@@ -2192,9 +2197,33 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         # QuickLookOverlay is WA_DeleteOnClose (Space/Esc call close()),
         # so `destroyed` fires exactly once per quicklook session -- the
         # natural hook for restoring the scroll position "on return".
-        self._quicklook.destroyed.connect(self.restore_scroll)
+        self._quicklook.destroyed.connect(self._on_quicklook_closed)
         preview_path, preview_kind = self._resolve_element_preview(element)
         self._quicklook.show_element(element, preview_path, preview_kind)
+
+    def _on_quicklook_closed(self):
+        """Restore the pre-quicklook scroll position -- but only if the
+        selection is still the element the session opened on (whole-branch
+        review Finding 2).
+
+        Task 7's capture_scroll/restore_scroll pair assumed quicklook is a
+        read-only overlay that never disturbs the gallery/table selection,
+        so restoring on close always meant "put the view back exactly how
+        the user left it". Task 3's </> navigation breaks that assumption:
+        it deliberately moves the selection (and can switch the pagination
+        page) while the overlay is open. If we restored unconditionally,
+        Space/Esc would scroll back to the pre-open offset while the
+        selection now lives somewhere else -- off-screen, or meaningless if
+        the page changed -- the exact opposite of "don't lose your place".
+        Comparing the anchor id to the current selection lets the plain
+        open-then-close case (no navigation) keep restoring exactly as
+        before, while a session that navigated leaves the view where
+        _select_element_in_view already scrolled it.
+        """
+        selected_ids = self.get_selected_element_ids()
+        current_id = selected_ids[0] if selected_ids else None
+        if current_id == getattr(self, "_quicklook_anchor_id", None):
+            self.restore_scroll()
 
     def _quicklook_advance(self, select_method):
         """Shared body for _quicklook_show_next/_quicklook_show_previous:
