@@ -122,6 +122,22 @@ def tiny_png_different(tmp_path):
         pytest.skip("Pillow not installed")
 
 
+def _make_gif(path, colors):
+    from PIL import Image
+    frames = [Image.new("RGB", (64, 64), color=c) for c in colors]
+    frames[0].save(path, save_all=True, append_images=frames[1:], duration=100, loop=0)
+    return path
+
+
+@pytest.fixture
+def tiny_gif(tmp_path):
+    """A real 2-frame animated GIF, for QMovie-rendering tests (EP3 quicklook)."""
+    try:
+        return _make_gif(str(tmp_path / "preview.gif"), [(200, 10, 10), (10, 200, 10)])
+    except ImportError:
+        pytest.skip("Pillow not installed")
+
+
 @pytest.fixture
 def tiny_sequence(tmp_path):
     """Create shot.0001.png .. shot.0004.png and return their paths, sorted."""

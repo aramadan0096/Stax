@@ -1889,25 +1889,76 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         selected_ids = self.get_selected_element_ids()
         if not selected_ids:
             return None
-        target_id = selected_ids[0]
+        return self._index_of_element_id(selected_ids[0])
+
+    def _index_of_element_id(self, element_id):
+        """Return the current_elements index of `element_id`, or None if
+        it isn't in the currently loaded result set."""
         for index, element in enumerate(self.current_elements):
-            if element.get('element_id') == target_id:
+            if element.get('element_id') == element_id:
                 return index
         return None
 
-    def _resolve_element_preview_path(self, element):
-        """Resolve an element's static preview to an existing absolute path,
-        or None. Mirrors the idiom used by the thumbnail loader
-        (_load_preview_pixmap)."""
+    def _resolve_element_preview(self, element):
+        """Resolve the best available large-preview asset for `element` and
+        report which rendering mechanism the caller should use.
+
+        Precedence: animated GIF (`gif_preview_path`) first -- an animated
+        preview is the richest quicklook representation when one exists --
+        then the static preview thumbnail (`preview_path`), then the
+        low-res sequence video preview (`video_preview_path`) as a
+        best-effort static-image attempt. `geometry_preview_path` (3D/GLB)
+        is intentionally excluded: EP3's quicklook does not host the 3D
+        viewer (out of scope, see design SS3.2 / review finding 1).
+
+        Returns (path, kind) where kind is 'gif' or 'image', or
+        (None, None) if no preview asset exists on disk. Mirrors the
+        os.path.exists guard idiom used by the thumbnail loader
+        (_load_preview_pixmap).
+        """
+        gif_path = self._resolve_path(element.get('gif_preview_path'))
+        if gif_path and os.path.exists(gif_path):
+            return gif_path, 'gif'
+
         preview_path = self._resolve_path(element.get('preview_path'))
-        if not preview_path or not os.path.exists(preview_path):
-            return None
-        return preview_path
+        if preview_path and os.path.exists(preview_path):
+            return preview_path, 'image'
+
+        video_path = self._resolve_path(element.get('video_preview_path'))
+        if video_path and os.path.exists(video_path):
+            return video_path, 'image'
+
+        return None, None
 
     def _select_element_in_view(self, element):
         """Sync the active view's selection to `element`, without touching
-        the other (currently hidden) view."""
+        the other (currently hidden) view.
+
+        Pagination-aware (review finding 2): the gallery/table only render
+        the *current* pagination page, while callers (select_next_element /
+        select_previous_element) walk the full current_elements list. If
+        `element`'s index falls outside the rendered page, switch to the
+        page containing it first (via pagination.go_to_page, which
+        synchronously re-renders through on_page_changed) so the item
+        actually exists in the view before we try to select it.
+
+        `element_selected` fires only when the view selection actually
+        lands on `element` -- never speculatively -- so the gallery/table
+        highlight, the pagination widget, and anything listening to
+        element_selected can never disagree about the current selection.
+        """
         element_id = element.get('element_id')
+
+        if self.config.get('pagination_enabled', True):
+            index = self._index_of_element_id(element_id)
+            if index is not None:
+                items_per_page = self.pagination.items_per_page or 1
+                # No-ops if already on that page or the page is out of
+                # range -- relying on go_to_page's own bounds check rather
+                # than duplicating it here.
+                self.pagination.go_to_page(index // items_per_page)
+
+        selected = False
         if self.view_mode == 'gallery':
             item = self.element_items.get(element_id)
             if item is not None:
@@ -1915,6 +1966,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 self.gallery_view.setCurrentItem(item)
                 item.setSelected(True)
                 self.gallery_view.scrollToItem(item)
+                selected = True
         else:
             for row in range(self.table_view.rowCount()):
                 cell = self.table_view.item(row, 0)
@@ -1922,8 +1974,16 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                     self.table_view.clearSelection()
                     self.table_view.selectRow(row)
                     self.table_view.scrollToItem(cell)
+                    selected = True
                     break
-        self.element_selected.emit(element_id)
+
+        if selected:
+            self.element_selected.emit(element_id)
+        else:
+            logger.debug(
+                "Could not select element %s in view after navigation "
+                "(not present in the currently rendered page)", element_id
+            )
 
     def _move_selection(self, step):
         """Move the selection by `step` positions within current_elements,
@@ -1961,21 +2021,28 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self._quicklook = QuickLookOverlay(self)
         self._quicklook.next_requested.connect(self._quicklook_show_next)
         self._quicklook.prev_requested.connect(self._quicklook_show_previous)
-        self._quicklook.show_element(element, self._resolve_element_preview_path(element))
+        preview_path, preview_kind = self._resolve_element_preview(element)
+        self._quicklook.show_element(element, preview_path, preview_kind)
+
+    def _quicklook_advance(self, select_method):
+        """Shared body for _quicklook_show_next/_quicklook_show_previous:
+        move the selection via `select_method` (select_next_element or
+        select_previous_element) and, if it moved, refresh the open
+        overlay's preview to match (review Minor: collapse duplication)."""
+        element = select_method()
+        if element is not None:
+            preview_path, preview_kind = self._resolve_element_preview(element)
+            self._quicklook.show_element(element, preview_path, preview_kind)
 
     def _quicklook_show_next(self):
         """Handle the overlay's next_requested: advance the selection and
         refresh the overlay's preview to match."""
-        element = self.select_next_element()
-        if element is not None:
-            self._quicklook.show_element(element, self._resolve_element_preview_path(element))
+        self._quicklook_advance(self.select_next_element)
 
     def _quicklook_show_previous(self):
         """Handle the overlay's prev_requested: move the selection back and
         refresh the overlay's preview to match."""
-        element = self.select_previous_element()
-        if element is not None:
-            self._quicklook.show_element(element, self._resolve_element_preview_path(element))
+        self._quicklook_advance(self.select_previous_element)
 
     def bulk_add_to_favorites(self, element_ids):
         """Add multiple elements to favorites."""
