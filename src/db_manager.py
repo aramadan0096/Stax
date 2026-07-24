@@ -15,6 +15,7 @@ import logging
 import re
 from contextlib import contextmanager
 from file_lock import FileLockManager
+from filter_spec import normalize
 
 logger = logging.getLogger(__name__)
 
@@ -1072,7 +1073,84 @@ class DatabaseManager(object):
                 cursor.execute(query, (search_text,))
             
             return [dict(row) for row in cursor.fetchall()]
-    
+
+    # Tag boundary match: normalize ", " to "," then wrap and LIKE %,tag,%
+    _TAG_MATCH = "(',' || REPLACE(IFNULL(tags,''), ', ', ',') || ',') LIKE '%,' || ? || ',%'"
+
+    @staticmethod
+    def _build_filter_where(filter_spec):
+        """Return (where_sql, params) for a normalized FilterSpec. Column names
+        are code literals; all user values are parameterized."""
+        s = normalize(filter_spec)
+        clauses, params = [], []
+
+        if s["text"]:
+            like = "%" + s["text"] + "%"
+            clauses.append("(name LIKE ? OR IFNULL(comment,'') LIKE ? OR IFNULL(tags,'') LIKE ?)")
+            params += [like, like, like]
+
+        if s["types"]:
+            clauses.append("type IN ({})".format(",".join("?" for _ in s["types"])))
+            params += s["types"]
+
+        if s["formats"]:
+            clauses.append("format IN ({})".format(",".join("?" for _ in s["formats"])))
+            params += s["formats"]
+        if s["formats_exclude"]:
+            clauses.append("IFNULL(format,'') NOT IN ({})".format(
+                ",".join("?" for _ in s["formats_exclude"])))
+            params += s["formats_exclude"]
+
+        for tag in s["tags_all"]:
+            clauses.append(DatabaseManager._TAG_MATCH)
+            params.append(tag)
+        if s["tags_any"]:
+            ors = " OR ".join(DatabaseManager._TAG_MATCH for _ in s["tags_any"])
+            clauses.append("(" + ors + ")")
+            params += s["tags_any"]
+        for tag in s["tags_exclude"]:
+            clauses.append("NOT " + DatabaseManager._TAG_MATCH)
+            params.append(tag)
+
+        if s["rating_min"]:
+            clauses.append("rating >= ?")
+            params.append(s["rating_min"])
+        if s["label_fks"]:
+            clauses.append("label_fk IN ({})".format(",".join("?" for _ in s["label_fks"])))
+            params += s["label_fks"]
+
+        if s["is_deprecated"] is not None:
+            clauses.append("is_deprecated = ?")
+            params.append(1 if s["is_deprecated"] else 0)
+        if s["is_hard_copy"] is not None:
+            clauses.append("is_hard_copy = ?")
+            params.append(1 if s["is_hard_copy"] else 0)
+
+        if s["list_fk"]:
+            clauses.append("list_fk = ?")
+            params.append(s["list_fk"])
+        if s["stack_fk"]:
+            clauses.append("list_fk IN (SELECT list_id FROM lists WHERE stack_fk = ?)")
+            params.append(s["stack_fk"])
+
+        where = " AND ".join(clauses) if clauses else "1=1"
+        return where, params
+
+    def search_elements_advanced(self, filter_spec, limit=None, offset=0):
+        where, params = self._build_filter_where(filter_spec)
+        sql = "SELECT * FROM elements WHERE {} ORDER BY name".format(where)
+        if limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            params = params + [limit, offset]
+        with self.get_connection(write=False) as conn:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    def count_elements_advanced(self, filter_spec):
+        where, params = self._build_filter_where(filter_spec)
+        sql = "SELECT COUNT(*) FROM elements WHERE {}".format(where)
+        with self.get_connection(write=False) as conn:
+            return conn.execute(sql, params).fetchone()[0]
+
     # ======================
     # FAVORITES OPERATIONS
     # ======================
