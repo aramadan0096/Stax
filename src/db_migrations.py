@@ -16,7 +16,7 @@ import logging
 log = logging.getLogger(__name__)
 
 # Bump this every time a new _migrate_vN is appended below.
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 
 # Default color-label palette (EP1). Seed order defines labels.sort_order.
 DEFAULT_LABELS = [
@@ -135,12 +135,31 @@ def _migrate_v3(conn):
     conn.commit()
 
 
+def _migrate_v4(conn):
+    """v3 -> v4: create saved_searches table for personal saved filters (EP2)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS saved_searches (
+            saved_search_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_name    TEXT NOT NULL,
+            machine_name TEXT,
+            name         TEXT NOT NULL,
+            filter_json  TEXT NOT NULL,
+            created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    log.info("Migration v4: created saved_searches table")
+    conn.commit()
+
+
 # Index N upgrades schema version N-1 -> N.
 _MIGRATIONS = [
     None,          # index 0 — unused placeholder
     _migrate_v1,   # 0 -> 1
     _migrate_v2,   # 1 -> 2
     _migrate_v3,   # 2 -> 3
+    _migrate_v4,   # 3 -> 4
 ]
 
 

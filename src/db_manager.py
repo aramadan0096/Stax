@@ -2215,4 +2215,59 @@ class DatabaseManager(object):
             )
             return [dict(row) for row in cursor.fetchall()]
 
+    # ======================
+    # SAVED SEARCHES (EP2)
+    # ======================
+
+    def create_saved_search(self, name, filter_spec, user_name, machine_name=None):
+        """Create a personal saved search.
+
+        Args:
+            name (str): Name of the saved search
+            filter_spec (dict): FilterSpec dict to serialize as JSON
+            user_name (str): User who owns this saved search
+            machine_name (str): Optional machine identifier
+
+        Returns:
+            int: saved_search_id of the created search
+        """
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO saved_searches (user_name, machine_name, name, filter_json) "
+                "VALUES (?, ?, ?, ?)",
+                (user_name, machine_name, name, json.dumps(filter_spec)),
+            )
+            return cur.lastrowid
+
+    def get_saved_searches(self, user_name):
+        """Get all saved searches for a user, scoped by user_name.
+
+        Args:
+            user_name (str): User to query
+
+        Returns:
+            list[dict]: List of saved search dicts with parsed 'filter' key
+        """
+        with self.get_connection(write=False) as conn:
+            rows = conn.execute(
+                "SELECT * FROM saved_searches WHERE user_name = ? ORDER BY name",
+                (user_name,)).fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                d["filter"] = json.loads(d["filter_json"])
+                out.append(d)
+            return out
+
+    def delete_saved_search(self, saved_search_id):
+        """Delete a saved search by ID.
+
+        Args:
+            saved_search_id (int): ID of the saved search to delete
+        """
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "DELETE FROM saved_searches WHERE saved_search_id = ?", (saved_search_id,))
+
 
