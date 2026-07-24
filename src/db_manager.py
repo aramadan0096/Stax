@@ -16,6 +16,7 @@ import re
 from contextlib import contextmanager
 from file_lock import FileLockManager
 from filter_spec import normalize
+from metadata_rules import validate_field_type
 
 logger = logging.getLogger(__name__)
 
@@ -2497,5 +2498,57 @@ class DatabaseManager(object):
             return [r[0] for r in conn.execute(
                 "SELECT query_text FROM recent_searches WHERE user_name = ? "
                 "ORDER BY recent_id DESC", (user_name,)).fetchall()]
+
+    # ======================
+    # METADATA FIELD CRUD (EP4)
+    # ======================
+
+    _FIELD_UPDATE = {"label", "field_type", "choices_json", "required", "sort_order"}
+
+    def create_metadata_field(self, stack_fk, key, label, field_type, choices=None,
+                              required=False, sort_order=0):
+        import json
+        validate_field_type(field_type, choices)
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO metadata_fields (stack_fk, key, label, field_type, "
+                "choices_json, required, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (stack_fk, key, label, field_type,
+                 json.dumps(choices) if choices else None,
+                 1 if required else 0, sort_order))
+            return cur.lastrowid
+
+    def get_metadata_fields(self, stack_fk):
+        import json
+        with self.get_connection(write=False) as conn:
+            rows = conn.execute(
+                "SELECT * FROM metadata_fields WHERE stack_fk = ? ORDER BY sort_order, field_id",
+                (stack_fk,)).fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                d["choices"] = json.loads(d["choices_json"]) if d["choices_json"] else []
+                out.append(d)
+            return out
+
+    def update_metadata_field(self, field_id, **fields):
+        updates = {k: v for k, v in fields.items() if k in self._FIELD_UPDATE}
+        if not updates:
+            return
+        set_clause = ", ".join("{} = ?".format(k) for k in updates)
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "UPDATE metadata_fields SET {} WHERE field_id = ?".format(set_clause),
+                list(updates.values()) + [field_id])
+
+    def delete_metadata_field(self, field_id):
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            row = cur.execute("SELECT key FROM metadata_fields WHERE field_id = ?",
+                              (field_id,)).fetchone()
+            if row:
+                cur.execute("DELETE FROM element_metadata WHERE field_key = ?", (row[0],))
+            cur.execute("DELETE FROM metadata_fields WHERE field_id = ?", (field_id,))
 
 
