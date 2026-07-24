@@ -12,6 +12,8 @@ EP1's generic "library" empty page instead of the personalized start page.
 
 import pytest
 
+from ui.layout_manager import LAYOUT_PRESETS, apply_preset
+
 
 def _mainwindow_with_temp_db(qtbot, tmp_path, monkeypatch):
     """Construct a MainWindow backed by a throwaway DB.
@@ -28,6 +30,13 @@ def _mainwindow_with_temp_db(qtbot, tmp_path, monkeypatch):
     cfg = Config(config_path=str(tmp_path / "config.json"))
     win = MainWindow(config=cfg)
     qtbot.addWidget(win)
+    # QSplitter.sizes() / QWidget.isVisible() are only meaningful once the
+    # window has actually been shown/laid out at least once (see
+    # test_ep3_layout_apply.py's docstring for the same caveat) -- Finding
+    # 3's tests below need real splitter geometry and real hide()/show()
+    # visibility, not just construction to succeed.
+    win.show()
+    qtbot.waitExposed(win)
     return win
 
 
@@ -152,8 +161,118 @@ def test_staxpanel_applies_persisted_accessibility_at_startup_scoped_to_panel(
 
     import nuke_launcher
 
+    # Neutralize the QTimer.singleShot(100, self.show_login) StaXPanel.
+    # __init__ schedules in standalone/mock mode -- left live, it fires
+    # ~100ms later, possibly after this test (and its panel) has already
+    # torn down, tripping a RuntimeError in a later test's event-loop
+    # processing. Irrelevant to what this test covers (accessibility
+    # scoping at startup), so just prevent it from being scheduled at all.
+    monkeypatch.setattr(nuke_launcher.QtCore.QTimer, "singleShot", lambda *a, **k: None)
+
     panel = nuke_launcher.StaXPanel()
     qtbot.addWidget(panel)
 
     assert "#000000" in panel.styleSheet()
     assert app.styleSheet() == original_app_qss
+
+
+# ---------------------------------------------------------------------------
+# Finding 3: the Review/Ingest/Curation layout presets were undone by the
+# very next click -- setChildrenCollapsible(False) means a preset's
+# main_sizes[0]==0 (Review's collapsed nav) can never actually collapse via
+# setSizes() alone, and expand_preview_pane() reads a preview_pane_expanded_
+# width that apply_preset() never updates, so the first single selection
+# snaps Review's 860px preview column back to the constructor's stale 360.
+# ---------------------------------------------------------------------------
+
+
+def _two_elements(db):
+    """One stack/list, two distinct elements ('a', 'b'). Returns their ids."""
+    db.create_stack("S", "/tmp/S")
+    with db.get_connection() as conn:
+        conn.execute("INSERT INTO lists (stack_fk,name) VALUES (1,'L')")
+        cur_a = conn.execute(
+            "INSERT INTO elements (list_fk,name,type,file_size) VALUES (1,'a','2D',2048)"
+        )
+        cur_b = conn.execute(
+            "INSERT INTO elements (list_fk,name,type,file_size) VALUES (1,'b','2D',2048)"
+        )
+        return cur_a.lastrowid, cur_b.lastrowid
+
+
+@pytest.mark.gui
+def test_review_preset_collapses_nav_via_hide_not_a_clamped_zero_size(
+    qtbot, mock_nuke, monkeypatch, tmp_path
+):
+    """Review's main_sizes[0] is 0 -- but main_splitter.setChildrenCollapsible
+    (False) means Qt clamps a bare setSizes([0, ...]) request back up to
+    stacks_panel's minimumWidth(). apply_preset() must actually hide the
+    nav (the same hide()/show() path toggle_focus_mode already uses) so
+    "nav collapsed" -- Review's defining property per spec Sec3.6 -- really
+    happens, and must restore it when switching to a preset that wants the
+    nav back."""
+    win = _mainwindow_with_temp_db(qtbot, tmp_path, monkeypatch)
+    assert win.stacks_panel.isVisible() is True
+
+    apply_preset(win, "Review")
+    assert win.stacks_panel.isVisible() is False
+
+    apply_preset(win, "Browse")
+    assert win.stacks_panel.isVisible() is True
+
+
+@pytest.mark.gui
+def test_review_preset_preview_width_survives_a_subsequent_selection(
+    qtbot, mock_nuke, monkeypatch, tmp_path
+):
+    """apply_preset() must update preview_pane_expanded_width from the
+    preset's own right-column size, so the first single-selection after
+    picking Review expands the preview back to Review's 860px column
+    instead of snapping to the constructor's stale 360px default."""
+    win = _mainwindow_with_temp_db(qtbot, tmp_path, monkeypatch)
+    eid_a, _eid_b = _two_elements(win.db)
+
+    # Widen the window well past the sum of any preset's main_sizes, so the
+    # rendered preview width is governed by preview_pane_expanded_width --
+    # the thing this fix changes -- not by expand_preview_pane()'s separate
+    # "at most 1/3 of available space" heuristic running out of room.
+    win.resize(3000, 900)
+    qtbot.wait(50)
+
+    apply_preset(win, "Review")
+    assert win.preview_pane_expanded_width == LAYOUT_PRESETS["Review"]["main_sizes"][2]
+
+    monkeypatch.setattr(win.video_player_pane, "load_element", lambda eid_: None)
+    monkeypatch.setattr(win.media_display, "get_selected_element_ids", lambda: [eid_a])
+    win.on_selection_changed()
+
+    preview_width = win.main_splitter.sizes()[2]
+    assert preview_width >= 800, (
+        "Review's preview column (main_sizes[2]=860) must survive a "
+        "subsequent single selection, not snap back down to ~360 "
+        "(got {})".format(preview_width)
+    )
+
+
+@pytest.mark.gui
+def test_apply_every_preset_never_zeroes_right_column_after_this_fix(
+    qtbot, mock_nuke, monkeypatch, tmp_path
+):
+    """Regression guard: Task 6's collapse_preview_pane() floor (keeping
+    the sticky inspector reachable) must survive this fix -- Ingest's
+    collapsed preview must still sit at the inspector-derived floor, never
+    at width 0, and preview_pane_expanded_width must not be poisoned by
+    Ingest's placeholder 240 (the module docstring is explicit that value
+    is a shape-valid placeholder, not a real remembered width)."""
+    win = _mainwindow_with_temp_db(qtbot, tmp_path, monkeypatch)
+
+    apply_preset(win, "Review")
+    remembered = win.preview_pane_expanded_width
+    assert remembered == 860
+
+    apply_preset(win, "Ingest")
+    floor = win._right_column_collapsed_width()
+    assert win.main_splitter.sizes()[2] == floor
+    # Ingest's placeholder 240 must not have overwritten the real
+    # remembered preview width from Review.
+    assert win.preview_pane_expanded_width == remembered

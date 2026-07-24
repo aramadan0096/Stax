@@ -101,9 +101,41 @@ def apply_preset(main_window, name):
         )
         return
 
+    main_sizes = preset["main_sizes"]
     main_splitter = getattr(main_window, "main_splitter", None)
     if main_splitter is not None:
-        main_splitter.setSizes(list(preset["main_sizes"]))
+        main_splitter.setSizes(list(main_sizes))
+
+    # Final review Finding 3: main_splitter.setChildrenCollapsible(False)
+    # (main.py) means a bare setSizes([0, ...]) request -- Review's nav
+    # collapse -- gets clamped straight back up to stacks_panel's own
+    # minimumWidth(); "nav collapsed" (spec Sec3.6, Review's defining
+    # property) never actually happened. Drive it through the same
+    # explicit hide()/show() path MainWindow.toggle_focus_mode() already
+    # uses instead: a hidden widget is dropped from the splitter's visible
+    # layout regardless of setChildrenCollapsible. Presets that want the
+    # nav back (main_sizes[0] > 0) must restore it explicitly too, or it
+    # would stay hidden after switching away from Review.
+    stacks_panel = getattr(main_window, "stacks_panel", None)
+    if stacks_panel is not None:
+        if main_sizes[0] <= 0:
+            stacks_panel.hide()
+        else:
+            stacks_panel.show()
+
+    # Final review Finding 3: remember this preset's right-column width as
+    # the "expanded preview" width. expand_preview_pane() (main.py) bounds
+    # a single selection's preview column by main_window.
+    # preview_pane_expanded_width -- previously apply_preset() never
+    # touched that attribute, so it stayed at the constructor's 360
+    # default (or whatever an earlier preset/collapse left it at)
+    # forever, and the very next single selection snapped Review's 860px
+    # column back down to ~360. Only done for preview_visible presets --
+    # Ingest's `main_sizes[2]` is a documented shape-valid placeholder
+    # (see module docstring), not a real preferred width, and must not
+    # poison this memory.
+    if preset["preview_visible"] and hasattr(main_window, "preview_pane_expanded_width"):
+        main_window.preview_pane_expanded_width = main_sizes[2]
 
     preview_visible = preset["preview_visible"]
     video_pane = getattr(main_window, "video_player_pane", None)
