@@ -11,6 +11,7 @@ from src.ui.media_info_popup import MediaInfoPopup
 from src.ui.stacks_lists_panel import StacksListsPanel
 from src.ui.media_display_widget import MediaDisplayWidget
 from src.ui.history_panel import HistoryPanel
+from src.ui.health_panel import HealthPanel
 from src.ui.settings_panel import SettingsPanel
 
 # Dialog Widgets
@@ -38,6 +39,7 @@ __all__ = [
     'StacksListsPanel',
     'MediaDisplayWidget',
     'HistoryPanel',
+    'HealthPanel',
     'SettingsPanel',
     # Dialogs
     'AdvancedSearchDialog',

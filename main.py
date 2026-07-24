@@ -78,6 +78,7 @@ from src.ui import (
     StacksListsPanel,
     MediaDisplayWidget,
     HistoryPanel,
+    HealthPanel,
     SettingsPanel,
 )
 
@@ -315,6 +316,19 @@ class MainWindow(QtWidgets.QMainWindow):
         self.history_dock.setWidget(self.history_panel)
         self.history_dock.setVisible(False)
         self.addDockWidget(QtCore.Qt.BottomDockWidgetArea, self.history_dock)
+
+        # Health dock (EP4 Task 12: metadata quality issues for the
+        # currently-selected list)
+        self.health_dock = QtWidgets.QDockWidget("Health", self)
+        self.health_panel = HealthPanel(self.db)
+        self._force_panel_palette(self.health_panel, "#191a1a")
+        # Reuse the same "select an element by id" path the EP3 start-page
+        # cards use: look up the element, navigate to its list, then select
+        # it in the active gallery/table view.
+        self.health_panel.element_selected.connect(self.on_start_page_element_activated)
+        self.health_dock.setWidget(self.health_panel)
+        self.health_dock.setVisible(False)
+        self.addDockWidget(QtCore.Qt.BottomDockWidgetArea, self.health_dock)
 
         # Settings dock
         self.settings_dock = QtWidgets.QDockWidget("Settings", self)
@@ -759,6 +773,7 @@ class MainWindow(QtWidgets.QMainWindow):
             stack = self.db.get_stack_by_id(lst["stack_fk"])
             if stack:
                 self.statusBar().showMessage("Viewing: {} > {}".format(stack["name"], lst["name"]))
+        self.health_panel.load_list(list_id)
         self.active_view = ("list", list_id)
         self._view_before_tags = None
 
