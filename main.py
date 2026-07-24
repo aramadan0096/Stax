@@ -37,6 +37,7 @@ from src.extensibility_hooks import ProcessorManager
 from src.icon_loader import get_icon
 from src.dark_palette import apply_dark_palette
 from src.video_player_widget import VideoPlayerWidget
+from src.ui.inspector_panel import InspectorPanel
 
 try:
     from src.preview_worker import get_preview_queue, shutdown_preview_queue
@@ -238,13 +239,30 @@ class MainWindow(QtWidgets.QMainWindow):
         self.main_splitter.addWidget(self.media_display)
         self.main_splitter.setStretchFactor(1, 1)
 
-        # RIGHT
+        # RIGHT (EP3 Task 6: preview + persistent editable inspector, stacked
+        # in their own vertical splitter so main_splitter keeps exactly 3
+        # direct children -- every main_splitter.sizes()/setSizes() index
+        # elsewhere (toggle_focus_mode, expand/collapse_preview_pane) still
+        # addresses [left, center, right] unchanged.)
         self.video_player_pane = VideoPlayerWidget(self.db, self.config, self)
         self.video_player_pane.setObjectName("video_player_pane")
         self.video_player_pane.closed.connect(self.on_preview_pane_closed)
         self.video_player_pane.hide()
         self._force_panel_palette(self.video_player_pane, "#191a1a")
-        self.main_splitter.addWidget(self.video_player_pane)
+
+        self.inspector = InspectorPanel(self.db)
+        self.inspector.setObjectName("inspector_panel")
+        self._force_panel_palette(self.inspector, "#191a1a")
+        # Rating/label edits repaint that one gallery/table row's badge in
+        # place, reusing the grid's own quick-edit refresh hook (design SS3.4).
+        self.inspector.element_updated.connect(self.media_display._refresh_item)
+
+        self.right_splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
+        self.right_splitter.setChildrenCollapsible(False)
+        self.right_splitter.addWidget(self.video_player_pane)
+        self.right_splitter.addWidget(self.inspector)
+        self.right_splitter.setSizes([500, 260])
+        self.main_splitter.addWidget(self.right_splitter)
         self.preview_pane_expanded_width = 360
 
         self.main_splitter.setSizes([280, 920, 360])
@@ -711,12 +729,15 @@ class MainWindow(QtWidgets.QMainWindow):
         if len(selected_ids) == 1:
             self.expand_preview_pane()
             self.video_player_pane.load_element(selected_ids[0])
+            self.inspector.show_element(selected_ids[0])
         elif len(selected_ids) > 1:
             self.video_player_pane.clear()
             self.collapse_preview_pane()
+            self.inspector.clear()
         else:
             if self.video_player_pane.isVisible():
                 self.video_player_pane.clear()
+            self.inspector.clear()
 
     def on_preview_pane_closed(self):
         self.video_player_pane.clear()
