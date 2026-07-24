@@ -883,6 +883,26 @@ class StaXPanel(QtWidgets.QWidget):
         # Reload processor manager
         self.processor_manager = ProcessorManager(self.config.get_all())
         self.show_status("Settings updated")
+
+        # Final-review Finding 2: a label/synonym/smart-collection edit in
+        # SettingsPanel must refresh the open gallery's stale label chips
+        # and the nav's saved-search/smart-collection lists -- both were
+        # previously left stale until the next list navigation / app reload.
+        if hasattr(self, 'media_display'):
+            try:
+                self.media_display._label_color_cache = None
+                self.media_display.refresh_current_view()
+            except Exception:
+                if logger:
+                    logger.exception("Failed to refresh media display after settings change")
+
+        if hasattr(self, 'stacks_panel'):
+            try:
+                self.stacks_panel.refresh_smart_collections()
+                self.stacks_panel.refresh_saved_searches()
+            except Exception:
+                if logger:
+                    logger.exception("Failed to refresh nav panel after settings change")
     
     def show_advanced_search(self):
         """Show advanced search dialog."""

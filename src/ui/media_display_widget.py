@@ -889,23 +889,22 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self._display_current_page()
 
     def _on_search_committed(self):
-        """EP2 Task 12: record the search box's current text as a recent
-        search, once, on an explicit commit (Enter/returnPressed).
+        """EP2 Task 12: on an explicit commit (Enter/returnPressed), run the
+        cross-list, synonym-expanded text search (`run_text_search`) and let
+        it record the query as a recent search.
 
         Deliberately NOT wired to `search_box.textChanged`/`on_search` --
-        that fires on every keystroke, which would record every partial
-        prefix ("f", "fi", "fir", "fire") instead of the query the user
-        actually meant. `#tag`/`tag:` queries are skipped since those are
-        the tag fast paths, not the free-text queries the "did you mean"/
+        that fires on every keystroke, which would run a full cross-list
+        search (and record every partial prefix: "f", "fi", "fir", "fire")
+        instead of the query the user actually meant. `#tag`/`tag:` queries
+        are skipped since those are the tag fast paths handled by `on_search`,
+        not the free-text queries the "did you mean"/synonym-expansion/
         recent-completer feature targets.
         """
         text = self.search_box.text().strip()
         if not text or text.startswith('#') or 'tag:' in text.lower():
             return
-        try:
-            self.db.add_recent_search(self._current_user_name(), text)
-        except Exception:
-            logger.exception("failed to record recent search for %r", text)
+        self.run_text_search(text)
 
     def _update_views_with_elements(self, elements):
         """Update gallery and table views with given elements."""
