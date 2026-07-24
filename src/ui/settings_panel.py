@@ -76,6 +76,9 @@ class SettingsPanel(QtWidgets.QWidget):
         # Tab 9: Accessibility (EP3 high contrast / text scale / focus assist)
         self.tab_widget.addTab(self._build_accessibility_tab(), "Accessibility")
 
+        # Tab 10: Metadata Fields (EP4 per-stack custom field admin)
+        self.tab_widget.addTab(self._build_fields_tab(), "Metadata Fields")
+
         layout.addWidget(self.tab_widget)
         
         # Bottom buttons
@@ -977,6 +980,106 @@ class SettingsPanel(QtWidgets.QWidget):
             target = QtWidgets.QApplication.instance()
         if target is not None:
             apply_accessibility(target, self.config)
+
+    def _build_fields_tab(self):
+        """Build the Metadata Fields tab: per-stack custom field list,
+        admin-gated Add/Delete controls."""
+        tab = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(tab)
+
+        layout.addWidget(QtWidgets.QLabel("Stack:"))
+        self.fields_stack_combo = QtWidgets.QComboBox()
+        for s in self.db.get_all_stacks():
+            self.fields_stack_combo.addItem(s["name"], s["stack_id"])
+        self.fields_stack_combo.currentIndexChanged.connect(
+            lambda _i: self.select_fields_stack(self.fields_stack_combo.currentData()))
+        layout.addWidget(self.fields_stack_combo)
+
+        self.fields_table = QtWidgets.QTableWidget(0, 3)
+        self.fields_table.setHorizontalHeaderLabels(["Key", "Label", "Type"])
+        self.fields_table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.fields_table)
+
+        controls = QtWidgets.QHBoxLayout()
+        self.add_field_button = QtWidgets.QPushButton("Add field…")
+        self.delete_field_button = QtWidgets.QPushButton("Delete")
+        controls.addWidget(self.add_field_button)
+        controls.addWidget(self.delete_field_button)
+        layout.addLayout(controls)
+
+        self.add_field_button.clicked.connect(self._on_add_field)
+        self.delete_field_button.clicked.connect(self._on_delete_field)
+
+        # State query only — must NOT call check_admin_permission() here, which
+        # prompts (login/permission-denied dialogs) and would block widget
+        # construction. Read the flag directly, as _build_labels_tab and
+        # _build_search_tab do.
+        is_admin = bool(getattr(self.main_window, 'is_admin', False))
+        for b in (self.add_field_button, self.delete_field_button):
+            b.setEnabled(is_admin)
+
+        self._fields_stack_id = None
+        if self.fields_stack_combo.count():
+            self.select_fields_stack(self.fields_stack_combo.itemData(0))
+        return tab
+
+    def select_fields_stack(self, stack_id):
+        """Repopulate fields_table with the metadata fields defined for stack_id."""
+        self._fields_stack_id = stack_id
+        fields = self.db.get_metadata_fields(stack_id)
+        self.fields_table.setRowCount(len(fields))
+        for row, f in enumerate(fields):
+            self.fields_table.setItem(row, 0, QtWidgets.QTableWidgetItem(f["key"]))
+            self.fields_table.setItem(row, 1, QtWidgets.QTableWidgetItem(f["label"]))
+            self.fields_table.setItem(row, 2, QtWidgets.QTableWidgetItem(f["field_type"]))
+
+    def _on_add_field(self):
+        """Prompt for key/label/type (and choices, if type is "choice"), then
+        create the metadata field.
+
+        Button is already gated for non-admins, but this is a real user action
+        (they clicked), so re-check with check_admin_permission — which may
+        prompt for login/permission — as the actual authorization gate.
+        """
+        if self.main_window and not self.main_window.check_admin_permission("add a metadata field"):
+            return
+        key, ok = QtWidgets.QInputDialog.getText(self, "New field", "Key:")
+        if not ok or not key:
+            return
+        label, ok2 = QtWidgets.QInputDialog.getText(self, "New field", "Label:")
+        if not ok2:
+            return
+        ftype, ok3 = QtWidgets.QInputDialog.getItem(
+            self, "New field", "Type:", ["text", "number", "choice", "date", "bool"], 0, False)
+        if not ok3:
+            return
+        choices = None
+        if ftype == "choice":
+            raw, ok4 = QtWidgets.QInputDialog.getText(self, "Choices", "Comma-separated:")
+            if not ok4:
+                return
+            choices = [c.strip() for c in raw.split(",") if c.strip()]
+        self.db.create_metadata_field(self._fields_stack_id, key, label or key, ftype, choices=choices)
+        self.select_fields_stack(self._fields_stack_id)
+        self.settings_changed.emit()
+
+    def _on_delete_field(self):
+        """Delete the selected metadata field row, if any.
+
+        Button is already gated for non-admins, but this is a real user action
+        (they clicked), so re-check with check_admin_permission as the actual
+        authorization gate.
+        """
+        if self.main_window and not self.main_window.check_admin_permission("delete a metadata field"):
+            return
+        row = self.fields_table.currentRow()
+        if row < 0:
+            return
+        fields = self.db.get_metadata_fields(self._fields_stack_id)
+        if row < len(fields):
+            self.db.delete_metadata_field(fields[row]["field_id"])
+            self.select_fields_stack(self._fields_stack_id)
+            self.settings_changed.emit()
 
     def browse_database_path(self):
         """Browse for database file."""
