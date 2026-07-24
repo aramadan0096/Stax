@@ -202,3 +202,152 @@ def test_repeated_collapse_does_not_corrupt_remembered_preview_width(
         "a repeated collapse_preview_pane() call must not overwrite "
         "preview_pane_expanded_width with the already-collapsed width"
     )
+
+
+# ---------------------------------------------------------------------------
+# Whole-branch review Finding 3: element_updated -> refresh_item_badge ->
+# _refresh_item previously only ever touched the gallery QListWidgetItem's
+# icon (`self.element_items` holds gallery items exclusively). Two gaps:
+#   - in list/table view, a rating/label edit produced no visible change at
+#     all until the list was reloaded (Rating/Label columns untouched);
+#   - _commit_name/_commit_tags/_commit_comment never emitted
+#     element_updated at all, so renaming/retagging/commenting via the
+#     inspector left the gallery caption and the table's Name/Comment cells
+#     showing stale values.
+# These tests wire MediaDisplayWidget + InspectorPanel exactly the way
+# main.py does (inspector.element_updated -> media_display.refresh_item_badge)
+# and exercise both view modes directly, without needing a full MainWindow.
+# ---------------------------------------------------------------------------
+
+from PySide2 import QtCore
+
+from ui.media_display_widget import MediaDisplayWidget
+from ui.inspector_panel import InspectorPanel
+from nuke_bridge import NukeBridge
+
+
+def _wired_widget(qtbot, stax_db, stax_config):
+    """MediaDisplayWidget + InspectorPanel wired identically to main.py's
+    `self.inspector.element_updated.connect(self.media_display.refresh_item_badge)`."""
+    w = MediaDisplayWidget(stax_db, stax_config, NukeBridge(mock_mode=True))
+    qtbot.addWidget(w)
+    ip = InspectorPanel(stax_db)
+    qtbot.addWidget(ip)
+    ip.element_updated.connect(w.refresh_item_badge)
+    return w, ip
+
+
+def _one_element(stax_db):
+    """One stack/list/element with a known rating/tags/comment so edits are
+    detectable against a non-default baseline. Returns the element id."""
+    stax_db.create_stack("S", "/tmp/S")
+    with stax_db.get_connection() as conn:
+        conn.execute("INSERT INTO lists (stack_fk,name) VALUES (1,'L')")
+        cur = conn.execute(
+            "INSERT INTO elements (list_fk,name,type,file_size,rating,tags,comment) "
+            "VALUES (1,'orig_name','2D',1000,2,'orig_tag','orig_comment')"
+        )
+        return cur.lastrowid
+
+
+def _table_row_for(w, element_id):
+    for row in range(w.table_view.rowCount()):
+        cell = w.table_view.item(row, 0)
+        if cell is not None and cell.data(QtCore.Qt.UserRole) == element_id:
+            return row
+    return None
+
+
+@pytest.mark.gui
+def test_inspector_rating_edit_updates_table_row(qtbot, stax_db, stax_config):
+    eid = _one_element(stax_db)
+    w, ip = _wired_widget(qtbot, stax_db, stax_config)
+    w.set_view_mode('list')
+    w.load_elements(1)
+    ip.show_element(eid)
+
+    row = _table_row_for(w, eid)
+    assert row is not None
+    assert w.table_view.item(row, 6).text() == "★★"  # rating 2
+
+    ip.set_rating(4)
+
+    assert w.table_view.item(row, 6).text() == "★★★★"
+
+
+@pytest.mark.gui
+def test_inspector_label_edit_updates_table_row(qtbot, stax_db, stax_config):
+    eid = _one_element(stax_db)
+    labels = stax_db.get_labels()
+    w, ip = _wired_widget(qtbot, stax_db, stax_config)
+    w.set_view_mode('list')
+    w.load_elements(1)
+    ip.show_element(eid)
+
+    row = _table_row_for(w, eid)
+    label_id = labels[0]["label_id"]
+    ip.label_combo.setCurrentIndex(ip.label_combo.findData(label_id))
+
+    label_item = w.table_view.item(row, 7)
+    assert label_item.toolTip() == labels[0]["name"]
+
+
+@pytest.mark.gui
+def test_inspector_name_edit_updates_gallery_caption(qtbot, stax_db, stax_config):
+    eid = _one_element(stax_db)
+    w, ip = _wired_widget(qtbot, stax_db, stax_config)
+    w.load_elements(1)
+    ip.show_element(eid)
+
+    item = w.element_items[eid]
+    assert item.text() == "orig_name [orig_tag]"
+
+    ip.name_edit.setText("renamed")
+    ip.name_edit.editingFinished.emit()
+
+    assert item.text() == "renamed [orig_tag]"
+
+
+@pytest.mark.gui
+def test_inspector_tags_edit_updates_gallery_caption(qtbot, stax_db, stax_config):
+    eid = _one_element(stax_db)
+    w, ip = _wired_widget(qtbot, stax_db, stax_config)
+    w.load_elements(1)
+    ip.show_element(eid)
+
+    item = w.element_items[eid]
+
+    ip.tags_edit.setText("new_tag, extra")
+    ip.tags_edit.editingFinished.emit()
+
+    assert item.text() == "orig_name [new_tag, extra]"
+
+
+@pytest.mark.gui
+def test_inspector_name_edit_also_updates_table_row_name_column(qtbot, stax_db, stax_config):
+    eid = _one_element(stax_db)
+    w, ip = _wired_widget(qtbot, stax_db, stax_config)
+    w.set_view_mode('list')
+    w.load_elements(1)
+    ip.show_element(eid)
+    row = _table_row_for(w, eid)
+
+    ip.name_edit.setText("renamed_row")
+    ip.name_edit.editingFinished.emit()
+
+    assert w.table_view.item(row, 0).text() == "renamed_row"
+
+
+@pytest.mark.gui
+def test_inspector_comment_edit_updates_table_comment_column(qtbot, stax_db, stax_config):
+    eid = _one_element(stax_db)
+    w, ip = _wired_widget(qtbot, stax_db, stax_config)
+    w.set_view_mode('list')
+    w.load_elements(1)
+    ip.show_element(eid)
+    row = _table_row_for(w, eid)
+
+    ip.comment_edit.setText("new comment")
+    ip.comment_edit.editingFinished.emit()
+
+    assert w.table_view.item(row, 5).text() == "new comment [Tags: orig_tag]"

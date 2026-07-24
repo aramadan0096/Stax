@@ -230,3 +230,64 @@ def test_show_element_never_emits_element_updated(qtbot, stax_db):
     ip.clear()
 
     assert received == []
+
+
+# ---------------------------------------------------------------------------
+# Whole-branch review Finding 3: name/tags/comment commits must also emit
+# element_updated -- previously only set_rating/_commit_label did, so a
+# rename/retag/comment via the inspector left the gallery caption and the
+# table's Name/Comment cells stale until a full reload. (The gallery/table
+# refresh itself is exercised end-to-end in test_ep3_inspector_wiring.py;
+# these tests cover the signal contract in isolation.)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.gui
+def test_name_tags_comment_commits_emit_element_updated(qtbot, stax_db):
+    from ui.inspector_panel import InspectorPanel
+
+    eid = _element(stax_db)
+    ip = InspectorPanel(stax_db)
+    qtbot.addWidget(ip)
+    ip.show_element(eid)
+
+    received = []
+    ip.element_updated.connect(received.append)
+
+    ip.name_edit.setText("renamed")
+    ip._commit_name()
+    assert received == [eid]
+
+    ip.tags_edit.setText("new_tag")
+    ip._commit_tags()
+    assert received == [eid, eid]
+
+    ip.comment_edit.setText("new comment")
+    ip._commit_comment()
+    assert received == [eid, eid, eid]
+
+    assert stax_db.get_element_by_id(eid)["name"] == "renamed"
+    assert stax_db.get_element_by_id(eid)["tags"] == "new_tag"
+    assert stax_db.get_element_by_id(eid)["comment"] == "new comment"
+
+
+@pytest.mark.gui
+def test_failed_commit_does_not_emit_element_updated(qtbot, stax_db, monkeypatch):
+    from ui.inspector_panel import InspectorPanel
+
+    eid = _element(stax_db)
+    ip = InspectorPanel(stax_db)
+    qtbot.addWidget(ip)
+    ip.show_element(eid)
+
+    monkeypatch.setattr(
+        stax_db, "update_element",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    received = []
+    ip.element_updated.connect(received.append)
+
+    ip.name_edit.setText("renamed")
+    ip._commit_name()  # must not raise
+
+    assert received == []

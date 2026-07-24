@@ -159,17 +159,28 @@ class InspectorPanel(QtWidgets.QWidget):
 
     def _commit_name(self):
         if self._element_id is not None:
-            self._safe_update(name=self.name_edit.text())
+            element_id = self._element_id
+            if self._safe_update(name=self.name_edit.text()):
+                self.element_updated.emit(element_id)
 
     def _commit_tags(self):
         if self._element_id is not None:
-            self._safe_update(tags=self.tags_edit.text())
+            element_id = self._element_id
+            if self._safe_update(tags=self.tags_edit.text()):
+                self.element_updated.emit(element_id)
 
     def _commit_comment(self):
         if self._element_id is not None:
-            self._safe_update(comment=self.comment_edit.text())
+            element_id = self._element_id
+            if self._safe_update(comment=self.comment_edit.text()):
+                self.element_updated.emit(element_id)
 
     def _safe_update(self, **kwargs):
+        """Write `kwargs` to the current element. Returns True on success,
+        False (after logging) on failure -- callers use this to decide
+        whether to emit `element_updated` (whole-branch review Finding 3:
+        name/tags/comment commits didn't emit it at all before, leaving
+        the gallery caption and table Name/Comment cells stale)."""
         try:
             self.db.update_element(self._element_id, **kwargs)
         except Exception:
@@ -177,6 +188,8 @@ class InspectorPanel(QtWidgets.QWidget):
                 "InspectorPanel: failed to update element %s with %s",
                 self._element_id, kwargs,
             )
+            return False
+        return True
 
     def set_rating(self, value):
         if self._element_id is None:

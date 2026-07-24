@@ -947,6 +947,23 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             return
         self.run_text_search(text)
 
+    @staticmethod
+    def _gallery_caption(element):
+        """Gallery item caption: name + up to 3 tags.
+
+        Single source of truth for this formatting, shared by the initial
+        render (_update_views_with_elements) and by _refresh_item's
+        in-place caption update (whole-branch review Finding 3) so a
+        name/tags edit refresh can never drift out of sync with what a
+        full reload would show.
+        """
+        display_name = element['name']
+        if element.get('tags'):
+            tag_list = [t.strip() for t in element['tags'].split(',') if t.strip()]
+            if tag_list:
+                display_name += " [" + ", ".join(tag_list[:3]) + "]"
+        return display_name
+
     def _update_views_with_elements(self, elements):
         """Update gallery and table views with given elements."""
         self.stop_current_gif()
@@ -968,13 +985,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 }
 
             item = QtWidgets.QListWidgetItem()
-            display_name = element['name']
-            if element.get('tags'):
-                tag_list = [t.strip() for t in element['tags'].split(',') if t.strip()]
-                if tag_list:
-                    display_name += " [" + ", ".join(tag_list[:3]) + "]"
-
-            item.setText(display_name)
+            item.setText(self._gallery_caption(element))
             item.setData(QtCore.Qt.UserRole, element_id)
             if element_id:
                 self.element_items[element_id] = item
@@ -1043,66 +1054,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
 
         self.table_view.setRowCount(len(elements))
         for row, element in enumerate(elements):
-            element_id = element.get('element_id')
-            flags = self.element_flags.get(element_id, {})
-
-            name_item = QtWidgets.QTableWidgetItem(element['name'])
-            if flags.get('favorite'):
-                name_item.setIcon(get_icon('favorite', size=16))
-            if flags.get('deprecated'):
-                name_item.setForeground(QtGui.QColor('#d88400'))
-            self.table_view.setItem(row, 0, name_item)
-
-            self.table_view.setItem(row, 1, QtWidgets.QTableWidgetItem(element.get('format') or ''))
-            
-            # Display frame count for sequences (parse frame_range like "1-7" -> "7")
-            frame_display = ''
-            frame_range = element.get('frame_range')
-            if frame_range and '-' in str(frame_range):
-                try:
-                    parts = str(frame_range).split('-')
-                    if len(parts) == 2:
-                        start_frame = int(parts[0])
-                        end_frame = int(parts[1])
-                        frame_count = end_frame - start_frame + 1
-                        frame_display = str(frame_count)
-                    else:
-                        # Malformed range, display as-is
-                        frame_display = str(frame_range)
-                except (ValueError, IndexError):
-                    frame_display = str(frame_range)
-            elif frame_range:
-                frame_display = str(frame_range)
-            
-            self.table_view.setItem(row, 2, QtWidgets.QTableWidgetItem(frame_display))
-            self.table_view.setItem(row, 3, QtWidgets.QTableWidgetItem(element.get('type') or ''))
-
-            size_str = human_size(element['file_size']) if element.get('file_size') else ''
-            self.table_view.setItem(row, 4, QtWidgets.QTableWidgetItem(size_str))
-
-            comment_text = element.get('comment') or ''
-            if element.get('tags'):
-                comment_text += " [Tags: " + element['tags'] + "]"
-            self.table_view.setItem(row, 5, QtWidgets.QTableWidgetItem(comment_text))
-
-            rating_item = QtWidgets.QTableWidgetItem(self._rating_cell_text(element.get('rating', 0)))
-            rating_item.setFlags(rating_item.flags() & ~QtCore.Qt.ItemIsEditable)
-            self.table_view.setItem(row, 6, rating_item)
-
-            label_item = QtWidgets.QTableWidgetItem("")
-            label_item.setFlags(label_item.flags() & ~QtCore.Qt.ItemIsEditable)
-            label_fk = element.get('label_fk')
-            if label_fk:
-                name = self._label_name(label_fk)
-                color = self._label_color(label_fk)
-                if name:
-                    label_item.setToolTip(name)
-                    label_item.setData(QtCore.Qt.AccessibleTextRole, name)
-                if color:
-                    label_item.setBackground(QtGui.QBrush(QtGui.QColor(color)))
-            self.table_view.setItem(row, 7, label_item)
-
-            self.table_view.item(row, 0).setData(QtCore.Qt.UserRole, element_id)
+            self._populate_table_row(row, element)
 
         if hasattr(self.gallery_view, "set_item_loader"):
             self.gallery_view.set_item_loader(self._lazy_load_gallery_item)
@@ -1381,6 +1333,92 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         """Render a rating (0-5, possibly None) as a star string for the table."""
         return "★" * int(rating or 0)
 
+    def _populate_table_row(self, row, element):
+        """Build (or rebuild) one table row for `element`.
+
+        Single source of truth for table-row formatting, shared by the
+        initial render (_update_views_with_elements) and by
+        _refresh_table_row's in-place update (whole-branch review
+        Finding 3) so an edit refresh can never drift out of sync with
+        what a full reload would produce.
+        """
+        element_id = element.get('element_id')
+        flags = self.element_flags.get(element_id, {})
+
+        name_item = QtWidgets.QTableWidgetItem(element['name'])
+        if flags.get('favorite'):
+            name_item.setIcon(get_icon('favorite', size=16))
+        if flags.get('deprecated'):
+            name_item.setForeground(QtGui.QColor('#d88400'))
+        self.table_view.setItem(row, 0, name_item)
+
+        self.table_view.setItem(row, 1, QtWidgets.QTableWidgetItem(element.get('format') or ''))
+
+        # Display frame count for sequences (parse frame_range like "1-7" -> "7")
+        frame_display = ''
+        frame_range = element.get('frame_range')
+        if frame_range and '-' in str(frame_range):
+            try:
+                parts = str(frame_range).split('-')
+                if len(parts) == 2:
+                    start_frame = int(parts[0])
+                    end_frame = int(parts[1])
+                    frame_count = end_frame - start_frame + 1
+                    frame_display = str(frame_count)
+                else:
+                    # Malformed range, display as-is
+                    frame_display = str(frame_range)
+            except (ValueError, IndexError):
+                frame_display = str(frame_range)
+        elif frame_range:
+            frame_display = str(frame_range)
+
+        self.table_view.setItem(row, 2, QtWidgets.QTableWidgetItem(frame_display))
+        self.table_view.setItem(row, 3, QtWidgets.QTableWidgetItem(element.get('type') or ''))
+
+        size_str = human_size(element['file_size']) if element.get('file_size') else ''
+        self.table_view.setItem(row, 4, QtWidgets.QTableWidgetItem(size_str))
+
+        comment_text = element.get('comment') or ''
+        if element.get('tags'):
+            comment_text += " [Tags: " + element['tags'] + "]"
+        self.table_view.setItem(row, 5, QtWidgets.QTableWidgetItem(comment_text))
+
+        rating_item = QtWidgets.QTableWidgetItem(self._rating_cell_text(element.get('rating', 0)))
+        rating_item.setFlags(rating_item.flags() & ~QtCore.Qt.ItemIsEditable)
+        self.table_view.setItem(row, 6, rating_item)
+
+        label_item = QtWidgets.QTableWidgetItem("")
+        label_item.setFlags(label_item.flags() & ~QtCore.Qt.ItemIsEditable)
+        label_fk = element.get('label_fk')
+        if label_fk:
+            name = self._label_name(label_fk)
+            color = self._label_color(label_fk)
+            if name:
+                label_item.setToolTip(name)
+                label_item.setData(QtCore.Qt.AccessibleTextRole, name)
+            if color:
+                label_item.setBackground(QtGui.QBrush(QtGui.QColor(color)))
+        self.table_view.setItem(row, 7, label_item)
+
+        self.table_view.item(row, 0).setData(QtCore.Qt.UserRole, element_id)
+
+    def _refresh_table_row(self, element_id, element):
+        """Find `element_id`'s row in table_view (if currently rendered on
+        this page) and rebuild it via _populate_table_row.
+
+        Whole-branch review Finding 3: element_updated -> refresh_item_badge
+        previously only ever touched the gallery item, so a rating/label
+        edit in list/table view produced no visible change until a full
+        reload. No-ops (like _refresh_item) when the element isn't part of
+        the currently rendered page.
+        """
+        for row in range(self.table_view.rowCount()):
+            cell = self.table_view.item(row, 0)
+            if cell is not None and cell.data(QtCore.Qt.UserRole) == element_id:
+                self._populate_table_row(row, element)
+                return
+
     def quick_set_rating(self, element_id, stars):
         """Write-through rating setter for the grid's hover quick-edit."""
         self.db.set_element_rating(element_id, stars)
@@ -1401,11 +1439,22 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self._refresh_item(element_id)
 
     def _refresh_item(self, element_id):
-        """Repaint a single gallery item's icon after a rating/label change.
+        """Repaint a single element's gallery icon + caption and its
+        matching table row in place after a rating/label/name/tags/comment
+        change.
 
-        Minimal per-item update modeled on on_preview_ready; deliberately a
-        no-op when the element has no current gallery item and never
-        triggers a full view rebuild (see SP2 in-place-update work).
+        Originally scoped to the gallery icon only (modeled on
+        on_preview_ready) because its only caller was the gallery hover
+        quick-edit. Whole-branch review Finding 3: the sticky
+        InspectorPanel is view-mode agnostic and also exposes name/tags/
+        comment edits, so a rating/label edit while in list/table view
+        produced no visible change at all, and a rename/retag left the
+        gallery caption and the table's Name/Comment cells stale. Reuses
+        _gallery_caption/_populate_table_row (the same formatting the
+        initial render uses) so this can never drift out of sync with a
+        full reload. Still a no-op when the element has no current gallery
+        item and never triggers a full view rebuild (see SP2
+        in-place-update work).
         """
         item = self.element_items.get(element_id)
         if item is None:
@@ -1423,6 +1472,9 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         pixmap = self._load_preview_pixmap(element_stub, icon_size)
         if pixmap:
             item.setIcon(QtGui.QIcon(pixmap))
+        item.setText(self._gallery_caption(element))
+
+        self._refresh_table_row(element_id, element)
 
     @QtCore.Slot(int, str, str)
     def on_preview_ready(self, element_id, preview_path, preview_type):
