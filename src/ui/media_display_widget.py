@@ -906,8 +906,17 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             return
         if not preview_path or not os.path.exists(preview_path):
             return
+        try:
+            element = self.db.get_element_by_id(element_id)
+        except Exception:
+            logger.exception("failed loading element %s for preview refresh", element_id)
+            return
+        if not element:
+            return
         icon_size = self.gallery_view.iconSize()
-        element_stub = {"preview_path": preview_path, "element_id": element_id}
+        element_stub = dict(element)
+        element_stub["element_id"] = element_id
+        element_stub["preview_path"] = preview_path
         pixmap = self._load_preview_pixmap(element_stub, icon_size)
         if pixmap:
             item.setIcon(QtGui.QIcon(pixmap))

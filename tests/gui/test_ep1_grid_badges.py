@@ -32,3 +32,29 @@ def test_draw_curation_badges_returns_pixmap(qtbot, stax_db, stax_config):
     assert isinstance(out, QtGui.QPixmap)
     assert out.size() == px.size()
     assert out.toImage() == px.toImage()
+
+
+@pytest.mark.gui
+def test_draw_curation_badges_uses_full_element_fast_path(qtbot, stax_db, stax_config, monkeypatch):
+    # A real (seeded) label so _label_color() has an actual color_hex to resolve.
+    labels = stax_db.get_labels()
+    assert labels, "expected default labels to be seeded"
+    label_id = labels[0]["label_id"]
+    w = _widget(qtbot, stax_db, stax_config)
+
+    def _must_not_be_called(*args, **kwargs):
+        raise AssertionError(
+            "get_element_by_id must not be called when a full element row is provided"
+        )
+
+    monkeypatch.setattr(w.db, "get_element_by_id", _must_not_be_called)
+
+    px = QtGui.QPixmap(128, 128)
+    px.fill()
+    element = {"rating": 4, "label_fk": label_id}
+    out = w._draw_curation_badges(px, element_id=1, element=element)
+
+    assert isinstance(out, QtGui.QPixmap)
+    assert out.size() == px.size()
+    # Stars + label chip were actually drawn onto the returned pixmap.
+    assert out.toImage() != px.toImage()
