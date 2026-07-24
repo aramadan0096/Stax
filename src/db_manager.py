@@ -2712,3 +2712,47 @@ class DatabaseManager(object):
         with self.get_connection(write=True) as conn:
             conn.cursor().execute("DELETE FROM autotag_rules WHERE rule_id = ?", (rule_id,))
 
+    # ======================
+    # QUALITY RULES (EP4)
+    # ======================
+
+    def create_quality_rule(self, kind, config, stack_fk=None):
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO quality_rules (stack_fk, kind, config_json) VALUES (?, ?, ?)",
+                (stack_fk, kind, json.dumps(config)))
+            return cur.lastrowid
+
+    def get_quality_rules(self, stack_fk=None):
+        with self.get_connection(write=False) as conn:
+            rows = conn.execute(
+                "SELECT * FROM quality_rules WHERE stack_fk IS ? OR stack_fk IS NULL",
+                (stack_fk,)).fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                d["config"] = json.loads(d["config_json"])
+                out.append(d)
+            return out
+
+    def check_element_quality(self, element_id):
+        from metadata_rules import check_element_quality as _check_element_quality
+        el = self.get_element_by_id(element_id)
+        if not el:
+            return []
+        with self.get_connection(write=False) as conn:
+            lst = conn.execute("SELECT stack_fk FROM lists WHERE list_id = ?",
+                               (el["list_fk"],)).fetchone()
+        stack_fk = lst["stack_fk"] if lst else None
+        fields = self.get_metadata_fields(stack_fk) if stack_fk else []
+        effective = self.get_effective_metadata(element_id)
+        rules = self.get_quality_rules(stack_fk)
+        return _check_element_quality(el, effective, fields, rules)
+
+    def get_quality_summary(self, list_id):
+        total = 0
+        for el in self.get_elements_by_list(list_id):
+            total += len(self.check_element_quality(el["element_id"]))
+        return {"issues": total}
+

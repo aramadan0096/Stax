@@ -42,6 +42,39 @@ def parse_from_text(field_type, text):
     return text
 
 
+def check_element_quality(element, effective_meta, fields, rules):
+    """Evaluate quality rules against an element; pure, Qt/DB-free.
+
+    Args:
+        element: dict with at least "name".
+        effective_meta: dict of field_key -> effective value (inherited/overridden).
+        fields: list of metadata field dicts ({"key", "label", ...}).
+        rules: list of quality rule dicts ({"rule_id", "kind", "config"}).
+
+    Returns:
+        list of {"rule_id", "kind", "message"} dicts, one per violated rule.
+    """
+    issues = []
+    label_by_key = {f["key"]: f.get("label", f["key"]) for f in (fields or [])}
+    for rule in rules or []:
+        kind = rule.get("kind")
+        cfg = rule.get("config") or {}
+        if kind == "required_field":
+            key = cfg.get("field_key")
+            if not (effective_meta or {}).get(key):
+                issues.append({"rule_id": rule.get("rule_id"), "kind": kind,
+                               "message": "Missing required field: {}".format(label_by_key.get(key, key))})
+        elif kind == "naming_regex":
+            pat = cfg.get("pattern") or ""
+            try:
+                if _re.match(pat, element.get("name", "")) is None:
+                    issues.append({"rule_id": rule.get("rule_id"), "kind": kind,
+                                   "message": "Name doesn't match convention"})
+            except _re.error:
+                _log.warning("bad naming regex skipped: %r", pat)
+    return issues
+
+
 def evaluate_autotag(source_path, rules):
     """Match rules against a path; union tags and merge fields (by rule order)."""
     path = source_path or ""

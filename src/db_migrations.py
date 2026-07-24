@@ -16,7 +16,7 @@ import logging
 log = logging.getLogger(__name__)
 
 # Bump this every time a new _migrate_vN is appended below.
-CURRENT_SCHEMA_VERSION = 10
+CURRENT_SCHEMA_VERSION = 11
 
 # Default color-label palette (EP1). Seed order defines labels.sort_order.
 DEFAULT_LABELS = [
@@ -282,6 +282,23 @@ def _migrate_v10(conn):
     conn.commit()
 
 
+def _migrate_v11(conn):
+    """v10 -> v11: create quality_rules table for element quality checks
+    (required-field / naming-convention rules) (EP4)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS quality_rules (
+            rule_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+            stack_fk    INTEGER,
+            kind        TEXT NOT NULL,
+            config_json TEXT NOT NULL
+        )
+        """
+    )
+    log.info("Migration v11: created quality_rules table")
+    conn.commit()
+
+
 # Index N upgrades schema version N-1 -> N.
 _MIGRATIONS = [
     None,          # index 0 — unused placeholder
@@ -295,6 +312,7 @@ _MIGRATIONS = [
     _migrate_v8,   # 7 -> 8
     _migrate_v9,   # 8 -> 9
     _migrate_v10,  # 9 -> 10
+    _migrate_v11,  # 10 -> 11
 ]
 
 
