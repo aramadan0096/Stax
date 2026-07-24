@@ -921,7 +921,27 @@ class DatabaseManager(object):
             cursor.execute("SELECT * FROM elements WHERE element_id = ?", (element_id,))
             row = cursor.fetchone()
             return dict(row) if row else None
-    
+
+    def get_recent_elements(self, limit=12):
+        """Most recently created elements, newest first.
+
+        Rows inserted within the same second share a `created_at`, so
+        `element_id DESC` is used as a tiebreaker (elements are inserted
+        with an AUTOINCREMENT primary key, so a higher id is always newer).
+
+        Args:
+            limit (int): Maximum number of results.
+
+        Returns:
+            list: List of element dicts.
+        """
+        with self.get_connection(write=False) as conn:
+            rows = conn.execute(
+                "SELECT * FROM elements ORDER BY created_at DESC, element_id DESC LIMIT ?",
+                (limit,)
+            ).fetchall()
+            return [dict(r) for r in rows]
+
     def update_element(self, element_id, **kwargs):
         """
         Update element fields.

@@ -41,6 +41,7 @@ from src.video_player_widget import VideoPlayerWidget
 from src.ui.inspector_panel import InspectorPanel
 from src.ui.layout_manager import apply_preset, preset_names
 from src.ui.onboarding_checklist import OnboardingChecklist
+from src.ui.start_page import StartPage
 
 try:
     from src.preview_worker import get_preview_queue, shutdown_preview_queue
@@ -241,6 +242,29 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self.media_display.setObjectName("media_display")
         self.media_display.element_double_clicked.connect(self.on_element_double_clicked)
+
+        # EP3 Task 11: minimal personalized start page (Recent / Favorites /
+        # Most-used), installed as the widget shown on the nested empty-page
+        # stack (media_display._empty_page_stack, index 0 of content_stack)
+        # via the same _set_empty_page_widget seam EP1's context-aware empty
+        # states use. It is only ever installed here, once, at startup: the
+        # first real selection/search/filter routes through one of EP1's own
+        # show_empty_state()/_show_empty_state()/load_* calls, each of which
+        # calls _set_empty_page_widget again with its own widget and evicts
+        # this one -- so EP1's empty-state paths are untouched.
+        #
+        # Favorites/Most-used are keyed off the same user_name/machine_name
+        # Config values every other favorites write/read in the app uses
+        # (see MediaDisplayWidget.bulk_add_to_favorites) -- NOT
+        # self.current_user, which favorites rows are never written against.
+        self.start_page = StartPage(
+            self.db,
+            self.config.get('user_name'),
+            self.config.get('machine_name'),
+            parent=self.media_display,
+        )
+        self.start_page.element_activated.connect(self.on_element_double_clicked)
+        self.media_display._set_empty_page_widget(self.start_page)
 
         # EP2 Task 9: Saved Searches / Smart Collections nav <-> media display.
         self.stacks_panel.filter_selected.connect(self.media_display.apply_filter)
