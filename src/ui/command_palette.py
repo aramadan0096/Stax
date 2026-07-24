@@ -7,7 +7,13 @@ from PySide2 import QtWidgets, QtCore
 
 
 def harvest_actions(menu_bar, toolbar):
-    """Collect leaf (label, QAction) pairs from a menu bar and toolbar."""
+    """Collect leaf (label, QAction) pairs from a menu bar and toolbar.
+
+    Only *enabled* actions are collected (spec Sec3.1: "each enabled,
+    text-bearing QAction") -- a disabled QAction still has a leaf label,
+    but running it from the palette would silently no-op, so it must not
+    appear there at all (final whole-branch review "also fix").
+    """
     entries = []
     seen = set()
 
@@ -18,7 +24,7 @@ def harvest_actions(menu_bar, toolbar):
             sub = a.menu()
             if sub is not None:
                 walk(sub.actions())
-            elif id(a) not in seen:
+            elif id(a) not in seen and a.isEnabled():
                 seen.add(id(a))
                 entries.append((a.text().replace("&", ""), a))
 
@@ -27,22 +33,6 @@ def harvest_actions(menu_bar, toolbar):
     if toolbar is not None:
         walk(toolbar.actions())
     return entries
-
-
-class CommandRegistry(object):
-    """Extra palette commands: (label, callable)."""
-
-    def __init__(self):
-        self._items = []
-
-    def register(self, label, callback):
-        self._items.append((label, callback))
-
-    def clear(self):
-        self._items = []
-
-    def entries(self):
-        return list(self._items)
 
 
 def _subsequence(query, text):
@@ -144,8 +134,11 @@ def build_jump_targets(db, config, on_list_selected, on_stack_selected):
     """Build "Go to list/stack" palette entries that always do something real.
 
     Returns a ``list[(label, callable)]`` in the same shape as
-    ``harvest_actions()``/``CommandRegistry.entries()``, so callers can just
-    concatenate them.
+    ``harvest_actions()``, so callers can just concatenate them. (An earlier
+    ``CommandRegistry`` class filled the same "extra commands" role but was
+    never instantiated anywhere in production code -- this function covers
+    the actual need, so ``CommandRegistry`` was deleted as dead code rather
+    than wired up; final whole-branch review "also fix".)
 
     - One "Go to list: <stack name> / <list name>" entry per **top-level**
       list of every stack, targeting ``on_list_selected(list_id)``. Lists are
