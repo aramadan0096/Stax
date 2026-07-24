@@ -247,11 +247,15 @@ class MainWindow(QtWidgets.QMainWindow):
         # Most-used), installed as the widget shown on the nested empty-page
         # stack (media_display._empty_page_stack, index 0 of content_stack)
         # via the same _set_empty_page_widget seam EP1's context-aware empty
-        # states use. It is only ever installed here, once, at startup: the
-        # first real selection/search/filter routes through one of EP1's own
-        # show_empty_state()/_show_empty_state()/load_* calls, each of which
-        # calls _set_empty_page_widget again with its own widget and evicts
-        # this one -- so EP1's empty-state paths are untouched.
+        # states use. Installed here, once, at startup, with persistent=True
+        # (Final review Finding 1) so it is never deleteLater()'d when an
+        # EP1 empty state (list/search/favorites/library) evicts it as the
+        # visible page -- MediaDisplayWidget.show_empty_state()'s no-args
+        # "nothing selected at all" path re-installs and refresh()es this
+        # same live instance, so it comes back once the user clears their
+        # selection instead of staying gone after the first empty state.
+        # EP1's own empty-state paths are otherwise untouched: they still
+        # install their own widget via _show_empty_state/_set_empty_page_widget.
         #
         # Favorites/Most-used are keyed off the same user_name/machine_name
         # Config values every other favorites write/read in the app uses
@@ -264,7 +268,7 @@ class MainWindow(QtWidgets.QMainWindow):
             parent=self.media_display,
         )
         self.start_page.element_activated.connect(self.on_element_double_clicked)
-        self.media_display._set_empty_page_widget(self.start_page)
+        self.media_display._set_empty_page_widget(self.start_page, persistent=True)
 
         # EP2 Task 9: Saved Searches / Smart Collections nav <-> media display.
         self.stacks_panel.filter_selected.connect(self.media_display.apply_filter)

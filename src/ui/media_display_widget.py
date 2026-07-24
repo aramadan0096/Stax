@@ -213,6 +213,15 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self._empty_page_stack = QtWidgets.QStackedWidget()
         self._empty_page_stack.addWidget(self.empty_state_widget)
         self.content_stack.addWidget(self._empty_page_stack)  # Index 0
+
+        # Pages that must never be deleteLater()'d when evicted from the
+        # nested empty-page stack -- the legacy self.empty_state_widget
+        # (see _set_empty_page_widget's docstring) plus anything registered
+        # via register_persistent_empty_page (e.g. main.py's StartPage:
+        # Final review Finding 1 -- the StartPage used to be destroyed the
+        # first time an EP1 empty state replaced it, with nothing ever
+        # re-installing it afterwards).
+        self._persistent_empty_pages = {self.empty_state_widget}
         
         # Views container (index 1)
         views_widget = QtWidgets.QWidget()
@@ -768,12 +777,20 @@ class MediaDisplayWidget(QtWidgets.QWidget):
     def show_empty_state(self, message=None, hint=None):
         """Clear views and display placeholder message.
 
-        Called with no arguments this is the generic "nothing selected
-        yet" state (e.g. main.py's restore_active_view fallback), which
-        EP1 renders as the "library" empty page. A custom message/hint
-        (the tag-filter prompts in load_elements_by_tags) doesn't map onto
-        any of the four fixed EP1 kinds, so it keeps rendering on the
-        legacy info_label/hint_label page instead.
+        Called with no arguments this is the generic "nothing selected at
+        all" state (e.g. main.py's restore_active_view fallback). Final
+        review Finding 1: that is the StartPage's domain, not EP1's -- EP1's
+        context-aware empty states (_show_empty_state) own "you selected
+        something and it is empty". When main_window exposes a live
+        start_page (the standalone shell), re-install and refresh() it;
+        shells that don't have one (e.g. nuke_launcher.StaXPanel) fall back
+        to EP1's generic "library" empty page, same as before this fix.
+
+        A custom message/hint (the tag-filter prompts in
+        load_elements_by_tags, or a caller-supplied "no elements in stack"
+        message) doesn't map onto any of the four fixed EP1 kinds nor onto
+        the StartPage, so it keeps rendering on the legacy
+        info_label/hint_label page instead.
         """
         self.current_list_id = None
         self.current_elements = []
@@ -784,7 +801,25 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.info_label.setText(message or "Select a list to view elements")
         self.hint_label.setText(hint or "Browse stacks and lists in the navigation panel")
         if message is None and hint is None:
-            self._show_empty_state("library")
+            start_page = getattr(self.main_window, 'start_page', None)
+            if start_page is not None:
+                try:
+                    start_page.refresh()
+                except RuntimeError:
+                    # Deleted C++ object (shouldn't happen now that
+                    # register_persistent_empty_page protects it, but stay
+                    # defensive rather than propagate a crash from a
+                    # selection-clearing path).
+                    logger.exception(
+                        "show_empty_state: main_window.start_page is a "
+                        "deleted C++ object; falling back to the library "
+                        "empty page"
+                    )
+                    start_page = None
+            if start_page is not None:
+                self._set_empty_page_widget(start_page, persistent=True)
+            else:
+                self._show_empty_state("library")
         else:
             self._set_empty_page_widget(self.empty_state_widget)
 
@@ -2341,7 +2376,17 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.current_empty_state = EmptyStateWidget(headline, message, primary, secondary, kind)
         self._set_empty_page_widget(self.current_empty_state)
 
-    def _set_empty_page_widget(self, widget):
+    def register_persistent_empty_page(self, widget):
+        """Exempt `widget` from the deleteLater() eviction that
+        `_set_empty_page_widget` normally applies to a previously-installed
+        page. Used by main.py for the StartPage (Final review Finding 1):
+        it must survive being swapped out by an EP1 empty state so it can
+        be re-installed later on the "nothing selected" path instead of
+        being a dangling reference to a deleted C++ object.
+        """
+        self._persistent_empty_pages.add(widget)
+
+    def _set_empty_page_widget(self, widget, persistent=False):
         """Swap the widget shown on content_stack's empty page (index 0).
 
         The legacy self.empty_state_widget (and its info_label/hint_label
@@ -2350,15 +2395,21 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         own show_empty_state/load_elements, and main.py:599-601) keep
         working without AttributeError -- their text just stops being
         what's on screen once an EP1 empty state replaces it as the
-        visible page. Previously-installed EP1 pages (but never the
-        legacy one) are dropped so repeated calls don't accumulate.
+        visible page. Previously-installed EP1 pages (but never a
+        persistent one -- see register_persistent_empty_page) are dropped
+        so repeated calls don't accumulate.
+
+        `persistent=True` registers `widget` itself (e.g. main.py's
+        StartPage) so it is never deleteLater()'d by a later swap.
         """
+        if persistent:
+            self.register_persistent_empty_page(widget)
         previous = self._empty_page_stack.currentWidget()
         if self._empty_page_stack.indexOf(widget) == -1:
             self._empty_page_stack.addWidget(widget)
         self._empty_page_stack.setCurrentWidget(widget)
         if (previous is not None and previous is not widget
-                and previous is not self.empty_state_widget):
+                and previous not in self._persistent_empty_pages):
             self._empty_page_stack.removeWidget(previous)
             previous.deleteLater()
         self.content_stack.setCurrentIndex(0)
