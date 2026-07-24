@@ -164,7 +164,7 @@ Feature-expansion program derived from [`STAX_FEATURE_ENHANCEMENT_REPORT.md`](..
 |----|-------|:----:|:----:|:----:|-----------------|
 | EP1 | Curation primitives | ☑ | ☑ | ☑ | F013, F014, F052, F053 |
 | EP2 | Search & discovery UX (non-AI) | ☑ | ☑ | ☑ | F007–F012, facets |
-| EP3 | Browse productivity shell | ☑ | ☑ | ☐ | F049–F058 |
+| EP3 | Browse productivity shell | ☑ | ☑ | ☑ | F049–F058 |
 | EP4 | Metadata schema & automation | ☑ | ☑ | ☐ | F015, F016, F018–F022 |
 | EP5 | Review, notes & approval | ☐ | ☐ | ☐ | F023–F030 |
 | EP6 | Ingestion automation & job queue | ☑ | ☑ | ☐ | F031–F040 |
@@ -207,19 +207,38 @@ Spec: [`specs/…-ep2-search-discovery-design.md`](specs/2026-07-23-ep2-search-d
 ### EP3 — Browse productivity shell
 Spec: [`specs/…-ep3-browse-productivity-design.md`](specs/2026-07-23-ep3-browse-productivity-design.md) · Plan: [`plans/…-ep3-browse-productivity.md`](plans/2026-07-23-ep3-browse-productivity.md) · **Depends on EP1 + SP1/SP2/SP6.** Clusters: 3A interaction · 3B inspector/loading · 3C shell polish (trimmable).
 
-- [ ] Task 1 — Command harvesting + registry + fuzzy filter
-- [ ] Task 2 — `CommandPalette` dialog + Ctrl+K
-- [ ] Task 3 — Spacebar quicklook overlay
-- [ ] Task 4 — Keyboard help overlay (`?`)
-- [ ] Task 5 — Extract shared metadata formatting (`metadata_format.py`)
-- [ ] Task 6 — `InspectorPanel` + right-pane vertical split
-- [ ] Task 7 — Skeleton placeholders + scroll retention
-- [ ] Task 8 — Layout presets (Browse/Review/Ingest/Curation)
-- [ ] Task 9 — Accessibility (contrast/text-scale/focus)
-- [ ] Task 10 — Onboarding checklist
-- [ ] Task 11 — `get_recent_elements` + minimal start page
+- [x] Task 1 — Command harvesting + registry + fuzzy filter
+- [x] Task 2 — `CommandPalette` dialog + Ctrl+K
+- [x] Task 3 — Spacebar quicklook overlay
+- [x] Task 4 — Keyboard help overlay (`?`)
+- [x] Task 5 — Extract shared metadata formatting (`metadata_format.py`)
+- [x] Task 6 — `InspectorPanel` + right-pane vertical split
+- [x] Task 7 — Skeleton placeholders + scroll retention
+- [x] Task 8 — Layout presets (Browse/Review/Ingest/Curation)
+- [x] Task 9 — Accessibility (contrast/text-scale/focus)
+- [x] Task 10 — Onboarding checklist
+- [x] Task 11 — `get_recent_elements` + minimal start page
 
-> **Cross-note (EP3 ↔ SP8):** EP3 Task 5 adds `src/ui/metadata_format.py::human_size`; SP8 (L10) adds `src/utils/formatting.py::human_size`. When both land, converge on one — have EP3's module import SP8's util (or vice-versa) so there is a single size formatter.
+**EP3 complete** (Batch 6, branch `exec/ep3`): 11/11 tasks + a whole-branch review pass.
+Suite **413 passed / 0 failed / 0 xfailed** (branch point was 292). The final whole-branch
+review found 6 cross-task integration defects the per-task reviews structurally could not
+see — all fixed: the start page was `deleteLater()`d by the first EP1 empty state and could
+never return; skeleton tiles never resolved for elements whose preview will never arrive
+(toolsets, `generate_previews` off, offline preview share) losing the 2D/3D/Toolset hint;
+the Accessibility tab restyled the **host Nuke application** because `StaXPanel` opens the
+same `SettingsPanel`; layout presets were undone by the next selection; quicklook prev/next
+fought scroll retention; and inspector edits left the table view and gallery captions stale.
+Also: `CommandRegistry` was dead code and was deleted (`build_jump_targets` covers it).
+
+> **Known EP3 partials** (deliberate, not defects): a `video_preview_path`-only element shows
+> no still in quicklook (`QPixmap` cannot decode a video container — real frame extraction is
+> a follow-up); palette jump targets and the onboarding element scan cover top-level lists
+> only, not sub-lists; onboarding's “Insert into Nuke” step has no one-click action (insertion
+> needs a selected element). The Nuke shell (`StaXPanel`) has no menu bar, so the palette,
+> help overlay, layout presets, onboarding, inspector and start page are standalone-only —
+> each omission fails safe; quicklook, skeletons and accessibility do work there.
+
+> **Cross-note (EP3 ↔ SP8) — RESOLVED:** converged on `src/utils/formatting.py::human_size` (SP8). `src/ui/metadata_format.py` imports and re-exports it; there is exactly one definition repo-wide. Task 5 also extracted SP6/M7's format-derived playback detection (`VIDEO_EXTS`/`SEQUENCE_EXTS` + `detect_playback_mode`) out of `media_info_popup.py`.
 
 ### EP4 — Metadata schema & automation
 Spec: [`specs/…-ep4-metadata-schema-design.md`](specs/2026-07-23-ep4-metadata-schema-design.md) · Plan: [`plans/…-ep4-metadata-schema.md`](plans/2026-07-23-ep4-metadata-schema.md) · **Depends on SP1 + SP2 + EP1/EP3.** Clusters: 4A schema · 4B templates/auto-tag · 4C rules/links.
