@@ -56,10 +56,26 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.element_flags = {}  # Map element_id -> status flags (favorite/deprecated)
         self._project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
         self.setup_ui()
-        
+
+        # EP2 Task 6: faceted filter drawer + removable chip bar, wired
+        # after the views are built (self.content_stack must already
+        # exist for _install_filter_widgets to reparent it). Flat imports
+        # to match the module identity `from ui.facet_drawer import ...`
+        # tests patch (see the dual-import note on ingest_dropped_files).
+        from ui.facet_drawer import FacetDrawer
+        from ui.filter_chip_bar import FilterChipBar
+        from filter_spec import empty_filter
+        self.current_filter = empty_filter()
+        self.facet_drawer = FacetDrawer()
+        self.chip_bar = FilterChipBar()
+        self._install_filter_widgets(self.facet_drawer, self.chip_bar)
+        self.facet_drawer.filter_changed.connect(self.apply_filter)
+        self.chip_bar.chip_removed.connect(self._on_chip_removed)
+        self.chip_bar.cleared.connect(lambda: self.apply_filter(empty_filter()))
+
         # Enable mouse tracking for hover events
         self.setMouseTracking(True)
-        
+
         # Enable drag & drop
         self.setAcceptDrops(True)
     
@@ -254,6 +270,35 @@ class MediaDisplayWidget(QtWidgets.QWidget):
 
         self.gallery_view.itemSelectionChanged.connect(self._on_selection_changed_ep1)
         self.table_view.itemSelectionChanged.connect(self._on_selection_changed_ep1)
+
+    def _install_filter_widgets(self, drawer, chip_bar):
+        """EP2 Task 6: wire the facet drawer + filter chip bar into the
+        layout setup_ui() already built.
+
+        The chip bar goes directly above content_stack (between the
+        toolbar and the stack); the drawer becomes a collapsible left-hand
+        column beside content_stack, via a small horizontal wrapper.
+        Reuses setup_ui's own top-level layout (retrieved through
+        self.layout(), the same QVBoxLayout instance setup_ui's local
+        `layout` variable built) rather than constructing a new one, so
+        the toolbar and action_tray -- already in that layout -- are left
+        untouched.
+        """
+        layout = self.layout()
+        idx = layout.indexOf(self.content_stack)
+        layout.removeWidget(self.content_stack)
+
+        content_row = QtWidgets.QWidget()
+        row_layout = QtWidgets.QHBoxLayout(content_row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.addWidget(drawer)
+        row_layout.addWidget(self.content_stack, 1)
+
+        layout.insertWidget(idx, chip_bar)
+        layout.insertWidget(idx + 1, content_row)
+
+        # Design §3.3: "default collapsed until the user filters."
+        drawer.setVisible(False)
 
     def setup_focus_button(self):
         """Create floating action button for focus mode."""
@@ -496,7 +541,70 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         
         # Use shared method to update both views
         self._update_views_with_elements(page_elements)
-    
+
+    def apply_filter(self, filter_spec):
+        """EP2 Task 6: run an advanced query against filter_spec and
+        refresh the chip bar, facet drawer counts, and the active view to
+        match. This is the sole entry point the facet drawer's
+        `filter_changed` signal and the chip bar's `chip_removed`/
+        `cleared` signals route back through.
+
+        Bypasses self.pagination for now -- loads every match in one
+        query and counts via len(rows) rather than a separate
+        count_elements_advanced() + limit/offset page. Wiring pagination
+        to filtered results is left for a later task (see the EP2 Task 6
+        report).
+        """
+        from filter_spec import normalize, is_active
+
+        self.current_filter = normalize(filter_spec)
+        active = is_active(self.current_filter)
+
+        rows = self.db.search_elements_advanced(self.current_filter)
+        count = len(rows)
+
+        self.chip_bar.set_filter(self.current_filter, count)
+        try:
+            self.facet_drawer.set_facets(self.db.get_facet_counts(self.current_filter))
+        except Exception:
+            logger.exception("facet count refresh failed")
+
+        # Design §3.3: the drawer stays collapsed until a filter is active.
+        self.facet_drawer.setVisible(active)
+
+        # This is a cross-list search (like load_favorites/load_playlist/
+        # load_elements_by_tags), not scoped to whatever list was
+        # previously selected, so clear that context the same way those do.
+        self.current_list_id = None
+        self.current_tag_filter = []
+        self.current_elements = rows
+        self.pagination.setVisible(False)
+
+        self._update_views_with_elements(rows)
+        if rows:
+            self.content_stack.setCurrentIndex(1)
+        elif active:
+            self._show_empty_state("search", query=self.current_filter.get("text") or "current filter")
+        else:
+            self.content_stack.setCurrentIndex(1)
+
+    def _on_chip_removed(self, key, value):
+        """Strip one clause value from the active filter and re-apply it.
+
+        `key`/`value` come straight off FilterChipBar.chip_removed, typed
+        (str/int/bool) to match whatever is stored under that spec key.
+        """
+        spec = dict(self.current_filter)
+        if isinstance(spec.get(key), list):
+            spec[key] = [v for v in spec[key] if v != value]
+        elif key == "rating_min":
+            spec[key] = 0
+        elif key == "text":
+            spec[key] = ""
+        else:
+            spec[key] = None
+        self.apply_filter(spec)
+
     def show_empty_state(self, message=None, hint=None):
         """Clear views and display placeholder message.
 
