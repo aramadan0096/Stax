@@ -231,6 +231,10 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self.media_display.setObjectName("media_display")
         self.media_display.element_double_clicked.connect(self.on_element_double_clicked)
+
+        # EP2 Task 9: Saved Searches / Smart Collections nav <-> media display.
+        self.stacks_panel.filter_selected.connect(self.media_display.apply_filter)
+        self.media_display.saved_search_created.connect(self.stacks_panel.refresh_saved_searches)
         self.main_splitter.addWidget(self.media_display)
         self.main_splitter.setStretchFactor(1, 1)
 

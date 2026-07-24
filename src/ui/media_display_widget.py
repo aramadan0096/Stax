@@ -25,6 +25,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
     # Signals
     element_selected = QtCore.Signal(int)  # element_id
     element_double_clicked = QtCore.Signal(int)  # element_id
+    saved_search_created = QtCore.Signal()  # a saved search was persisted (EP2 Task 9)
     
     def __init__(self, db_manager, config, nuke_bridge, main_window=None, parent=None):
         super(MediaDisplayWidget, self).__init__(parent)
@@ -104,7 +105,15 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         search_layout.addWidget(self.search_hint_label)
         
         toolbar.addWidget(search_container, 1)  # Give it stretch priority
-        
+
+        # Save current search/filter as a personal saved search (EP2 Task 9).
+        self.save_search_btn = QtWidgets.QPushButton("Save search…")
+        self.save_search_btn.setToolTip("Save the current search/filter for quick access later")
+        self.save_search_btn.setObjectName('small')
+        self.save_search_btn.setProperty('class', 'small')
+        self.save_search_btn.clicked.connect(self._on_save_search_clicked)
+        toolbar.addWidget(self.save_search_btn)
+
         # View mode toggle
         self.gallery_btn = QtWidgets.QPushButton()
         self.gallery_btn.setIcon(get_icon('gallery', size=20))
@@ -618,6 +627,41 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         else:
             spec[key] = None
         self.apply_filter(spec)
+
+    def _current_user_name(self):
+        """Resolve the acting username the same way main.py derives it
+        elsewhere (self.main_window.current_user['username']), falling back
+        to 'guest' when there is no main_window or nobody is logged in yet
+        (EP2 Task 9: saved-search ownership)."""
+        if self.main_window is not None:
+            user = getattr(self.main_window, 'current_user', None)
+            if user:
+                return user.get('username', 'guest')
+        return 'guest'
+
+    def _on_save_search_clicked(self):
+        """Prompt for a name and persist the active FilterSpec as a personal
+        saved search (EP2 Task 9).
+
+        This only runs from an explicit button click -- never from
+        construction or a filter-changed signal path -- so a modal prompt
+        here is fine per the repo's modal-placement rule.
+        """
+        name, ok = QtWidgets.QInputDialog.getText(
+            self, "Save Search", "Name for this saved search:"
+        )
+        if not ok or not name.strip():
+            return
+        user_name = self._current_user_name()
+        try:
+            self.db.create_saved_search(name.strip(), self.current_filter, user_name)
+        except Exception:
+            logger.exception("Failed to save search %r for user %r", name, user_name)
+            return
+        # StacksListsPanel owns the Saved Searches list; rather than reach
+        # into it directly, just announce that a search was saved and let
+        # MainWindow wire this signal to stacks_panel.refresh_saved_searches.
+        self.saved_search_created.emit()
 
     def show_empty_state(self, message=None, hint=None):
         """Clear views and display placeholder message.
