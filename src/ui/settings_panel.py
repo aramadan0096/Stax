@@ -10,6 +10,7 @@ from PySide2 import QtWidgets, QtCore, QtGui
 from src.icon_loader import get_icon, get_pixmap
 from src.preview_cache import get_preview_cache
 from src.debug_manager import DebugManager
+from src.ui.accessibility import apply_accessibility
 
 
 class SettingsPanel(QtWidgets.QWidget):
@@ -61,6 +62,9 @@ class SettingsPanel(QtWidgets.QWidget):
 
         # Tab 8: Search (EP2 synonyms + smart collections)
         self.tab_widget.addTab(self._build_search_tab(), "Search")
+
+        # Tab 9: Accessibility (EP3 high contrast / text scale / focus assist)
+        self.tab_widget.addTab(self._build_accessibility_tab(), "Accessibility")
 
         layout.addWidget(self.tab_widget)
         
@@ -892,6 +896,67 @@ class SettingsPanel(QtWidgets.QWidget):
             self.db.delete_smart_collection(cols[row]["collection_id"])
             self._reload_collections()
             self.settings_changed.emit()
+
+    def _build_accessibility_tab(self):
+        """Build the Accessibility tab: high contrast, text scale, focus assist.
+
+        This is a per-user preference, not an admin action (unlike Labels/
+        Search), so there is no admin gate here. Controls load their
+        current values from Config, and every change is persisted and
+        re-applied to the live QApplication immediately -- it does not
+        wait for "Save All Settings".
+        """
+        tab = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(tab)
+
+        group = QtWidgets.QGroupBox("Accessibility")
+        form = QtWidgets.QFormLayout()
+
+        self.a11y_high_contrast_checkbox = QtWidgets.QCheckBox("High contrast")
+        self.a11y_high_contrast_checkbox.setChecked(bool(self.config.get('a11y_high_contrast', False)))
+        form.addRow("High Contrast:", self.a11y_high_contrast_checkbox)
+
+        self.a11y_text_scale_spin = QtWidgets.QSpinBox()
+        self.a11y_text_scale_spin.setRange(100, 150)
+        self.a11y_text_scale_spin.setSuffix(" %")
+        self.a11y_text_scale_spin.setValue(int(self.config.get('a11y_text_scale', 100)))
+        form.addRow("Text Scale:", self.a11y_text_scale_spin)
+
+        self.a11y_focus_assist_checkbox = QtWidgets.QCheckBox("Focus assist (stronger focus outline)")
+        self.a11y_focus_assist_checkbox.setChecked(bool(self.config.get('a11y_focus_assist', False)))
+        form.addRow("Focus Assist:", self.a11y_focus_assist_checkbox)
+
+        group.setLayout(form)
+        layout.addWidget(group)
+
+        hint = QtWidgets.QLabel("Changes are applied immediately and remembered across sessions.")
+        hint.setStyleSheet("color: #888; font-size: 10px; font-style: italic;")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        layout.addStretch()
+
+        self.a11y_high_contrast_checkbox.toggled.connect(self._on_accessibility_changed)
+        self.a11y_text_scale_spin.valueChanged.connect(self._on_accessibility_changed)
+        self.a11y_focus_assist_checkbox.toggled.connect(self._on_accessibility_changed)
+
+        return tab
+
+    def _on_accessibility_changed(self, *_args):
+        """Persist the three a11y_* preferences and re-apply them immediately.
+
+        Accessibility is a user preference: write straight to Config (no
+        admin gate, no "Save All Settings" round trip) and re-apply to the
+        live QApplication so the change is visible right away.
+        """
+        self.config.update({
+            'a11y_high_contrast': self.a11y_high_contrast_checkbox.isChecked(),
+            'a11y_text_scale': self.a11y_text_scale_spin.value(),
+            'a11y_focus_assist': self.a11y_focus_assist_checkbox.isChecked(),
+        })
+        app = QtWidgets.QApplication.instance()
+        if app is not None:
+            apply_accessibility(app, self.config)
 
     def browse_database_path(self):
         """Browse for database file."""

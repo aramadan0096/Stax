@@ -36,6 +36,7 @@ from src.nuke_bridge import NukeBridge, NukeIntegration
 from src.extensibility_hooks import ProcessorManager
 from src.icon_loader import get_icon
 from src.dark_palette import apply_dark_palette
+from src.ui.accessibility import apply_accessibility
 from src.video_player_widget import VideoPlayerWidget
 from src.ui.inspector_panel import InspectorPanel
 from src.ui.layout_manager import apply_preset, preset_names
@@ -978,6 +979,18 @@ def main():
             app.setStyleSheet(stylesheet)
         except Exception as e:
             print("Failed to load stylesheet: {}".format(e))
+
+    # STEP 3.5 — Accessibility overlay (high contrast / text scale / focus
+    # assist). MUST come after STEP 3's app.setStyleSheet(stylesheet): that
+    # call replaces the app stylesheet outright, so applying accessibility
+    # any earlier would (a) get wiped by it, and (b) cause accessibility.py
+    # to cache the empty pre-QSS string as the "base" stylesheet, permanently
+    # losing the dark theme on every later toggle. Must also come before
+    # STEP 4, so the window is built with accessibility already in effect.
+    try:
+        apply_accessibility(app, config)
+    except Exception:
+        logging.getLogger(__name__).exception("Failed to apply accessibility settings")
 
     # STEP 4 — Create window (palette and QSS are already in effect)
     window = MainWindow(config=config)
