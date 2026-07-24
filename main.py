@@ -267,7 +267,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.config.get('machine_name'),
             parent=self.media_display,
         )
-        self.start_page.element_activated.connect(self.on_element_double_clicked)
+        self.start_page.element_activated.connect(self.on_start_page_element_activated)
         self.media_display._set_empty_page_widget(self.start_page, persistent=True)
 
         # EP2 Task 9: Saved Searches / Smart Collections nav <-> media display.
@@ -810,6 +810,31 @@ class MainWindow(QtWidgets.QMainWindow):
             self.statusBar().showMessage("Viewing Playlist: {}".format(playlist["name"]))
         self.active_view = ("playlist", playlist_id)
         self._view_before_tags = None
+
+    def on_start_page_element_activated(self, element_id):
+        """StartPage card activation (EP3 Task 11 / final review "also
+        fix"): select the element and reveal its list, per spec Sec3.9
+        ("clicking a card should select the element / open its list") --
+        NOT insert it into Nuke the way a gallery double-click does. A
+        Recent/Favorites/Most-used card is a navigation shortcut, not an
+        "add this to my script" action, and the start page is shown
+        precisely when nothing is selected yet -- silently inserting a
+        node the user only meant to look at would be a surprising,
+        hard-to-undo side effect.
+
+        Reuses the existing list-selection and in-view-selection paths
+        (MainWindow.on_list_selected, MediaDisplayWidget.
+        _select_element_in_view -- the same helper select_next_element/
+        select_previous_element already rely on) rather than inventing a
+        new one.
+        """
+        element = self.db.get_element_by_id(element_id)
+        if not element:
+            return
+        list_id = element.get('list_fk')
+        if list_id:
+            self.on_list_selected(list_id)
+        self.media_display._select_element_in_view(element)
 
     def on_element_double_clicked(self, element_id):
         try:

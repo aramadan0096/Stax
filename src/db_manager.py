@@ -929,6 +929,12 @@ class DatabaseManager(object):
         `element_id DESC` is used as a tiebreaker (elements are inserted
         with an AUTOINCREMENT primary key, so a higher id is always newer).
 
+        Deprecated elements are excluded, matching the same
+        `is_deprecated = 0` filter get_elements_by_list()/
+        get_elements_count() apply -- otherwise a deprecated element could
+        surface in the start page's Recent section and be double-clicked
+        straight into Nuke (final whole-branch review "also fix").
+
         Args:
             limit (int): Maximum number of results.
 
@@ -937,7 +943,8 @@ class DatabaseManager(object):
         """
         with self.get_connection(write=False) as conn:
             rows = conn.execute(
-                "SELECT * FROM elements ORDER BY created_at DESC, element_id DESC LIMIT ?",
+                "SELECT * FROM elements WHERE is_deprecated = 0 "
+                "ORDER BY created_at DESC, element_id DESC LIMIT ?",
                 (limit,)
             ).fetchall()
             return [dict(r) for r in rows]

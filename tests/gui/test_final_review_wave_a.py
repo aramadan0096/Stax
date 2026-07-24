@@ -276,3 +276,34 @@ def test_apply_every_preset_never_zeroes_right_column_after_this_fix(
     # Ingest's placeholder 240 must not have overwritten the real
     # remembered preview width from Review.
     assert win.preview_pane_expanded_width == remembered
+
+
+# ---------------------------------------------------------------------------
+# "Also fix": StartPage card activation must select the element / open its
+# list (spec Sec3.9), not insert it into Nuke like a gallery double-click.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.gui
+def test_start_page_activation_selects_and_reveals_not_inserts(
+    qtbot, mock_nuke, monkeypatch, tmp_path
+):
+    win = _mainwindow_with_temp_db(qtbot, tmp_path, monkeypatch)
+    eid_a, eid_b = _two_elements(win.db)
+
+    insert_calls = []
+    monkeypatch.setattr(
+        win.nuke_integration, "insert_element", lambda eid_: insert_calls.append(eid_)
+    )
+    # Isolate from VideoPlayerWidget's real media-loading logic (the
+    # selection this test drives fires on_selection_changed ->
+    # video_player_pane.load_element for a fake element with no real
+    # media file on disk) -- same isolation test_ep3_inspector_wiring.py
+    # uses; only the activation wiring is under test here.
+    monkeypatch.setattr(win.video_player_pane, "load_element", lambda eid_: None)
+
+    win.start_page.element_activated.emit(eid_a)
+
+    assert insert_calls == [], "activating a start-page card must not insert into Nuke"
+    assert win.media_display.current_list_id == 1
+    assert win.media_display.get_selected_element_ids() == [eid_a]
