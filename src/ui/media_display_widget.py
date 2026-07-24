@@ -1260,6 +1260,14 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self._label_color_cache = None  # force re-resolve
         self._refresh_item(element_id)
 
+    def refresh_item_badge(self, element_id):
+        """Public entry point for external widgets (e.g. the EP3 sticky
+        inspector) to ask for a single item's rating/label badge to be
+        repainted in place. Delegates to `_refresh_item`; callers outside
+        this class should use this instead of reaching into the
+        underscore-prefixed method directly."""
+        self._refresh_item(element_id)
+
     def _refresh_item(self, element_id):
         """Repaint a single gallery item's icon after a rating/label change.
 

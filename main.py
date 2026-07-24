@@ -255,7 +255,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._force_panel_palette(self.inspector, "#191a1a")
         # Rating/label edits repaint that one gallery/table row's badge in
         # place, reusing the grid's own quick-edit refresh hook (design SS3.4).
-        self.inspector.element_updated.connect(self.media_display._refresh_item)
+        self.inspector.element_updated.connect(self.media_display.refresh_item_badge)
 
         self.right_splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
         self.right_splitter.setChildrenCollapsible(False)
@@ -533,6 +533,16 @@ class MainWindow(QtWidgets.QMainWindow):
     # Preview pane helpers
     # -------------------------------------------------------------------------
 
+    def _right_column_collapsed_width(self):
+        """Narrowest `main_splitter`'s 3rd column (video preview +
+        `InspectorPanel`, EP3 Task 6) may go while the preview is
+        collapsed -- just wide enough to keep the sticky inspector
+        (design SS3.4), including its "No selection" state, usable.
+        Derived from the inspector's own `minimumSizeHint()` rather than a
+        bare magic number so it stays correct if the inspector's layout
+        changes."""
+        return max(self.inspector.minimumSizeHint().width(), 240)
+
     def expand_preview_pane(self):
         sizes = self.main_splitter.sizes()
         if len(sizes) < 3:
@@ -556,15 +566,35 @@ class MainWindow(QtWidgets.QMainWindow):
             self.video_player_pane.show()
 
     def collapse_preview_pane(self):
+        """Hide the video preview, but keep the right column -- and the
+        sticky inspector living inside it (design SS3.4) -- visible at a
+        narrow, usable width.
+
+        Earlier code drove `main_splitter`'s 3rd column straight to width
+        0. That was correct back when the 3rd column WAS the preview; now
+        that `right_splitter` nests `video_player_pane` and
+        `InspectorPanel` together in that column (EP3 Task 6), collapsing
+        it to 0 also hid the always-should-be-reachable inspector,
+        including its "No selection" state.
+
+        `video_player_pane.hide()` runs before the width is computed so
+        the floor below reflects the column's real minimum once the
+        preview is gone, not the still-visible video widget's (larger)
+        minimum -- otherwise `main_splitter` (which has
+        `setChildrenCollapsible(False)`) would refuse to shrink the column
+        past the video widget's own minimum size on this same call.
+        """
         sizes = self.main_splitter.sizes()
         if len(sizes) < 3:
             return
-        if sizes[2] > 0:
-            self.preview_pane_expanded_width = sizes[2]
-        sizes[1] += sizes[2]
-        sizes[2] = 0
-        self.main_splitter.setSizes(sizes)
         self.video_player_pane.hide()
+        floor = self._right_column_collapsed_width()
+        if sizes[2] > floor:
+            self.preview_pane_expanded_width = sizes[2]
+        if sizes[2] != floor:
+            sizes[1] = max(0, sizes[1] + (sizes[2] - floor))
+            sizes[2] = floor
+            self.main_splitter.setSizes(sizes)
 
     # -------------------------------------------------------------------------
     # Auth
