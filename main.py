@@ -398,6 +398,9 @@ class MainWindow(QtWidgets.QMainWindow):
         install_nuke_action = QtWidgets.QAction("Install to Nuke...", self)
         install_nuke_action.triggered.connect(self.show_nuke_installer)
         help_menu.addAction(install_nuke_action)
+        shortcut_help_action = QtWidgets.QAction("Keyboard Shortcuts", self)
+        shortcut_help_action.triggered.connect(self.open_shortcut_help)
+        help_menu.addAction(shortcut_help_action)
 
     def setup_shortcuts(self):
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+2"), self, self.toggle_history)
@@ -405,6 +408,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if _ANALYTICS_AVAILABLE:
             QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+4"), self, self.toggle_analytics)
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+K"), self, self.open_command_palette)
+        QtWidgets.QShortcut(QtGui.QKeySequence("?"), self, self.open_shortcut_help)
 
     def open_command_palette(self):
         from src.ui.command_palette import CommandPalette, harvest_actions, build_jump_targets
@@ -419,6 +423,29 @@ class MainWindow(QtWidgets.QMainWindow):
         pal.move(self.geometry().center() - pal.rect().center())
         pal.show()
         pal.search_box.setFocus()
+
+    def open_shortcut_help(self):
+        """Show the read-only keyboard-shortcut cheat sheet (design SS3.3).
+
+        Harvests every bound `QAction` shortcut from the live menu bar,
+        grouped by the menu it lives under, and appends a short static
+        block for the EP3 keys that aren't backed by a `QAction` (raw
+        `QShortcut`s and overlay-local key handling): the command palette
+        (open + in-palette navigation/run), quicklook (open + prev/next),
+        and this dialog's own Esc-to-close / `?`-to-open.
+        """
+        from src.ui.shortcut_help_overlay import ShortcutHelpOverlay, collect_shortcuts_grouped
+        pairs = collect_shortcuts_grouped(self.menuBar())
+        pairs += [
+            ("Shortcuts", "Command palette", "Ctrl+K"),
+            ("Shortcuts", "Move selection in palette", "↑ / ↓"),
+            ("Shortcuts", "Run selected command", "Enter"),
+            ("Shortcuts", "Quicklook selected element", "Space"),
+            ("Shortcuts", "Quicklook previous / next element", "← / →"),
+            ("Shortcuts", "Close quicklook / palette / this dialog", "Esc"),
+            ("Shortcuts", "Keyboard shortcuts help", "?"),
+        ]
+        ShortcutHelpOverlay(pairs, self).exec_()
 
     # -------------------------------------------------------------------------
     # Toggle handlers
