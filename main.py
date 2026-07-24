@@ -404,6 +404,20 @@ class MainWindow(QtWidgets.QMainWindow):
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+3"), self, self.toggle_settings)
         if _ANALYTICS_AVAILABLE:
             QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+4"), self, self.toggle_analytics)
+        QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+K"), self, self.open_command_palette)
+
+    def open_command_palette(self):
+        from src.ui.command_palette import CommandPalette, harvest_actions, CommandRegistry
+        entries = harvest_actions(self.menuBar(), self.toolbar)
+        reg = CommandRegistry()
+        for stack in self.db.get_all_stacks():
+            reg.register("Go to stack: {}".format(stack["name"]),
+                         lambda s=stack: self.on_stack_selected(s["stack_id"]))
+        entries = entries + reg.entries()
+        pal = CommandPalette(entries, self)
+        pal.move(self.geometry().center() - pal.rect().center())
+        pal.show()
+        pal.search_box.setFocus()
 
     # -------------------------------------------------------------------------
     # Toggle handlers

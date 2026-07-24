@@ -3,6 +3,8 @@
 
 import difflib
 
+from PySide2 import QtWidgets, QtCore
+
 
 def harvest_actions(menu_bar, toolbar):
     """Collect leaf (label, QAction) pairs from a menu bar and toolbar."""
@@ -65,3 +67,44 @@ def fuzzy_filter(query, labels):
         scored.append((score, i))
     scored.sort(key=lambda t: (-t[0], t[1]))
     return [i for _, i in scored]
+
+
+class CommandPalette(QtWidgets.QDialog):
+    def __init__(self, entries, parent=None):
+        super(CommandPalette, self).__init__(parent)
+        self.setWindowFlags(QtCore.Qt.Popup)
+        self._entries = list(entries)   # [(label, target)]
+        layout = QtWidgets.QVBoxLayout(self)
+        self.search_box = QtWidgets.QLineEdit()
+        self.search_box.setPlaceholderText("Type a command…")
+        self.results_list = QtWidgets.QListWidget()
+        layout.addWidget(self.search_box)
+        layout.addWidget(self.results_list)
+        self.search_box.textChanged.connect(self.filter_text)
+        self.search_box.returnPressed.connect(self.run_current)
+        self.results_list.itemActivated.connect(lambda _i: self.run_current())
+        self._visible = []
+        self.filter_text("")
+        self.resize(480, 360)
+
+    def filter_text(self, text):
+        labels = [lbl for lbl, _ in self._entries]
+        order = fuzzy_filter(text, labels)
+        self.results_list.clear()
+        self._visible = []
+        for i in order:
+            self.results_list.addItem(self._entries[i][0])
+            self._visible.append(i)
+        if self.results_list.count():
+            self.results_list.setCurrentRow(0)
+
+    def run_current(self):
+        row = self.results_list.currentRow()
+        if row < 0 or row >= len(self._visible):
+            return
+        _, target = self._entries[self._visible[row]]
+        self.close()
+        if hasattr(target, "trigger"):
+            target.trigger()
+        else:
+            target()
