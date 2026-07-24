@@ -74,6 +74,11 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.chip_bar.chip_removed.connect(self._on_chip_removed)
         self.chip_bar.cleared.connect(lambda: self.apply_filter(empty_filter()))
 
+        # EP2 Task 12: seed the search box's recent-query QCompleter once,
+        # at construction. A QCompleter is a non-modal popup, so this is
+        # safe on a construction path per the repo's modal-placement rule.
+        self._install_recent_completer(self._current_user_name())
+
         # Enable mouse tracking for hover events
         self.setMouseTracking(True)
 
@@ -96,14 +101,26 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.search_box = QtWidgets.QLineEdit()
         self.search_box.setPlaceholderText("Search elements... (use #tag or tag:fire for tag filtering)")
         self.search_box.textChanged.connect(self.on_search)
+        # EP2 Task 12: record a *committed* search (Enter), never a
+        # per-keystroke one -- see _on_search_committed's docstring.
+        self.search_box.returnPressed.connect(self._on_search_committed)
         search_layout.addWidget(self.search_box)
-        
+
         # Search hint label
         self.search_hint_label = QtWidgets.QLabel()
         self.search_hint_label.setStyleSheet("color: #888888; font-size: 10px; font-style: italic;")
         self.search_hint_label.hide()  # Hidden by default
         search_layout.addWidget(self.search_hint_label)
-        
+
+        # EP2 Task 12: "did you mean" suggestion. Hidden by default, same
+        # as search_hint_label above; run_text_search shows it when a
+        # cross-list text search matches nothing but suggest_correction
+        # finds a close vocabulary term.
+        self.did_you_mean_label = QtWidgets.QLabel()
+        self.did_you_mean_label.setStyleSheet("color: #cc9944; font-size: 10px; font-style: italic;")
+        self.did_you_mean_label.hide()  # Hidden by default
+        search_layout.addWidget(self.did_you_mean_label)
+
         toolbar.addWidget(search_container, 1)  # Give it stretch priority
 
         # Save current search/filter as a personal saved search (EP2 Task 9).
@@ -611,6 +628,65 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         else:
             self.content_stack.setCurrentIndex(1)
 
+    def run_text_search(self, text):
+        """EP2 Task 12: cross-list, synonym-expanded text search.
+
+        This is a *separate* entry point from `on_search` (the per-list
+        live filter below) -- not the plain-text branch of it. `on_search`
+        early-returns unless `current_list_id` is set and is the per-list
+        browse filter Task 6's regression test
+        (`test_clear_filters_after_zero_match_search_stays_in_same_list`)
+        depends on staying scoped to the current list. `run_text_search`
+        goes through `apply_filter`, which always clears `current_list_id`
+        (it is the cross-list search/facet entry point) -- rerouting
+        `on_search`'s plain-text path into this one would eject a per-list
+        search into the cross-list view on every keystroke and break that
+        test. So the two stay separate: `on_search` keeps its existing
+        per-list behavior untouched, and this is the cross-list path
+        invoked deliberately (directly, not via a live keystroke signal).
+
+        Synonym-expands `text` into `tags_any` as an OR assist alongside
+        the literal `text` clause, applies the resulting FilterSpec via
+        `apply_filter` (EP2 Task 6), and -- if that yields zero matches --
+        shows a `suggest_correction` "did you mean" hint beneath the
+        search box (EP2 Task 12).
+
+        Also records the query for the recent-query completer -- this is
+        a deliberate, one-shot call site (unlike `on_search`'s per-
+        keystroke `textChanged` signal), so no extra debounce is needed
+        here; see `_on_search_committed` for the guard `on_search`'s own
+        path uses.
+        """
+        stripped = (text or "").strip()
+        if stripped:
+            try:
+                self.db.add_recent_search(self._current_user_name(), stripped)
+            except Exception:
+                logger.exception("failed to record recent search for %r", stripped)
+
+        from filter_spec import empty_filter
+
+        spec = empty_filter()
+        spec["text"] = text
+        # Synonym-expand into tags_any as an OR assist; expansion failures
+        # (e.g. a transient DB error) must not block the search itself.
+        try:
+            spec["tags_any"] = self.db.expand_terms(text)
+        except Exception:
+            logger.exception("term expansion failed for %r", text)
+
+        self.apply_filter(spec)
+        count = self.db.count_elements_advanced(spec)
+
+        if count == 0:
+            suggestion = self.db.suggest_correction(text)
+            if suggestion:
+                self.did_you_mean_label.setText(
+                    "Did you mean <b>{}</b>?".format(suggestion))
+                self.did_you_mean_label.setVisible(True)
+                return
+        self.did_you_mean_label.setVisible(False)
+
     def _on_chip_removed(self, key, value):
         """Strip one clause value from the active filter and re-apply it.
 
@@ -638,6 +714,26 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             if user:
                 return user.get('username', 'guest')
         return 'guest'
+
+    def _install_recent_completer(self, user_name):
+        """EP2 Task 12: seed a QCompleter on the search box from this
+        user's recent searches (most-recent-first).
+
+        Called once, from `__init__`, after `setup_ui` has built
+        `self.search_box`. A `QCompleter` is a plain, non-modal popup --
+        safe on a construction path per the repo's modal-placement rule.
+        Works fine with an empty recents list (a brand-new user/db): an
+        empty-string-list QCompleter simply never offers a suggestion,
+        it does not raise.
+        """
+        try:
+            recents = self.db.get_recent_searches(user_name)
+        except Exception:
+            logger.exception("failed to load recent searches for %r", user_name)
+            recents = []
+        completer = QtWidgets.QCompleter(recents, self.search_box)
+        completer.setCaseSensitivity(QtCore.Qt.CaseInsensitive)
+        self.search_box.setCompleter(completer)
 
     def _on_save_search_clicked(self):
         """Prompt for a name and persist the active FilterSpec as a personal
@@ -715,7 +811,14 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self._update_views_with_elements(elements)
 
     def on_search(self, text):
-        """Handle search text change (live filter) with tag support and pagination."""
+        """Handle search text change (live filter) with tag support and pagination.
+
+        EP2 Task 12: intentionally left as the per-list live filter it
+        already was, not rerouted into the cross-list `run_text_search` --
+        see `run_text_search`'s docstring for why. Recent-search recording
+        for this box lives in `_on_search_committed` (returnPressed),
+        deliberately not here, since this method runs on every keystroke.
+        """
         if not self.current_list_id:
             return
         
@@ -784,8 +887,26 @@ class MediaDisplayWidget(QtWidgets.QWidget):
 
         # Display current page
         self._display_current_page()
-    
-    
+
+    def _on_search_committed(self):
+        """EP2 Task 12: record the search box's current text as a recent
+        search, once, on an explicit commit (Enter/returnPressed).
+
+        Deliberately NOT wired to `search_box.textChanged`/`on_search` --
+        that fires on every keystroke, which would record every partial
+        prefix ("f", "fi", "fir", "fire") instead of the query the user
+        actually meant. `#tag`/`tag:` queries are skipped since those are
+        the tag fast paths, not the free-text queries the "did you mean"/
+        recent-completer feature targets.
+        """
+        text = self.search_box.text().strip()
+        if not text or text.startswith('#') or 'tag:' in text.lower():
+            return
+        try:
+            self.db.add_recent_search(self._current_user_name(), text)
+        except Exception:
+            logger.exception("failed to record recent search for %r", text)
+
     def _update_views_with_elements(self, elements):
         """Update gallery and table views with given elements."""
         self.stop_current_gif()
