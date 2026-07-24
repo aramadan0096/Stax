@@ -59,6 +59,9 @@ class SettingsPanel(QtWidgets.QWidget):
         # Tab 7: Labels (EP1 curation palette)
         self.tab_widget.addTab(self._build_labels_tab(), "Labels")
 
+        # Tab 8: Search (EP2 synonyms + smart collections)
+        self.tab_widget.addTab(self._build_search_tab(), "Search")
+
         layout.addWidget(self.tab_widget)
         
         # Bottom buttons
@@ -769,6 +772,125 @@ class SettingsPanel(QtWidgets.QWidget):
         if row < len(labels):
             self.db.delete_label(labels[row]["label_id"])
             self._reload_labels()
+            self.settings_changed.emit()
+
+    def _build_search_tab(self):
+        """Build the Search tab: read-only synonym/smart-collection lists,
+        admin-gated Add/Delete controls."""
+        tab = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(tab)
+
+        layout.addWidget(QtWidgets.QLabel("Synonyms (term → group)"))
+        self.synonyms_table = QtWidgets.QTableWidget(0, 2)
+        self.synonyms_table.setHorizontalHeaderLabels(["Term", "Group"])
+        self.synonyms_table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.synonyms_table)
+
+        syn_controls = QtWidgets.QHBoxLayout()
+        self.add_synonym_button = QtWidgets.QPushButton("Add…")
+        self.delete_synonym_button = QtWidgets.QPushButton("Delete")
+        syn_controls.addWidget(self.add_synonym_button)
+        syn_controls.addWidget(self.delete_synonym_button)
+        layout.addLayout(syn_controls)
+
+        layout.addWidget(QtWidgets.QLabel("Smart Collections"))
+        self.collections_table = QtWidgets.QTableWidget(0, 1)
+        self.collections_table.setHorizontalHeaderLabels(["Name"])
+        self.collections_table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.collections_table)
+
+        col_controls = QtWidgets.QHBoxLayout()
+        self.delete_collection_button = QtWidgets.QPushButton("Delete collection")
+        col_controls.addWidget(self.delete_collection_button)
+        layout.addLayout(col_controls)
+
+        self.add_synonym_button.clicked.connect(self._on_add_synonym)
+        self.delete_synonym_button.clicked.connect(self._on_delete_synonym)
+        self.delete_collection_button.clicked.connect(self._on_delete_collection)
+
+        # State query only — must NOT call check_admin_permission() here, which
+        # prompts (login/permission-denied dialogs) and would block widget
+        # construction. Read the flag directly, as _build_labels_tab does.
+        is_admin = bool(getattr(self.main_window, 'is_admin', False))
+        for b in (self.add_synonym_button, self.delete_synonym_button, self.delete_collection_button):
+            b.setEnabled(is_admin)
+
+        self._reload_synonyms()
+        self._reload_collections()
+        return tab
+
+    def _reload_synonyms(self):
+        """Repopulate synonyms_table from the DB's current synonym list."""
+        syns = self.db.get_synonyms()
+        self.synonyms_table.setRowCount(len(syns))
+        for row, s in enumerate(syns):
+            self.synonyms_table.setItem(row, 0, QtWidgets.QTableWidgetItem(s["term"]))
+            self.synonyms_table.setItem(row, 1, QtWidgets.QTableWidgetItem(s["group_key"]))
+
+    def _reload_collections(self):
+        """Repopulate collections_table from the DB's current smart collections."""
+        cols = self.db.get_smart_collections()
+        self.collections_table.setRowCount(len(cols))
+        for row, c in enumerate(cols):
+            self.collections_table.setItem(row, 0, QtWidgets.QTableWidgetItem(c["name"]))
+
+    def _add_synonym_row(self, term, group_key):
+        """Create a synonym, refresh the table, and notify listeners."""
+        self.db.add_synonym(term, group_key)
+        self._reload_synonyms()
+        self.settings_changed.emit()
+
+    def _on_add_synonym(self):
+        """Prompt for a term and group key, then add the synonym.
+
+        Button is already gated for non-admins, but this is a real user action
+        (they clicked), so re-check with check_admin_permission — which may
+        prompt for login/permission — as the actual authorization gate.
+        """
+        if self.main_window and not self.main_window.check_admin_permission("add a synonym"):
+            return
+        term, ok = QtWidgets.QInputDialog.getText(self, "New synonym", "Term:")
+        if not ok or not term:
+            return
+        group, ok2 = QtWidgets.QInputDialog.getText(self, "New synonym", "Group key:")
+        if not ok2 or not group:
+            return
+        self._add_synonym_row(term, group)
+
+    def _on_delete_synonym(self):
+        """Delete the selected synonym row, if any.
+
+        Button is already gated for non-admins, but this is a real user action
+        (they clicked), so re-check with check_admin_permission as the actual
+        authorization gate.
+        """
+        if self.main_window and not self.main_window.check_admin_permission("delete a synonym"):
+            return
+        row = self.synonyms_table.currentRow()
+        if row < 0:
+            return
+        syns = self.db.get_synonyms()
+        if row < len(syns):
+            self.db.delete_synonym(syns[row]["synonym_id"])
+            self._reload_synonyms()
+            self.settings_changed.emit()
+
+    def _on_delete_collection(self):
+        """Delete the selected smart collection row, if any.
+
+        Button is already gated for non-admins, but this is a real user action
+        (they clicked), so re-check with check_admin_permission as the actual
+        authorization gate.
+        """
+        if self.main_window and not self.main_window.check_admin_permission("delete a smart collection"):
+            return
+        row = self.collections_table.currentRow()
+        if row < 0:
+            return
+        cols = self.db.get_smart_collections()
+        if row < len(cols):
+            self.db.delete_smart_collection(cols[row]["collection_id"])
+            self._reload_collections()
             self.settings_changed.emit()
 
     def browse_database_path(self):
