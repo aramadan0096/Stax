@@ -112,6 +112,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._stored_left_width = None
         self.active_view = ("none", None)
+        self._current_list_id = None
         self._view_before_tags = None
         self._suspend_tag_restore = False
         self.current_user = None
@@ -452,6 +453,12 @@ class MainWindow(QtWidgets.QMainWindow):
             analytics_view_action.setCheckable(True)
             analytics_view_action.triggered.connect(self.toggle_analytics)
             view_menu.addAction(analytics_view_action)
+        health_view_action = QtWidgets.QAction("Health Panel", self)
+        health_view_action.setShortcut("Ctrl+5")
+        health_view_action.setCheckable(True)
+        health_view_action.triggered.connect(self.toggle_health)
+        view_menu.addAction(health_view_action)
+        self.health_view_action = health_view_action
 
         layout_menu = view_menu.addMenu("Layout")
         for preset_name in preset_names():
@@ -485,6 +492,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def setup_shortcuts(self):
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+2"), self, self.toggle_history)
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+3"), self, self.toggle_settings)
+        QtWidgets.QShortcut(
+            QtGui.QKeySequence("Ctrl+5"), self,
+            lambda: self.toggle_health(not self.health_dock.isVisible())
+        )
         if _ANALYTICS_AVAILABLE:
             QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+4"), self, self.toggle_analytics)
         QtWidgets.QShortcut(QtGui.QKeySequence("Ctrl+K"), self, self.open_command_palette)
@@ -570,6 +581,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.history_dock.setVisible(visible)
         if visible:
             self.history_panel.load_history()
+
+    def toggle_health(self, visible):
+        self.health_dock.setVisible(visible)
+        self.health_view_action.setChecked(visible)
+        if visible and self._current_list_id is not None:
+            self.health_panel.load_list(self._current_list_id)
 
     def toggle_settings(self):
         if not self.current_user:
@@ -773,7 +790,9 @@ class MainWindow(QtWidgets.QMainWindow):
             stack = self.db.get_stack_by_id(lst["stack_fk"])
             if stack:
                 self.statusBar().showMessage("Viewing: {} > {}".format(stack["name"], lst["name"]))
-        self.health_panel.load_list(list_id)
+        self._current_list_id = list_id
+        if self.health_dock.isVisible():
+            self.health_panel.load_list(list_id)
         self.active_view = ("list", list_id)
         self._view_before_tags = None
 
