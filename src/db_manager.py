@@ -2578,17 +2578,17 @@ class DatabaseManager(object):
                 (scope_type, scope_id, field_key, value))
 
     def _list_ancestry(self, list_id, conn):
-        """Return [list_id, parent, grandparent, ...] nearest-first."""
-        chain, cur_id = [], list_id
+        """Return ([list_id, parent, grandparent, ...] nearest-first, stack_fk)."""
+        chain, cur_id, stack_fk = [], list_id, None
         while cur_id is not None:
             row = conn.execute("SELECT list_id, parent_list_fk, stack_fk FROM lists WHERE list_id = ?",
                                (cur_id,)).fetchone()
             if not row:
                 break
             chain.append(row["list_id"])
-            self._last_stack_fk = row["stack_fk"]
+            stack_fk = row["stack_fk"]
             cur_id = row["parent_list_fk"]
-        return chain
+        return chain, stack_fk
 
     def get_effective_metadata(self, element_id):
         with self.get_connection(write=False) as conn:
@@ -2596,8 +2596,7 @@ class DatabaseManager(object):
                               (element_id,)).fetchone()
             if not el:
                 return {}
-            list_chain = self._list_ancestry(el["list_fk"], conn)
-            stack_fk = getattr(self, "_last_stack_fk", None)
+            list_chain, stack_fk = self._list_ancestry(el["list_fk"], conn)
             fields = conn.execute("SELECT key FROM metadata_fields WHERE stack_fk = ?",
                                   (stack_fk,)).fetchall()
             overrides = {r[0]: r[1] for r in conn.execute(
