@@ -2551,4 +2551,78 @@ class DatabaseManager(object):
                 cur.execute("DELETE FROM element_metadata WHERE field_key = ?", (row[0],))
             cur.execute("DELETE FROM metadata_fields WHERE field_id = ?", (field_id,))
 
+    # ======================
+    # METADATA VALUES + INHERITANCE (EP4)
+    # ======================
+
+    def set_element_metadata(self, element_id, field_key, value):
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "INSERT INTO element_metadata (element_fk, field_key, value) VALUES (?, ?, ?) "
+                "ON CONFLICT(element_fk, field_key) DO UPDATE SET value = excluded.value",
+                (element_id, field_key, value if value is None else str(value)))
+
+    def get_element_metadata(self, element_id):
+        with self.get_connection(write=False) as conn:
+            rows = conn.execute(
+                "SELECT field_key, value FROM element_metadata WHERE element_fk = ?",
+                (element_id,)).fetchall()
+            return {r[0]: r[1] for r in rows}
+
+    def set_metadata_default(self, scope_type, scope_id, field_key, value):
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "INSERT INTO metadata_defaults (scope_type, scope_id, field_key, value) "
+                "VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(scope_type, scope_id, field_key) DO UPDATE SET value = excluded.value",
+                (scope_type, scope_id, field_key, value))
+
+    def _list_ancestry(self, list_id, conn):
+        """Return [list_id, parent, grandparent, ...] nearest-first."""
+        chain, cur_id = [], list_id
+        while cur_id is not None:
+            row = conn.execute("SELECT list_id, parent_list_fk, stack_fk FROM lists WHERE list_id = ?",
+                               (cur_id,)).fetchone()
+            if not row:
+                break
+            chain.append(row["list_id"])
+            self._last_stack_fk = row["stack_fk"]
+            cur_id = row["parent_list_fk"]
+        return chain
+
+    def get_effective_metadata(self, element_id):
+        with self.get_connection(write=False) as conn:
+            el = conn.execute("SELECT list_fk FROM elements WHERE element_id = ?",
+                              (element_id,)).fetchone()
+            if not el:
+                return {}
+            list_chain = self._list_ancestry(el["list_fk"], conn)
+            stack_fk = getattr(self, "_last_stack_fk", None)
+            fields = conn.execute("SELECT key FROM metadata_fields WHERE stack_fk = ?",
+                                  (stack_fk,)).fetchall()
+            overrides = {r[0]: r[1] for r in conn.execute(
+                "SELECT field_key, value FROM element_metadata WHERE element_fk = ?",
+                (element_id,)).fetchall()}
+            result = {}
+            for f in fields:
+                key = f[0]
+                if key in overrides:
+                    result[key] = overrides[key]
+                    continue
+                val = None
+                for lid in list_chain:   # nearest list first
+                    row = conn.execute(
+                        "SELECT value FROM metadata_defaults WHERE scope_type='list' "
+                        "AND scope_id=? AND field_key=?", (lid, key)).fetchone()
+                    if row:
+                        val = row[0]; break
+                if val is None:
+                    row = conn.execute(
+                        "SELECT value FROM metadata_defaults WHERE scope_type='stack' "
+                        "AND scope_id=? AND field_key=?", (stack_fk, key)).fetchone()
+                    if row:
+                        val = row[0]
+                result[key] = val
+            return result
+
 
