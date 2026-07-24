@@ -38,3 +38,26 @@ def test_empty_state_library_has_ingest_action(qtbot, stax_db, stax_config):
     w, mw = _make_widget(qtbot, stax_db, stax_config)
     w._show_empty_state("library")
     assert w.current_empty_state.primary_button.text().lower().startswith("ingest")
+
+
+@pytest.mark.gui
+def test_tag_zero_match_resets_stale_empty_page(qtbot, stax_db, stax_config):
+    """Fix 1 regression: a zero-match tag filter must reset the nested
+    empty-page stack to the legacy page, not leave a previously-installed
+    EP1 page (e.g. from an earlier search) stuck on screen.
+
+    Asserting on content_stack.currentIndex() alone would pass vacuously
+    (it's 0 in both the buggy and fixed behaviour); the real bug is which
+    widget is current on the *nested* _empty_page_stack.
+    """
+    w, mw = _make_widget(qtbot, stax_db, stax_config)
+
+    # Install an EP1 empty page (as a prior search-with-no-matches would).
+    w._show_empty_state("search", query="zzz")
+    assert w._empty_page_stack.currentWidget() is w.current_empty_state
+
+    # Drive the zero-match load_elements_by_tags path.
+    w.load_elements_by_tags(["nonexistent_tag_zzz"])
+
+    assert w.content_stack.currentIndex() == 0
+    assert w._empty_page_stack.currentWidget() is w.empty_state_widget

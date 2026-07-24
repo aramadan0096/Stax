@@ -596,9 +596,15 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             stack = self.db.get_stack_by_id(stack_id)
             if stack:
-                self.media_display.info_label.setText("No elements in stack '{}'".format(stack["name"]))
-                self.media_display.hint_label.setText("Add lists and elements to this stack")
-                self.media_display.content_stack.setCurrentIndex(0)
+                # Route through the widget's own public entry point so the
+                # nested empty-page stack is actually reset to the legacy
+                # page (a bare content_stack.setCurrentIndex(0) only flips
+                # the outer index and can leave a stale EP1 empty page --
+                # e.g. from a prior search or tag filter -- on screen).
+                self.media_display.show_empty_state(
+                    "No elements in stack '{}'".format(stack["name"]),
+                    "Add lists and elements to this stack",
+                )
         self.media_display._display_current_page()
         stack = self.db.get_stack_by_id(stack_id)
         if stack:

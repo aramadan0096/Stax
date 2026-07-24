@@ -519,7 +519,6 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             self._show_empty_state("library")
         else:
             self._set_empty_page_widget(self.empty_state_widget)
-            self.content_stack.setCurrentIndex(0)
 
 
 
@@ -541,7 +540,11 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         else:
             self.info_label.setText("No elements found for tags: {}".format(', '.join(cleaned_tags)))
             self.hint_label.setText("Try selecting different tags or add elements with these tags")
-            self.content_stack.setCurrentIndex(0)  # Show empty state
+            # Route through the legacy page explicitly: a bare
+            # setCurrentIndex(0) only flips the outer content_stack index
+            # and would leave a previously-installed EP1 empty page (e.g.
+            # from a prior search) visible on the nested _empty_page_stack.
+            self._set_empty_page_widget(self.empty_state_widget)  # Show empty state
 
         self._update_views_with_elements(elements)
 
@@ -1475,7 +1478,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         actions = {}
         actions['fav'] = menu.addAction(get_icon('favorite', size=16), "Add All to Favorites")
         actions['playlist'] = menu.addAction(get_icon('playlist', size=16), "Add All to Playlist...")
-        actions['tag'] = menu.addAction(get_icon('add', size=16), "Add Tag to All…")
+        actions['tag'] = menu.addAction(get_icon('add', size=16), "Add Tag to All...")
         actions['edit'] = menu.addAction(get_icon('edit', size=16), "Batch Edit Metadata...")
 
         menu.addSeparator()
