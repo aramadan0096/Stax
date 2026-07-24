@@ -671,7 +671,11 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             label_item.setFlags(label_item.flags() & ~QtCore.Qt.ItemIsEditable)
             label_fk = element.get('label_fk')
             if label_fk:
+                name = self._label_name(label_fk)
                 color = self._label_color(label_fk)
+                if name:
+                    label_item.setToolTip(name)
+                    label_item.setData(QtCore.Qt.AccessibleTextRole, name)
                 if color:
                     label_item.setBackground(QtGui.QBrush(QtGui.QColor(color)))
             self.table_view.setItem(row, 7, label_item)
@@ -861,13 +865,28 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             painter.end()
         return result
 
-    def _label_color(self, label_fk):
-        """Resolve a label_fk to its color_hex (cached per refresh)."""
+    def _label_lookup(self):
+        """Lazily build (and cache) a label_id -> label-dict map.
+
+        Shared by `_label_color` and `_label_name` so both resolve from a
+        single `get_labels()` round-trip; `quick_set_label` invalidates this
+        same `_label_color_cache` attribute to force a re-resolve.
+        """
         cache = getattr(self, "_label_color_cache", None)
         if cache is None:
-            cache = {l["label_id"]: l["color_hex"] for l in self.db.get_labels()}
+            cache = {l["label_id"]: l for l in self.db.get_labels()}
             self._label_color_cache = cache
-        return cache.get(label_fk)
+        return cache
+
+    def _label_color(self, label_fk):
+        """Resolve a label_fk to its color_hex (cached per refresh)."""
+        label = self._label_lookup().get(label_fk)
+        return label["color_hex"] if label else None
+
+    def _label_name(self, label_fk):
+        """Resolve a label_fk to its display name (cached per refresh)."""
+        label = self._label_lookup().get(label_fk)
+        return label["name"] if label else None
 
     @staticmethod
     def _rating_cell_text(rating):
