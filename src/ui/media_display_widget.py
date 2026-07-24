@@ -969,9 +969,26 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                     has_gif = False
 
             if not has_gif:
-                # Defer decode to the lazy loader; show the type fallback now.
-                item.setIcon(self._get_default_icon_for_type(element.get('type'), icon_size))
-                item.setData(QtCore.Qt.UserRole + 1, element)
+                # EP3 Task 7 skeleton placement rule: a neutral skeleton is
+                # shown ONLY while a preview is genuinely pending -- no GIF
+                # and no preview file on disk yet (design SS3.5's "SP2's
+                # async worker hasn't emitted preview_ready" case). If a
+                # preview file already exists, it's merely awaiting lazy
+                # decode, so the existing type-fallback + stash-for-
+                # _lazy_load_gallery_item behaviour is unchanged; replacing
+                # that with a skeleton would throw away the 2D/3D/Toolset
+                # type hint for every such item, a regression.
+                preview_path = self._resolve_path(element.get('preview_path'))
+                has_preview_file = bool(preview_path and os.path.exists(preview_path))
+                if has_preview_file:
+                    # Defer decode to the lazy loader; show the type fallback now.
+                    item.setIcon(self._get_default_icon_for_type(element.get('type'), icon_size))
+                    item.setData(QtCore.Qt.UserRole + 1, element)
+                else:
+                    # Nothing on disk to decode yet -- on_preview_ready
+                    # (fired later by SP2's async PreviewWorker) is what
+                    # replaces this icon with the real thumbnail.
+                    item.setIcon(QtGui.QIcon(self._skeleton_pixmap(icon_size)))
 
             self.gallery_view.addItem(item)
 
@@ -1082,6 +1099,27 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 thumbnail = self._apply_status_badges(thumbnail, element_id, element)
             return thumbnail
         return None
+
+    def _skeleton_pixmap(self, size):
+        """Neutral placeholder tile for an item whose preview generation is
+        still pending (EP3 Task 7 / design SS3.5).
+
+        Follows `_build_fixed_thumbnail`'s dual int/QSize idiom since
+        callers pass either a raw pixel size or `self.gallery_view.iconSize()`
+        (a QSize).
+        """
+        if isinstance(size, QtCore.QSize):
+            edge = max(size.width(), size.height())
+        else:
+            edge = int(size)
+        edge = max(1, edge)
+        pixmap = QtGui.QPixmap(edge, edge)
+        pixmap.fill(QtGui.QColor('#26282b'))
+        painter = QtGui.QPainter(pixmap)
+        painter.setPen(QtGui.QColor('#3a3d41'))
+        painter.drawRect(0, 0, edge - 1, edge - 1)
+        painter.end()
+        return pixmap
 
     def _build_fixed_thumbnail(self, pixmap, size):
         """Center a preview inside a square background for consistent thumbnails."""
@@ -2019,16 +2057,48 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         None) if the result set is empty or nothing is selected."""
         return self._move_selection(-1)
 
+    def _active_scroll_view(self):
+        """Return whichever of gallery_view/table_view is currently shown,
+        per self.view_mode."""
+        return self.gallery_view if self.view_mode == 'gallery' else self.table_view
+
+    def capture_scroll(self):
+        """Remember the currently active view's vertical scroll position
+        before a quicklook/detail transition disrupts it (EP3 Task 7,
+        design SS3.5: "capture the gallery/table scrollbar position before
+        opening quicklook ... and restore it on return").
+
+        Mode-aware rather than gallery-only: quicklook's Space trigger is
+        wired on both gallery_view and table_view (see eventFilter), and
+        next/prev navigation's _select_element_in_view scrollToItem()s
+        whichever view is currently active. Capturing gallery_view
+        unconditionally would silently do nothing while browsing in
+        table/list mode.
+        """
+        bar = self._active_scroll_view().verticalScrollBar()
+        self._saved_scroll = bar.value() if bar is not None else 0
+
+    def restore_scroll(self):
+        """Restore the vertical scroll position captured by capture_scroll()."""
+        bar = self._active_scroll_view().verticalScrollBar()
+        if bar is not None:
+            bar.setValue(getattr(self, "_saved_scroll", 0))
+
     def _open_quicklook(self):
         """Open the spacebar quicklook overlay for the current view's
         selection. No-op if nothing is selected."""
         element = self._get_selected_element()
         if not element:
             return
+        self.capture_scroll()
         from ui.quicklook_overlay import QuickLookOverlay
         self._quicklook = QuickLookOverlay(self)
         self._quicklook.next_requested.connect(self._quicklook_show_next)
         self._quicklook.prev_requested.connect(self._quicklook_show_previous)
+        # QuickLookOverlay is WA_DeleteOnClose (Space/Esc call close()),
+        # so `destroyed` fires exactly once per quicklook session -- the
+        # natural hook for restoring the scroll position "on return".
+        self._quicklook.destroyed.connect(self.restore_scroll)
         preview_path, preview_kind = self._resolve_element_preview(element)
         self._quicklook.show_element(element, preview_path, preview_kind)
 
