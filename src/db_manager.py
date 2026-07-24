@@ -1161,6 +1161,42 @@ class DatabaseManager(object):
         with self.get_connection(write=False) as conn:
             return conn.execute(sql, params).fetchone()[0]
 
+    def _facet_count_query(self, filter_spec, drop_key, group_col):
+        """Count rows grouped by group_col, applying the filter minus drop_key."""
+        spec = normalize(filter_spec)
+        # zero-out the facet's own clause so counts reflect siblings only
+        if drop_key:
+            spec = dict(spec)
+            spec[drop_key] = [] if isinstance(spec[drop_key], list) else (0 if drop_key == "rating_min" else None)
+        where, params = self._build_filter_where(spec)
+        sql = "SELECT {c}, COUNT(*) FROM elements WHERE {w} GROUP BY {c}".format(c=group_col, w=where)
+        with self.get_connection(write=False) as conn:
+            return {row[0]: row[1] for row in conn.execute(sql, params).fetchall() if row[0] is not None}
+
+    def get_facet_counts(self, filter_spec):
+        counts = {
+            "type":   self._facet_count_query(filter_spec, "types", "type"),
+            "format": self._facet_count_query(filter_spec, "formats", "format"),
+            "rating": self._facet_count_query(filter_spec, "rating_min", "rating"),
+            "label":  self._facet_count_query(filter_spec, "label_fks", "label_fk"),
+            "status": {},
+        }
+        # status: deprecated / hard-copy tallies against the full active filter
+        where, params = self._build_filter_where(filter_spec)
+        with self.get_connection(write=False) as conn:
+            dep = conn.execute(
+                "SELECT is_deprecated, COUNT(*) FROM elements WHERE {} GROUP BY is_deprecated".format(where),
+                params).fetchall()
+            counts["status"] = {("deprecated" if k else "active"): v for k, v in dep}
+        # tag facet: parse comma-joined tags of the filtered set
+        rows = self.search_elements_advanced(filter_spec)
+        tag_counts = {}
+        for r in rows:
+            for t in [x.strip() for x in (r.get("tags") or "").split(",") if x.strip()]:
+                tag_counts[t] = tag_counts.get(t, 0) + 1
+        counts["tag"] = tag_counts
+        return counts
+
     # ======================
     # FAVORITES OPERATIONS
     # ======================
