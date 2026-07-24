@@ -606,7 +606,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                     pixmap = movie.currentPixmap()
                     if not pixmap.isNull():
                         thumbnail = self._build_fixed_thumbnail(pixmap, icon_size)
-                        thumbnail = self._apply_status_badges(thumbnail, element_id)
+                        thumbnail = self._apply_status_badges(thumbnail, element_id, element)
                         item.setIcon(QtGui.QIcon(thumbnail))
                 else:
                     has_gif = False
@@ -705,7 +705,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             element_id = element.get('element_id')
             thumbnail = self._build_fixed_thumbnail(cached_pixmap, icon_size)
             if element_id:
-                thumbnail = self._apply_status_badges(thumbnail, element_id)
+                thumbnail = self._apply_status_badges(thumbnail, element_id, element)
             return thumbnail
         return None
 
@@ -779,11 +779,11 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         thumbnail = self._build_fixed_thumbnail(pixmap, size)
         return QtGui.QIcon(thumbnail)
 
-    def _apply_status_badges(self, pixmap, element_id):
+    def _apply_status_badges(self, pixmap, element_id, element=None):
         """Overlay favorite/deprecated badges onto a pixmap."""
         # EP1: overlay rating stars + label chip first so every return path
         # below (no flags / no overlays / flags present) carries it.
-        pixmap = self._draw_curation_badges(pixmap, element_id)
+        pixmap = self._draw_curation_badges(pixmap, element_id, element)
 
         flags = self.element_flags.get(element_id)
         if not flags:
@@ -816,16 +816,19 @@ class MediaDisplayWidget(QtWidgets.QWidget):
 
         return result
 
-    def _draw_curation_badges(self, pixmap, element_id):
+    def _draw_curation_badges(self, pixmap, element_id, element=None):
         """Overlay a star strip and a label color-chip onto a thumbnail."""
         result = QtGui.QPixmap(pixmap)
         if element_id is None:
             return result
-        try:
-            el = self.db.get_element_by_id(element_id) or {}
-        except Exception:
-            logger.exception("failed reading curation state for %s", element_id)
-            return result
+        if element is not None:
+            el = element
+        else:
+            try:
+                el = self.db.get_element_by_id(element_id) or {}
+            except Exception:
+                logger.exception("failed reading curation state for %s", element_id)
+                return result
         rating = el.get("rating", 0) or 0
         label_fk = el.get("label_fk")
 

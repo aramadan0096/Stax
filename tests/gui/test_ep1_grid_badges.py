@@ -30,3 +30,5 @@ def test_draw_curation_badges_returns_pixmap(qtbot, stax_db, stax_config):
     px.fill()
     out = w._draw_curation_badges(px, element_id=None)
     assert isinstance(out, QtGui.QPixmap)
+    assert out.size() == px.size()
+    assert out.toImage() == px.toImage()
