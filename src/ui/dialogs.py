@@ -668,10 +668,34 @@ class EditElementDialog(QtWidgets.QDialog):
         # Form layout for fields
         form = QtWidgets.QFormLayout()
         
-        # Name (read-only for display)
-        self.name_label = QtWidgets.QLabel(self.element_data['name'])
-        self.name_label.setStyleSheet("font-weight: bold; color: #ffffff;")
-        form.addRow("Name:", self.name_label)
+        # Name (editable — EP4 naming assistant offers a non-blocking suggestion
+        # when the name doesn't match the stack's naming-convention quality rule)
+        name_container = QtWidgets.QWidget()
+        name_layout = QtWidgets.QVBoxLayout(name_container)
+        name_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.name_edit = QtWidgets.QLineEdit(self.element_data['name'])
+        self.name_edit.setStyleSheet("font-weight: bold; color: #ffffff;")
+        self.name_edit.textChanged.connect(self._check_naming)
+        name_layout.addWidget(self.name_edit)
+
+        self.name_warning_widget = QtWidgets.QWidget()
+        name_warning_layout = QtWidgets.QHBoxLayout(self.name_warning_widget)
+        name_warning_layout.setContentsMargins(0, 0, 0, 0)
+        self.name_warning_label = QtWidgets.QLabel()
+        self.name_warning_label.setStyleSheet("color: #ff9a3c; font-size: 10px; font-style: italic;")
+        self.name_warning_label.setWordWrap(True)
+        self.name_apply_suggestion_btn = QtWidgets.QPushButton("Apply suggestion")
+        self.name_apply_suggestion_btn.setObjectName('small')
+        self.name_apply_suggestion_btn.setProperty('class', 'small')
+        self.name_apply_suggestion_btn.clicked.connect(self._apply_name_suggestion)
+        name_warning_layout.addWidget(self.name_warning_label, 1)
+        name_warning_layout.addWidget(self.name_apply_suggestion_btn)
+        self.name_warning_widget.hide()
+        name_layout.addWidget(self.name_warning_widget)
+
+        self._name_suggestion = None
+        form.addRow("Name:", name_container)
         
         # Type (read-only)
         self.type_label = QtWidgets.QLabel(self.element_data['type'])
@@ -733,7 +757,7 @@ class EditElementDialog(QtWidgets.QDialog):
         layout.addWidget(self.custom_fields_widget)
         
         # Info label
-        info_label = QtWidgets.QLabel("Note: Name, type, and format cannot be changed after ingestion.")
+        info_label = QtWidgets.QLabel("Note: Type and format cannot be changed after ingestion.")
         info_label.setStyleSheet("color: #888888; font-style: italic; font-size: 11px;")
         info_label.setWordWrap(True)
         layout.addWidget(info_label)
@@ -757,6 +781,10 @@ class EditElementDialog(QtWidgets.QDialog):
         if stack_fk is not None:
             self.custom_fields_widget.load(stack_fk, self.element_id)
 
+        # EP4 naming assistant -- flag an existing name that already violates
+        # the stack's naming convention, without blocking anything.
+        self._check_naming()
+
     def _resolve_stack_fk(self):
         """Resolve the owning stack_fk for this element via its list."""
         list_fk = self.element_data.get('list_fk')
@@ -764,18 +792,48 @@ class EditElementDialog(QtWidgets.QDialog):
             return None
         list_row = self.db.get_list_by_id(list_fk)
         return list_row.get('stack_fk') if list_row else None
-    
+
+    def _check_naming(self):
+        """Non-blocking naming-convention check (EP4 naming assistant).
+
+        Shows an inline warning + "Apply suggestion" button when the current
+        name text doesn't match the stack's `naming_regex` quality rule (if
+        any). Never blocks typing or saving.
+        """
+        from metadata_rules import suggest_name
+
+        stack_fk = self._resolve_stack_fk()
+        pattern = self.db.naming_pattern_for_stack(stack_fk) if stack_fk is not None else None
+        ok, suggestion = suggest_name(self.name_edit.text(), pattern)
+
+        if ok or not suggestion:
+            self._name_suggestion = None
+            self.name_warning_widget.hide()
+            return
+
+        self._name_suggestion = suggestion
+        self.name_warning_label.setText(
+            "Name doesn't match the stack's naming convention. Suggested: \"{}\"".format(suggestion))
+        self.name_warning_widget.show()
+
+    def _apply_name_suggestion(self):
+        """Apply the currently-shown naming suggestion to the name field."""
+        if self._name_suggestion:
+            self.name_edit.setText(self._name_suggestion)
+
     def save_changes(self):
         """Save changes to database."""
         try:
             # Gather updated data
+            new_name = self.name_edit.text().strip() or self.element_data['name']
             updates = {
+                'name': new_name,
                 'frame_range': self.frame_range_edit.text().strip() or None,
                 'comment': self.comment_edit.toPlainText().strip() or None,
                 'tags': self.tags_edit.text().strip() or None,
                 'is_deprecated': 1 if self.deprecated_checkbox.isChecked() else 0
             }
-            
+
             # Update database
             self.db.update_element(self.element_id, **updates)
             self.custom_fields_widget.commit(self.element_id)

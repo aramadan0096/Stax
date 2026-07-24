@@ -2736,6 +2736,15 @@ class DatabaseManager(object):
                 out.append(d)
             return out
 
+    def naming_pattern_for_stack(self, stack_fk):
+        """Return the stack's `naming_regex` quality-rule pattern, if any (EP4)."""
+        for rule in self.get_quality_rules(stack_fk):
+            if rule.get("kind") == "naming_regex":
+                pattern = (rule.get("config") or {}).get("pattern")
+                if pattern:
+                    return pattern
+        return None
+
     def check_element_quality(self, element_id):
         from metadata_rules import check_element_quality as _check_element_quality
         el = self.get_element_by_id(element_id)

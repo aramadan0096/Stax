@@ -75,6 +75,21 @@ def check_element_quality(element, effective_meta, fields, rules):
     return issues
 
 
+def suggest_name(proposed, pattern):
+    """Validate `proposed` against `pattern`; return (ok, suggestion|None)."""
+    name = proposed or ""
+    if not pattern:
+        return (True, None)
+    try:
+        if _re.match(pattern, name):
+            return (True, None)
+    except _re.error:
+        return (True, None)
+    cleaned = name.strip().lower().replace(" ", "_")
+    cleaned = _re.sub(r"[^a-z0-9_]", "", cleaned)
+    return (False, cleaned or None)
+
+
 def evaluate_autotag(source_path, rules):
     """Match rules against a path; union tags and merge fields (by rule order)."""
     path = source_path or ""
