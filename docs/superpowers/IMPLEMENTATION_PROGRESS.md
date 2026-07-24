@@ -162,8 +162,8 @@ Feature-expansion program derived from [`STAX_FEATURE_ENHANCEMENT_REPORT.md`](..
 
 | EP | Theme | Spec | Plan | Impl | Report features |
 |----|-------|:----:|:----:|:----:|-----------------|
-| EP1 | Curation primitives | ☑ | ☑ | ☐ | F013, F014, F052, F053 |
-| EP2 | Search & discovery UX (non-AI) | ☑ | ☑ | ☐ | F007–F012, facets |
+| EP1 | Curation primitives | ☑ | ☑ | ☑ | F013, F014, F052, F053 |
+| EP2 | Search & discovery UX (non-AI) | ☑ | ☑ | ☑ | F007–F012, facets |
 | EP3 | Browse productivity shell | ☑ | ☑ | ☐ | F049–F058 |
 | EP4 | Metadata schema & automation | ☑ | ☑ | ☐ | F015, F016, F018–F022 |
 | EP5 | Review, notes & approval | ☐ | ☐ | ☐ | F023–F030 |
@@ -177,15 +177,15 @@ Feature-expansion program derived from [`STAX_FEATURE_ENHANCEMENT_REPORT.md`](..
 ### EP1 — Curation primitives
 Spec: [`specs/…-ep1-curation-primitives-design.md`](specs/2026-07-23-ep1-curation-primitives-design.md) · Plan: [`plans/…-ep1-curation-primitives.md`](plans/2026-07-23-ep1-curation-primitives.md) · **Depends on SP1 + SP6.**
 
-- [ ] Task 1 — Schema: rating + label_fk columns, labels table, seeded palette
-- [ ] Task 2 — DB API: rating methods (validated)
-- [ ] Task 3 — DB API: label methods + labels CRUD (SET NULL on delete)
-- [ ] Task 4 — `EmptyStateWidget`
-- [ ] Task 5 — `MultiSelectActionTray`
-- [ ] Task 6 — Grid badges + hover quick-edit
-- [ ] Task 7 — Table Rating/Label columns
-- [ ] Task 8 — Admin-gated Labels settings tab
-- [ ] Task 9 — Wire tray + empty states into MediaDisplayWidget
+- [x] Task 1 — Schema: rating + label_fk columns, labels table, seeded palette
+- [x] Task 2 — DB API: rating methods (validated)
+- [x] Task 3 — DB API: label methods + labels CRUD (SET NULL on delete)
+- [x] Task 4 — `EmptyStateWidget`
+- [x] Task 5 — `MultiSelectActionTray`
+- [x] Task 6 — Grid badges + hover quick-edit
+- [x] Task 7 — Table Rating/Label columns
+- [x] Task 8 — Admin-gated Labels settings tab
+- [x] Task 9 — Wire tray + empty states into MediaDisplayWidget
 
 ### EP2 — Search & discovery UX
 Spec: [`specs/…-ep2-search-discovery-design.md`](specs/2026-07-23-ep2-search-discovery-design.md) · Plan: [`plans/…-ep2-search-discovery.md`](plans/2026-07-23-ep2-search-discovery.md) · **Depends on EP1 + SP1.** Clusters: 2A facets · 2B persistence · 2C text-quality (trimmable).
@@ -199,10 +199,10 @@ Spec: [`specs/…-ep2-search-discovery-design.md`](specs/2026-07-23-ep2-search-d
 - [ ] Task 7 — Saved searches (personal) table + CRUD
 - [ ] Task 8 — Smart collections (shared) table + CRUD
 - [ ] Task 9 — Nav integration (saved searches + smart collections)
-- [ ] Task 10 — Synonyms table + `expand_terms`
-- [ ] Task 11 — difflib `suggest_correction` + capped recent searches
-- [ ] Task 12 — Wire did-you-mean + synonym expansion + recent completer
-- [ ] Task 13 — Admin Search settings tab (synonyms + smart collections)
+- [x] Task 10 — Synonyms table + `expand_terms`
+- [x] Task 11 — difflib `suggest_correction` + capped recent searches
+- [x] Task 12 — Wire did-you-mean + synonym expansion + recent completer
+- [x] Task 13 — Admin Search settings tab (synonyms + smart collections)
 
 ### EP3 — Browse productivity shell
 Spec: [`specs/…-ep3-browse-productivity-design.md`](specs/2026-07-23-ep3-browse-productivity-design.md) · Plan: [`plans/…-ep3-browse-productivity.md`](plans/2026-07-23-ep3-browse-productivity.md) · **Depends on EP1 + SP1/SP2/SP6.** Clusters: 3A interaction · 3B inspector/loading · 3C shell polish (trimmable).

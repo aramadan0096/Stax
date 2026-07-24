@@ -16,7 +16,18 @@ import logging
 log = logging.getLogger(__name__)
 
 # Bump this every time a new _migrate_vN is appended below.
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 7
+
+# Default color-label palette (EP1). Seed order defines labels.sort_order.
+DEFAULT_LABELS = [
+    ("Reject",   "#E5484D", "Rejected / do not use"),
+    ("Review",   "#F5D90A", "Needs review"),
+    ("Approved", "#30A46C", "Approved for use"),
+    ("Blue",     "#3E63DD", ""),
+    ("Purple",   "#8E4EC6", ""),
+    ("Orange",   "#F76B15", ""),
+    ("Gray",     "#8B8D98", ""),
+]
 
 
 def _bootstrap_schema_version(conn):
@@ -80,11 +91,126 @@ def _migrate_v2(conn):
     conn.commit()
 
 
+def _seed_default_labels(conn):
+    """Insert the default label palette if the labels table is empty.
+
+    Guarded on COUNT(*) so re-running never duplicates rows and never
+    resurrects a label an admin has since deleted.
+    """
+    count = conn.execute("SELECT COUNT(*) FROM labels").fetchone()[0]
+    if count == 0:
+        conn.executemany(
+            "INSERT INTO labels (name, color_hex, meaning, sort_order) "
+            "VALUES (?, ?, ?, ?)",
+            [
+                (name, color, meaning, i)
+                for i, (name, color, meaning) in enumerate(DEFAULT_LABELS)
+            ],
+        )
+        log.info("Seeded %d default labels", len(DEFAULT_LABELS))
+
+
+def _migrate_v3(conn):
+    """v2 -> v3: add elements.rating/label_fk and the labels table (EP1)."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(elements)")}
+    if "rating" not in cols:
+        conn.execute("ALTER TABLE elements ADD COLUMN rating INTEGER NOT NULL DEFAULT 0")
+        log.info("Migration v3: added elements.rating")
+    if "label_fk" not in cols:
+        conn.execute("ALTER TABLE elements ADD COLUMN label_fk INTEGER")
+        log.info("Migration v3: added elements.label_fk")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS labels (
+            label_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT UNIQUE NOT NULL,
+            color_hex  TEXT NOT NULL,
+            meaning    TEXT,
+            sort_order INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    _seed_default_labels(conn)
+    log.info("Migration v3: created labels table")
+    conn.commit()
+
+
+def _migrate_v4(conn):
+    """v3 -> v4: create saved_searches table for personal saved filters (EP2)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS saved_searches (
+            saved_search_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_name    TEXT NOT NULL,
+            machine_name TEXT,
+            name         TEXT NOT NULL,
+            filter_json  TEXT NOT NULL,
+            created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    log.info("Migration v4: created saved_searches table")
+    conn.commit()
+
+
+def _migrate_v5(conn):
+    """v4 -> v5: create smart_collections table for shared smart collections (EP2)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS smart_collections (
+            collection_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT UNIQUE NOT NULL,
+            filter_json TEXT NOT NULL,
+            created_by  TEXT,
+            sort_order  INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    log.info("Migration v5: created smart_collections table")
+    conn.commit()
+
+
+def _migrate_v6(conn):
+    """v5 -> v6: create search_synonyms table for term expansion (EP2)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS search_synonyms (
+            synonym_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            term       TEXT NOT NULL,
+            group_key  TEXT NOT NULL
+        )
+        """
+    )
+    log.info("Migration v6: created search_synonyms table")
+    conn.commit()
+
+
+def _migrate_v7(conn):
+    """v6 -> v7: create recent_searches table for capped per-user search history (EP2)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS recent_searches (
+            recent_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_name  TEXT NOT NULL,
+            query_text TEXT NOT NULL,
+            ran_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    log.info("Migration v7: created recent_searches table")
+    conn.commit()
+
+
 # Index N upgrades schema version N-1 -> N.
 _MIGRATIONS = [
     None,          # index 0 — unused placeholder
     _migrate_v1,   # 0 -> 1
     _migrate_v2,   # 1 -> 2
+    _migrate_v3,   # 2 -> 3
+    _migrate_v4,   # 3 -> 4
+    _migrate_v5,   # 4 -> 5
+    _migrate_v6,   # 5 -> 6
+    _migrate_v7,   # 6 -> 7
 ]
 
 

@@ -165,7 +165,78 @@ Watch-outs:
 - Skeletons are driven by SP2's `preview_ready`; without SP2 they simply don't show (no-op) — but SP2 should be landed by now.
 - Extract the shared metadata formatter **after** SP6's M7 popup fix so it reflects corrected type detection.
 
-Done when: command palette, spacebar quicklook, help overlay, sticky inspector, skeletons+scroll retention, layout presets, accessibility, onboarding, minimal start page — all live. Full suite green.
+Done when: command palette, spacebar quicklook, help overlay, sticky inspector, skeletons+scroll retention, layout presets, accessibility, onboarding, minimal start page — all live. Full suite green (no drop below the post-EP2 baseline, no new xfail).
+
+### Ready-to-copy prompt — Batch 6 (EP3)
+
+Paste verbatim into a fresh Claude Code session opened at `e:\Scripts\Stax`.
+**Only run this after Batch 5 (EP1 + EP2) has landed on `main`.**
+
+````text
+Execute Batch 6 (EP3 — browse productivity shell) of the StaX enhancement program.
+
+First, confirm the prerequisite is in place:
+- Batch 5 (EP1 + EP2) must already be merged to main. Check
+  docs/superpowers/IMPLEMENTATION_PROGRESS.md shows EP1 and EP2 Impl = done, and
+  `git log --oneline main | grep -i ep2` shows their commits. If EP1/EP2 are NOT
+  landed, STOP and tell me — do not start EP3 on top of missing dependencies.
+
+Read these first, in this order, before doing anything else:
+1. CLAUDE.md
+2. docs/superpowers/HANDOVER-REMAINING.md — especially "§State on main" and
+   "§Common Execution Rules"
+3. docs/superpowers/CROSS_PLAN_REVIEW.md §6-§7
+4. docs/superpowers/specs/2026-07-23-ep3-browse-productivity-design.md
+5. docs/superpowers/plans/2026-07-23-ep3-browse-productivity.md
+
+Method: use the superpowers:subagent-driven-development skill — one fresh
+subagent per plan task, strict TDD (failing test -> confirm red -> implement ->
+confirm green -> conventional commit), tasks in written order. Never weaken or
+delete a test to make it pass. EP3 is one plan, 11 tasks, solo.
+
+Setup:
+- Branch off main: git checkout -b exec/ep3
+- Test command (the repo's .venv does NOT have pytest-qt; do not `uv sync` it):
+      .venv-dev\Scripts\python.exe -m pytest -m "not manual and not slow" -q
+  If .venv-dev is missing, create it:
+      uv venv --python 3.9 .venv-dev
+      uv pip install --python .venv-dev\Scripts\python.exe -e ".[dev,build]"
+- The pass count baseline is whatever the suite reports right after EP2 (EP1+EP2
+  added tests). Record it before Task 1 and never let it drop; any new unplanned
+  xfail is a regression to fix, not to accept.
+
+EP3-specific watch-outs:
+- human_size convergence: EP3 Task 5 creates src/ui/metadata_format.py. A shared
+  size formatter ALREADY EXISTS at src/utils/formatting.py::human_size (added in
+  SP8). metadata_format.py must import/re-export it — do NOT define a second
+  copy (CROSS_PLAN_REVIEW §4.2).
+- Extract the shared metadata formatter reflecting SP6's M7 fix: video/sequence
+  is detected by file format/extension, not a nonexistent element `type` field.
+- Skeleton placeholders are driven by SP2's preview_ready/PreviewWorker signal,
+  which is already live — wire to it, don't build a second preview path.
+- New bulk/context menu actions (if any) go in
+  MediaDisplayWidget._populate_bulk_menu / _dispatch_bulk_action (SP8), not the
+  two menu methods.
+
+Repo-specific rules that override habit:
+- Tests import flat: `from ui.media_display_widget import MediaDisplayWidget`,
+  `from utils.formatting import human_size`. Importing `src.ui.*` in a test that
+  runs standalone raises a circular-import ImportError.
+- Any schema change goes through the versioned migration runner in
+  src/db_manager.py as a new numbered migration; live tables are lowercase.
+- SettingsPanel(config, db_manager, main_window=None, parent=None) — append new
+  tabs inside setup_ui.
+- Admin gating uses check_admin_permission for now.
+- Use logging, never print. Keep the media_display_widget god-module split
+  deferred. Do not remove the PySide2.QtQml/QtQuick excludes in setup_freeze.py.
+
+Tracker: tick each task box in docs/superpowers/IMPLEMENTATION_PROGRESS.md and
+set EP3 Impl = done when complete.
+
+Stop and ask before: git push, opening a PR, merging to main, adding any new pip
+dependency, or deviating from a plan step. Commit locally and pause with a
+summary at the end of the batch.
+````
 
 ---
 

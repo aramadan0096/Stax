@@ -12,8 +12,10 @@ import hashlib
 import hmac
 import secrets
 import logging
+import re
 from contextlib import contextmanager
 from file_lock import FileLockManager
+from filter_spec import normalize
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +67,13 @@ class DatabaseManager(object):
         "preview_path", "gif_preview_path", "video_preview_path",
         "geometry_preview_path", "is_deprecated", "file_size", "phash",
     }
+
+    # Label validation and whitelists
+    _COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
+    _LABEL_FIELDS = {"name", "color_hex", "meaning", "sort_order"}
+
+    # Smart collection field whitelist
+    _COLLECTION_FIELDS = {"name", "filter_json", "created_by", "sort_order"}
 
     def __init__(self, db_path, enable_logging=False, use_file_lock=True):
         """
@@ -948,7 +957,98 @@ class DatabaseManager(object):
             cursor = conn.cursor()
             cursor.execute("DELETE FROM elements WHERE element_id = ?", (element_id,))
             return cursor.rowcount > 0
-    
+
+    @staticmethod
+    def _validate_rating(rating):
+        if not isinstance(rating, int) or rating < 0 or rating > 5:
+            raise ValueError("rating must be an integer 0..5, got {!r}".format(rating))
+
+    def set_element_rating(self, element_id, rating):
+        """Set the team-shared 0..5 star rating on an element."""
+        self._validate_rating(rating)
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "UPDATE elements SET rating = ? WHERE element_id = ?",
+                (rating, element_id),
+            )
+
+    def bulk_set_rating(self, element_ids, rating):
+        """Set the rating on many elements. Returns rows affected."""
+        self._validate_rating(rating)
+        if not element_ids:
+            return 0
+        placeholders = ",".join("?" for _ in element_ids)
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE elements SET rating = ? WHERE element_id IN ({})".format(placeholders),
+                [rating] + list(element_ids),
+            )
+            return cur.rowcount
+
+    def get_labels(self):
+        """Return all labels ordered by sort_order."""
+        with self.get_connection(write=False) as conn:
+            rows = conn.execute(
+                "SELECT label_id, name, color_hex, meaning, sort_order "
+                "FROM labels ORDER BY sort_order, label_id"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def create_label(self, name, color_hex, meaning="", sort_order=0):
+        """Create a label. Returns the new label_id."""
+        if not self._COLOR_RE.match(color_hex or ""):
+            raise ValueError("color_hex must match #RRGGBB, got {!r}".format(color_hex))
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO labels (name, color_hex, meaning, sort_order) VALUES (?, ?, ?, ?)",
+                (name, color_hex, meaning, sort_order),
+            )
+            return cur.lastrowid
+
+    def update_label(self, label_id, **fields):
+        """Update whitelisted label fields."""
+        updates = {k: v for k, v in fields.items() if k in self._LABEL_FIELDS}
+        if "color_hex" in updates and not self._COLOR_RE.match(updates["color_hex"] or ""):
+            raise ValueError("color_hex must match #RRGGBB")
+        if not updates:
+            return
+        set_clause = ", ".join("{} = ?".format(k) for k in updates)
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "UPDATE labels SET {} WHERE label_id = ?".format(set_clause),
+                list(updates.values()) + [label_id],
+            )
+
+    def delete_label(self, label_id):
+        """Delete a label; null it out on any referencing elements (SET NULL)."""
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute("UPDATE elements SET label_fk = NULL WHERE label_fk = ?", (label_id,))
+            cur.execute("DELETE FROM labels WHERE label_id = ?", (label_id,))
+
+    def set_element_label(self, element_id, label_fk):
+        """Set (or clear with None) the label on an element."""
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "UPDATE elements SET label_fk = ? WHERE element_id = ?",
+                (label_fk, element_id),
+            )
+
+    def bulk_set_label(self, element_ids, label_fk):
+        """Set the label on many elements. Returns rows affected."""
+        if not element_ids:
+            return 0
+        placeholders = ",".join("?" for _ in element_ids)
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "UPDATE elements SET label_fk = ? WHERE element_id IN ({})".format(placeholders),
+                [label_fk] + list(element_ids),
+            )
+            return cur.rowcount
+
     def search_elements(self, search_text, property_name='name', match_type='loose'):
         """
         Search elements by property.
@@ -976,7 +1076,142 @@ class DatabaseManager(object):
                 cursor.execute(query, (search_text,))
             
             return [dict(row) for row in cursor.fetchall()]
-    
+
+    # Tag boundary match: normalize ", " to "," then wrap and LIKE %,tag,%
+    # The bound value must be routed through _escape_like() so a literal
+    # '_' or '%' in a tag is matched literally rather than as a wildcard.
+    _TAG_MATCH = ("(',' || REPLACE(IFNULL(tags,''), ', ', ',') || ',') "
+                  "LIKE '%,' || ? || ',%' ESCAPE '\\'")
+
+    @staticmethod
+    def _escape_like(value):
+        """Escape LIKE wildcards so a tag matches literally."""
+        return (str(value).replace('\\', '\\\\')
+                          .replace('%', '\\%')
+                          .replace('_', '\\_'))
+
+    @staticmethod
+    def _build_filter_where(filter_spec):
+        """Return (where_sql, params) for a normalized FilterSpec. Column names
+        are code literals; all user values are parameterized."""
+        s = normalize(filter_spec)
+        clauses, params = [], []
+
+        if s["text"]:
+            like = "%" + s["text"] + "%"
+            clauses.append("(name LIKE ? OR IFNULL(comment,'') LIKE ? OR IFNULL(tags,'') LIKE ?)")
+            params += [like, like, like]
+
+        if s["types"]:
+            clauses.append("type IN ({})".format(",".join("?" for _ in s["types"])))
+            params += s["types"]
+
+        if s["formats"]:
+            clauses.append("format IN ({})".format(",".join("?" for _ in s["formats"])))
+            params += s["formats"]
+        if s["formats_exclude"]:
+            clauses.append("IFNULL(format,'') NOT IN ({})".format(
+                ",".join("?" for _ in s["formats_exclude"])))
+            params += s["formats_exclude"]
+
+        for tag in s["tags_all"]:
+            clauses.append(DatabaseManager._TAG_MATCH)
+            params.append(DatabaseManager._escape_like(tag))
+        if s["tags_any"]:
+            ors = " OR ".join(DatabaseManager._TAG_MATCH for _ in s["tags_any"])
+            clauses.append("(" + ors + ")")
+            params += [DatabaseManager._escape_like(t) for t in s["tags_any"]]
+        for tag in s["tags_exclude"]:
+            clauses.append("NOT " + DatabaseManager._TAG_MATCH)
+            params.append(DatabaseManager._escape_like(tag))
+
+        if s["rating_min"]:
+            clauses.append("rating >= ?")
+            params.append(s["rating_min"])
+        if s["label_fks"]:
+            clauses.append("label_fk IN ({})".format(",".join("?" for _ in s["label_fks"])))
+            params += s["label_fks"]
+
+        if s["is_deprecated"] is not None:
+            clauses.append("is_deprecated = ?")
+            params.append(1 if s["is_deprecated"] else 0)
+        if s["is_hard_copy"] is not None:
+            clauses.append("is_hard_copy = ?")
+            params.append(1 if s["is_hard_copy"] else 0)
+
+        if s["list_fk"]:
+            clauses.append("list_fk = ?")
+            params.append(s["list_fk"])
+        if s["stack_fk"]:
+            clauses.append("list_fk IN (SELECT list_id FROM lists WHERE stack_fk = ?)")
+            params.append(s["stack_fk"])
+
+        where = " AND ".join(clauses) if clauses else "1=1"
+        return where, params
+
+    def search_elements_advanced(self, filter_spec, limit=None, offset=0):
+        where, params = self._build_filter_where(filter_spec)
+        sql = "SELECT * FROM elements WHERE {} ORDER BY name".format(where)
+        if limit is not None:
+            sql += " LIMIT ? OFFSET ?"
+            params = params + [limit, offset]
+        with self.get_connection(write=False) as conn:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+    def count_elements_advanced(self, filter_spec):
+        where, params = self._build_filter_where(filter_spec)
+        sql = "SELECT COUNT(*) FROM elements WHERE {}".format(where)
+        with self.get_connection(write=False) as conn:
+            return conn.execute(sql, params).fetchone()[0]
+
+    def _facet_count_query(self, filter_spec, drop_key, group_col):
+        """Count rows grouped by group_col, applying the filter minus drop_key."""
+        spec = normalize(filter_spec)
+        # zero-out the facet's own clause so counts reflect siblings only
+        if drop_key:
+            spec = dict(spec)
+            spec[drop_key] = [] if isinstance(spec[drop_key], list) else (0 if drop_key == "rating_min" else None)
+        where, params = self._build_filter_where(spec)
+        sql = "SELECT {c}, COUNT(*) FROM elements WHERE {w} GROUP BY {c}".format(c=group_col, w=where)
+        with self.get_connection(write=False) as conn:
+            return {row[0]: row[1] for row in conn.execute(sql, params).fetchall() if row[0] is not None}
+
+    def get_facet_counts(self, filter_spec):
+        counts = {
+            "type":   self._facet_count_query(filter_spec, "types", "type"),
+            "format": self._facet_count_query(filter_spec, "formats", "format"),
+            "rating": self._facet_count_query(filter_spec, "rating_min", "rating"),
+            "label":  self._facet_count_query(filter_spec, "label_fks", "label_fk"),
+            "status": {},
+        }
+        # status: active/deprecated tally, with is_deprecated's own clause
+        # dropped so both buckets are always present and each reflects what
+        # selecting it would yield (no hard-copy tally -- outside this facet's
+        # interface)
+        status_spec = normalize(filter_spec)
+        status_spec["is_deprecated"] = None
+        where, params = self._build_filter_where(status_spec)
+        with self.get_connection(write=False) as conn:
+            dep = conn.execute(
+                "SELECT is_deprecated, COUNT(*) FROM elements WHERE {} GROUP BY is_deprecated".format(where),
+                params).fetchall()
+            counts["status"] = {("deprecated" if k else "active"): v for k, v in dep}
+        # tag facet: parse comma-joined tags of the sibling-filtered set --
+        # the tag clauses (tags_any/tags_all/tags_exclude) are dropped so an
+        # active tags_any doesn't OR-widen the rows a sibling tag is counted
+        # against
+        tag_spec = normalize(filter_spec)
+        tag_spec["tags_any"] = []
+        tag_spec["tags_all"] = []
+        tag_spec["tags_exclude"] = []
+        rows = self.search_elements_advanced(tag_spec)
+        tag_counts = {}
+        for r in rows:
+            for t in [x.strip() for x in (r.get("tags") or "").split(",") if x.strip()]:
+                tag_counts[t] = tag_counts.get(t, 0) + 1
+        counts["tag"] = tag_counts
+        return counts
+
     # ======================
     # FAVORITES OPERATIONS
     # ======================
@@ -1982,5 +2217,258 @@ class DatabaseManager(object):
                 "FROM elements WHERE phash IS NOT NULL AND phash != ''"
             )
             return [dict(row) for row in cursor.fetchall()]
+
+    # ======================
+    # SAVED SEARCHES (EP2)
+    # ======================
+
+    def create_saved_search(self, name, filter_spec, user_name, machine_name=None):
+        """Create a personal saved search.
+
+        Args:
+            name (str): Name of the saved search
+            filter_spec (dict): FilterSpec dict to serialize as JSON
+            user_name (str): User who owns this saved search
+            machine_name (str): Optional machine identifier
+
+        Returns:
+            int: saved_search_id of the created search
+        """
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO saved_searches (user_name, machine_name, name, filter_json) "
+                "VALUES (?, ?, ?, ?)",
+                (user_name, machine_name, name, json.dumps(filter_spec)),
+            )
+            return cur.lastrowid
+
+    def get_saved_searches(self, user_name):
+        """Get all saved searches for a user, scoped by user_name.
+
+        Args:
+            user_name (str): User to query
+
+        Returns:
+            list[dict]: List of saved search dicts with parsed 'filter' key
+        """
+        with self.get_connection(write=False) as conn:
+            rows = conn.execute(
+                "SELECT * FROM saved_searches WHERE user_name = ? ORDER BY name",
+                (user_name,)).fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                d["filter"] = json.loads(d["filter_json"])
+                out.append(d)
+            return out
+
+    def delete_saved_search(self, saved_search_id):
+        """Delete a saved search by ID.
+
+        Args:
+            saved_search_id (int): ID of the saved search to delete
+        """
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "DELETE FROM saved_searches WHERE saved_search_id = ?", (saved_search_id,))
+
+    def create_smart_collection(self, name, filter_spec, created_by=None, sort_order=0):
+        """Create a shared smart collection.
+
+        Args:
+            name (str): Unique name of the smart collection
+            filter_spec (dict): FilterSpec dict to serialize as JSON
+            created_by (str): Optional user who created this collection
+            sort_order (int): Sort order for display (default 0)
+
+        Returns:
+            int: collection_id of the created collection
+        """
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO smart_collections (name, filter_json, created_by, sort_order) "
+                "VALUES (?, ?, ?, ?)",
+                (name, json.dumps(filter_spec), created_by, sort_order))
+            return cur.lastrowid
+
+    def get_smart_collections(self):
+        """Get all shared smart collections.
+
+        Returns:
+            list[dict]: List of smart collection dicts with parsed 'filter' key,
+                       ordered by sort_order, name
+        """
+        with self.get_connection(write=False) as conn:
+            rows = conn.execute(
+                "SELECT * FROM smart_collections ORDER BY sort_order, name").fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                d["filter"] = json.loads(d["filter_json"])
+                out.append(d)
+            return out
+
+    def update_smart_collection(self, collection_id, **fields):
+        """Update whitelisted smart collection fields.
+
+        Args:
+            collection_id (int): ID of the collection to update
+            **fields: Field updates (e.g., name="New Name", filter_spec={...}, sort_order=1)
+                      filter_spec is translated to filter_json; other fields are whitelisted
+        """
+        if "filter_spec" in fields:
+            fields["filter_json"] = json.dumps(fields.pop("filter_spec"))
+        updates = {k: v for k, v in fields.items() if k in self._COLLECTION_FIELDS}
+        if not updates:
+            return
+        set_clause = ", ".join("{} = ?".format(k) for k in updates)
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "UPDATE smart_collections SET {} WHERE collection_id = ?".format(set_clause),
+                list(updates.values()) + [collection_id])
+
+    def delete_smart_collection(self, collection_id):
+        """Delete a smart collection by ID.
+
+        Args:
+            collection_id (int): ID of the collection to delete
+        """
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "DELETE FROM smart_collections WHERE collection_id = ?", (collection_id,))
+
+    def add_synonym(self, term, group_key):
+        """Add a synonym term to a group.
+
+        Args:
+            term (str): The synonym term to add (will be normalized to lowercase)
+            group_key (str): The group key this term belongs to
+
+        Returns:
+            int: The lastrowid (synonym_id) of the inserted row
+        """
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute("INSERT INTO search_synonyms (term, group_key) VALUES (?, ?)",
+                        (term.strip().lower(), group_key))
+            return cur.lastrowid
+
+    def get_synonyms(self):
+        """Get all synonyms ordered by group_key and term.
+
+        Returns:
+            list[dict]: List of synonym dicts with keys: synonym_id, term, group_key
+        """
+        with self.get_connection(write=False) as conn:
+            return [dict(r) for r in conn.execute(
+                "SELECT * FROM search_synonyms ORDER BY group_key, term").fetchall()]
+
+    def delete_synonym(self, synonym_id):
+        """Delete a synonym by ID.
+
+        Args:
+            synonym_id (int): ID of the synonym to delete
+        """
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute("DELETE FROM search_synonyms WHERE synonym_id = ?", (synonym_id,))
+
+    def expand_terms(self, text):
+        """Expand each whitespace token to its synonym group's members.
+
+        For each word in the input text:
+        - If the word belongs to a synonym group, return all terms in that group
+        - If the word is not in any group, return the word unchanged
+        - Deduplicate while preserving order
+
+        Args:
+            text (str): Whitespace-separated search terms
+
+        Returns:
+            list[str]: List of unique expanded terms, order-preserving
+        """
+        words = [w.strip().lower() for w in (text or "").split() if w.strip()]
+        if not words:
+            return []
+        with self.get_connection(write=False) as conn:
+            result = []
+            for w in words:
+                groups = [r[0] for r in conn.execute(
+                    "SELECT group_key FROM search_synonyms WHERE term = ?", (w,)).fetchall()]
+                if groups:
+                    placeholders = ",".join("?" for _ in groups)
+                    siblings = [r[0] for r in conn.execute(
+                        "SELECT DISTINCT term FROM search_synonyms WHERE group_key IN ({})".format(placeholders),
+                        groups).fetchall()]
+                    result.extend(siblings)
+                else:
+                    result.append(w)
+            # dedupe preserving order
+            seen, out = set(), []
+            for t in result:
+                if t not in seen:
+                    seen.add(t); out.append(t)
+            return out
+
+    def suggest_correction(self, query):
+        """Return the closest tag/name term to `query`, or None.
+
+        Uses difflib to find a near match in the vocabulary of all tags
+        and element names. Returns None if the query exactly matches a
+        vocabulary term or if no match is close enough (cutoff=0.7).
+
+        Args:
+            query (str): The search query to check
+
+        Returns:
+            str: The suggested correction, or None if no match found or already exact
+        """
+        import difflib
+        q = (query or "").strip().lower()
+        if not q:
+            return None
+        vocab = set(t.lower() for t in self.get_all_tags())
+        with self.get_connection(write=False) as conn:
+            for r in conn.execute("SELECT name FROM elements").fetchall():
+                if r[0]:
+                    vocab.add(r[0].lower())
+        if q in vocab:
+            return None
+        matches = difflib.get_close_matches(q, list(vocab), n=1, cutoff=0.7)
+        return matches[0] if matches else None
+
+    def add_recent_search(self, user_name, query_text, cap=20):
+        """Record a search query and trim older searches to cap per user.
+
+        Args:
+            user_name (str): User who ran the search
+            query_text (str): The search query text
+            cap (int): Maximum number of searches to retain per user (default 20)
+        """
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute("INSERT INTO recent_searches (user_name, query_text) VALUES (?, ?)",
+                        (user_name, query_text))
+            # trim to cap most-recent per user
+            cur.execute(
+                "DELETE FROM recent_searches WHERE user_name = ? AND recent_id NOT IN "
+                "(SELECT recent_id FROM recent_searches WHERE user_name = ? "
+                " ORDER BY recent_id DESC LIMIT ?)",
+                (user_name, user_name, cap))
+
+    def get_recent_searches(self, user_name):
+        """Get recent search queries for a user, most recent first.
+
+        Args:
+            user_name (str): User to query
+
+        Returns:
+            list: List of query strings, most recent first
+        """
+        with self.get_connection(write=False) as conn:
+            return [r[0] for r in conn.execute(
+                "SELECT query_text FROM recent_searches WHERE user_name = ? "
+                "ORDER BY recent_id DESC", (user_name,)).fetchall()]
 
 

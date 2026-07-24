@@ -231,6 +231,10 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self.media_display.setObjectName("media_display")
         self.media_display.element_double_clicked.connect(self.on_element_double_clicked)
+
+        # EP2 Task 9: Saved Searches / Smart Collections nav <-> media display.
+        self.stacks_panel.filter_selected.connect(self.media_display.apply_filter)
+        self.media_display.saved_search_created.connect(self.stacks_panel.refresh_saved_searches)
         self.main_splitter.addWidget(self.media_display)
         self.main_splitter.setStretchFactor(1, 1)
 
@@ -596,9 +600,15 @@ class MainWindow(QtWidgets.QMainWindow):
         else:
             stack = self.db.get_stack_by_id(stack_id)
             if stack:
-                self.media_display.info_label.setText("No elements in stack '{}'".format(stack["name"]))
-                self.media_display.hint_label.setText("Add lists and elements to this stack")
-                self.media_display.content_stack.setCurrentIndex(0)
+                # Route through the widget's own public entry point so the
+                # nested empty-page stack is actually reset to the legacy
+                # page (a bare content_stack.setCurrentIndex(0) only flips
+                # the outer index and can leave a stale EP1 empty page --
+                # e.g. from a prior search or tag filter -- on screen).
+                self.media_display.show_empty_state(
+                    "No elements in stack '{}'".format(stack["name"]),
+                    "Add lists and elements to this stack",
+                )
         self.media_display._display_current_page()
         stack = self.db.get_stack_by_id(stack_id)
         if stack:
@@ -777,6 +787,24 @@ class MainWindow(QtWidgets.QMainWindow):
     def on_settings_changed(self):
         self.processor_manager = ProcessorManager(self.config.get_all())
         self.statusBar().showMessage("Settings updated")
+
+        # Final-review Finding 2: a label/synonym/smart-collection edit in
+        # SettingsPanel must refresh the open gallery's stale label chips
+        # and the nav's saved-search/smart-collection lists -- both were
+        # previously left stale until the next list navigation / app reload.
+        if hasattr(self, 'media_display'):
+            try:
+                self.media_display._label_color_cache = None
+                self.media_display.refresh_current_view()
+            except Exception:
+                log.exception("Failed to refresh media display after settings change")
+
+        if hasattr(self, 'stacks_panel'):
+            try:
+                self.stacks_panel.refresh_smart_collections()
+                self.stacks_panel.refresh_saved_searches()
+            except Exception:
+                log.exception("Failed to refresh nav panel after settings change")
 
     def show_advanced_search(self):
         if not hasattr(self, "advanced_search_dialog") or self.advanced_search_dialog is None:

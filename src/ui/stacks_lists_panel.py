@@ -25,6 +25,7 @@ class StacksListsPanel(QtWidgets.QWidget):
     favorites_selected = QtCore.Signal()  # Show favorites
     playlist_selected = QtCore.Signal(int)  # playlist_id
     tags_filter_changed = QtCore.Signal(list)  # selected tags
+    filter_selected = QtCore.Signal(dict)  # FilterSpec chosen from Saved Searches/Smart Collections (EP2 Task 9)
     
     def __init__(self, db_manager, config, main_window=None, parent=None):
         super(StacksListsPanel, self).__init__(parent)
@@ -178,10 +179,56 @@ class StacksListsPanel(QtWidgets.QWidget):
         
         # Add tags container to main splitter
         self.main_splitter.addWidget(tags_container)
-        
-        # Set initial sizes (top: 500px, tags: 180px)
-        self.main_splitter.setSizes([500, 180])
-    
+
+        # Saved Searches section (personal, EP2 Task 9) -- same container
+        # pattern as Tags above: separator + label + QListWidget, wrapped
+        # in its own QWidget, added to main_splitter.
+        saved_searches_container = QtWidgets.QWidget()
+        saved_searches_layout = QtWidgets.QVBoxLayout(saved_searches_container)
+        saved_searches_layout.setContentsMargins(0, 0, 0, 0)
+        saved_searches_layout.setSpacing(6)
+
+        separator4 = QtWidgets.QFrame()
+        separator4.setFrameShape(QtWidgets.QFrame.HLine)
+        separator4.setFrameShadow(QtWidgets.QFrame.Sunken)
+        saved_searches_layout.addWidget(separator4)
+
+        saved_searches_label = QtWidgets.QLabel("Saved Searches")
+        saved_searches_label.setStyleSheet("font-weight: bold; padding: 5px;")
+        saved_searches_layout.addWidget(saved_searches_label)
+
+        self.saved_searches_list = QtWidgets.QListWidget()
+        self.saved_searches_list.itemActivated.connect(self._on_saved_search_activated)
+        saved_searches_layout.addWidget(self.saved_searches_list)
+
+        self.main_splitter.addWidget(saved_searches_container)
+
+        # Smart Collections section (team-shared, EP2 Task 9)
+        smart_collections_container = QtWidgets.QWidget()
+        smart_collections_layout = QtWidgets.QVBoxLayout(smart_collections_container)
+        smart_collections_layout.setContentsMargins(0, 0, 0, 0)
+        smart_collections_layout.setSpacing(6)
+
+        separator5 = QtWidgets.QFrame()
+        separator5.setFrameShape(QtWidgets.QFrame.HLine)
+        separator5.setFrameShadow(QtWidgets.QFrame.Sunken)
+        smart_collections_layout.addWidget(separator5)
+
+        smart_collections_label = QtWidgets.QLabel("Smart Collections")
+        smart_collections_label.setStyleSheet("font-weight: bold; padding: 5px;")
+        smart_collections_layout.addWidget(smart_collections_label)
+
+        self.smart_collections_list = QtWidgets.QListWidget()
+        self.smart_collections_list.itemActivated.connect(self._on_smart_collection_activated)
+        smart_collections_layout.addWidget(self.smart_collections_list)
+
+        self.main_splitter.addWidget(smart_collections_container)
+
+        # Set initial sizes (top: 420px, tags: 150px, saved searches: 110px,
+        # smart collections: 110px) -- re-tuned from the original [500, 180]
+        # two-child split so none of the four sections collapses to zero.
+        self.main_splitter.setSizes([420, 150, 110, 110])
+
     def on_favorites_clicked(self):
         """Handle favorites button click."""
         self.favorites_selected.emit()
@@ -245,15 +292,57 @@ class StacksListsPanel(QtWidgets.QWidget):
         self.tags_list.blockSignals(False)
         if emit_signal:
             self.tags_filter_changed.emit([])
-    
+
+    def _current_user_name(self):
+        """Resolve the acting username the same way main.py derives it
+        elsewhere (self.main_window.current_user['username']), falling back
+        to 'guest' when there is no main_window or nobody is logged in yet
+        (EP2 Task 9: personal saved-search scoping)."""
+        if self.main_window is not None:
+            user = getattr(self.main_window, 'current_user', None)
+            if user:
+                return user.get('username', 'guest')
+        return 'guest'
+
+    def refresh_saved_searches(self):
+        """Reload the current user's saved searches (EP2 Task 9).
+
+        Modal-free -- safe to call from setup_ui/load_data and from any
+        signal handler.
+        """
+        self.saved_searches_list.clear()
+        user_name = self._current_user_name()
+        for s in self.db.get_saved_searches(user_name):
+            item = QtWidgets.QListWidgetItem(s["name"])
+            item.setData(QtCore.Qt.UserRole, s["filter"])
+            self.saved_searches_list.addItem(item)
+
+    def refresh_smart_collections(self):
+        """Reload the shared smart collections (EP2 Task 9). Modal-free."""
+        self.smart_collections_list.clear()
+        for c in self.db.get_smart_collections():
+            item = QtWidgets.QListWidgetItem(c["name"])
+            item.setData(QtCore.Qt.UserRole, c["filter"])
+            self.smart_collections_list.addItem(item)
+
+    def _on_saved_search_activated(self, item):
+        """Emit the FilterSpec stored on the activated saved-search item."""
+        self.filter_selected.emit(item.data(QtCore.Qt.UserRole))
+
+    def _on_smart_collection_activated(self, item):
+        """Emit the FilterSpec stored on the activated smart-collection item."""
+        self.filter_selected.emit(item.data(QtCore.Qt.UserRole))
+
     def load_data(self):
         """Load stacks, lists, and playlists from database with hierarchical sub-lists."""
         self.tree.clear()
-        
+
         # Load playlists and tags
         self.load_playlists()
         self.load_tags()
-        
+        self.refresh_saved_searches()
+        self.refresh_smart_collections()
+
         # Load stacks and lists
         stacks = self.db.get_all_stacks()
         for stack in stacks:

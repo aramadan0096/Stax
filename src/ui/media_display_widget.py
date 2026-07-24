@@ -3,6 +3,7 @@
 Media Display Widget with Gallery/List Views
 """
 
+import logging
 import os
 from PySide2 import QtWidgets, QtCore, QtGui
 
@@ -15,6 +16,8 @@ from src.ui.drag_gallery_view import DragGalleryView
 from src.ui.pagination_widget import PaginationWidget
 from src.ui.dialogs import AddToPlaylistDialog, EditElementDialog
 
+logger = logging.getLogger(__name__)
+
 
 class MediaDisplayWidget(QtWidgets.QWidget):
     """Central widget for displaying media elements."""
@@ -22,6 +25,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
     # Signals
     element_selected = QtCore.Signal(int)  # element_id
     element_double_clicked = QtCore.Signal(int)  # element_id
+    saved_search_created = QtCore.Signal()  # a saved search was persisted (EP2 Task 9)
     
     def __init__(self, db_manager, config, nuke_bridge, main_window=None, parent=None):
         super(MediaDisplayWidget, self).__init__(parent)
@@ -53,10 +57,31 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.element_flags = {}  # Map element_id -> status flags (favorite/deprecated)
         self._project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
         self.setup_ui()
-        
+
+        # EP2 Task 6: faceted filter drawer + removable chip bar, wired
+        # after the views are built (self.content_stack must already
+        # exist for _install_filter_widgets to reparent it). Flat imports
+        # to match the module identity `from ui.facet_drawer import ...`
+        # tests patch (see the dual-import note on ingest_dropped_files).
+        from ui.facet_drawer import FacetDrawer
+        from ui.filter_chip_bar import FilterChipBar
+        from filter_spec import empty_filter
+        self.current_filter = empty_filter()
+        self.facet_drawer = FacetDrawer()
+        self.chip_bar = FilterChipBar()
+        self._install_filter_widgets(self.facet_drawer, self.chip_bar)
+        self.facet_drawer.filter_changed.connect(self.apply_filter)
+        self.chip_bar.chip_removed.connect(self._on_chip_removed)
+        self.chip_bar.cleared.connect(lambda: self.apply_filter(empty_filter()))
+
+        # EP2 Task 12: seed the search box's recent-query QCompleter once,
+        # at construction. A QCompleter is a non-modal popup, so this is
+        # safe on a construction path per the repo's modal-placement rule.
+        self._install_recent_completer(self._current_user_name())
+
         # Enable mouse tracking for hover events
         self.setMouseTracking(True)
-        
+
         # Enable drag & drop
         self.setAcceptDrops(True)
     
@@ -76,16 +101,36 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.search_box = QtWidgets.QLineEdit()
         self.search_box.setPlaceholderText("Search elements... (use #tag or tag:fire for tag filtering)")
         self.search_box.textChanged.connect(self.on_search)
+        # EP2 Task 12: record a *committed* search (Enter), never a
+        # per-keystroke one -- see _on_search_committed's docstring.
+        self.search_box.returnPressed.connect(self._on_search_committed)
         search_layout.addWidget(self.search_box)
-        
+
         # Search hint label
         self.search_hint_label = QtWidgets.QLabel()
         self.search_hint_label.setStyleSheet("color: #888888; font-size: 10px; font-style: italic;")
         self.search_hint_label.hide()  # Hidden by default
         search_layout.addWidget(self.search_hint_label)
-        
+
+        # EP2 Task 12: "did you mean" suggestion. Hidden by default, same
+        # as search_hint_label above; run_text_search shows it when a
+        # cross-list text search matches nothing but suggest_correction
+        # finds a close vocabulary term.
+        self.did_you_mean_label = QtWidgets.QLabel()
+        self.did_you_mean_label.setStyleSheet("color: #cc9944; font-size: 10px; font-style: italic;")
+        self.did_you_mean_label.hide()  # Hidden by default
+        search_layout.addWidget(self.did_you_mean_label)
+
         toolbar.addWidget(search_container, 1)  # Give it stretch priority
-        
+
+        # Save current search/filter as a personal saved search (EP2 Task 9).
+        self.save_search_btn = QtWidgets.QPushButton("Save search…")
+        self.save_search_btn.setToolTip("Save the current search/filter for quick access later")
+        self.save_search_btn.setObjectName('small')
+        self.save_search_btn.setProperty('class', 'small')
+        self.save_search_btn.clicked.connect(self._on_save_search_clicked)
+        toolbar.addWidget(self.save_search_btn)
+
         # View mode toggle
         self.gallery_btn = QtWidgets.QPushButton()
         self.gallery_btn.setIcon(get_icon('gallery', size=20))
@@ -156,7 +201,18 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         empty_state_layout.addWidget(self.hint_label)
         
         empty_state_layout.addStretch()
-        self.content_stack.addWidget(self.empty_state_widget)  # Index 0
+
+        # Nested stack for the empty page: keeps content_stack's index-0
+        # slot stable while EP1's context-aware empty states
+        # (_show_empty_state/_set_empty_page_widget) swap widgets in and
+        # out. The legacy self.empty_state_widget stays registered here
+        # permanently so external direct writers (main.py:599-601,
+        # load_elements, show_empty_state) never AttributeError -- their
+        # text just stops being what's on screen once an EP1 empty state
+        # replaces it as the visible page.
+        self._empty_page_stack = QtWidgets.QStackedWidget()
+        self._empty_page_stack.addWidget(self.empty_state_widget)
+        self.content_stack.addWidget(self._empty_page_stack)  # Index 0
         
         # Views container (index 1)
         views_widget = QtWidgets.QWidget()
@@ -181,8 +237,9 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         
         # List view (table)
         self.table_view = QtWidgets.QTableWidget()
-        self.table_view.setColumnCount(6)
-        self.table_view.setHorizontalHeaderLabels(['Name', 'Format', 'Frames', 'Type', 'Size', 'Comment'])
+        self.table_view.setColumnCount(8)
+        self.table_view.setHorizontalHeaderLabels(
+            ['Name', 'Format', 'Frames', 'Type', 'Size', 'Comment', 'Rating', 'Label'])
         self.table_view.horizontalHeader().setStretchLastSection(True)
         self.table_view.setSelectionBehavior(QtWidgets.QTableWidget.SelectRows)
         self.table_view.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)  # Multi-select
@@ -212,7 +269,63 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.focus_mode_enabled = False
         self.setup_focus_button()
 
-    
+        # EP1: multi-select action tray, docked below the views. Built here
+        # (main_window is already assigned at construction, before
+        # setup_ui() runs) and fed by both views' selection-changed
+        # signals via _on_selection_changed_ep1.
+        from ui.multi_select_action_tray import MultiSelectActionTray
+        self.action_tray = MultiSelectActionTray(self.db, self.main_window)
+        layout.addWidget(self.action_tray)
+
+        self.action_tray.tag_requested.connect(
+            lambda: self.bulk_add_tag(self.get_selected_element_ids()))
+        self.action_tray.favorite_requested.connect(
+            lambda: self.bulk_add_to_favorites(self.get_selected_element_ids()))
+        self.action_tray.playlist_requested.connect(
+            lambda: self.bulk_add_to_playlist(self.get_selected_element_ids()))
+        self.action_tray.deprecate_requested.connect(
+            lambda: self.bulk_mark_deprecated(self.get_selected_element_ids()))
+        self.action_tray.delete_requested.connect(
+            lambda: self.bulk_delete(self.get_selected_element_ids()))
+        self.action_tray.edit_requested.connect(
+            lambda: self.open_batch_edit(self.get_selected_element_ids()))
+        # Rate/label are applied directly by the tray (bulk_set_rating/
+        # bulk_set_label write straight to the DB); just repaint afterwards.
+        self.action_tray.rate_requested.connect(lambda _stars: self.refresh_current_view())
+        self.action_tray.label_requested.connect(lambda _label_id: self.refresh_current_view())
+
+        self.gallery_view.itemSelectionChanged.connect(self._on_selection_changed_ep1)
+        self.table_view.itemSelectionChanged.connect(self._on_selection_changed_ep1)
+
+    def _install_filter_widgets(self, drawer, chip_bar):
+        """EP2 Task 6: wire the facet drawer + filter chip bar into the
+        layout setup_ui() already built.
+
+        The chip bar goes directly above content_stack (between the
+        toolbar and the stack); the drawer becomes a collapsible left-hand
+        column beside content_stack, via a small horizontal wrapper.
+        Reuses setup_ui's own top-level layout (retrieved through
+        self.layout(), the same QVBoxLayout instance setup_ui's local
+        `layout` variable built) rather than constructing a new one, so
+        the toolbar and action_tray -- already in that layout -- are left
+        untouched.
+        """
+        layout = self.layout()
+        idx = layout.indexOf(self.content_stack)
+        layout.removeWidget(self.content_stack)
+
+        content_row = QtWidgets.QWidget()
+        row_layout = QtWidgets.QHBoxLayout(content_row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.addWidget(drawer)
+        row_layout.addWidget(self.content_stack, 1)
+
+        layout.insertWidget(idx, chip_bar)
+        layout.insertWidget(idx + 1, content_row)
+
+        # Design §3.3: "default collapsed until the user filters."
+        drawer.setVisible(False)
+
     def setup_focus_button(self):
         """Create floating action button for focus mode."""
         self.focus_mode_button = QtWidgets.QToolButton(self)
@@ -421,7 +534,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             if lst:
                 self.info_label.setText("No elements in '{}'".format(lst['name']))
                 self.hint_label.setText("Drag files here or use 'Ingest Files' to add content")
-            self.content_stack.setCurrentIndex(0)  # Show empty state
+            self._show_empty_state("list", list_name=lst['name'] if lst else None)
         else:
             self.content_stack.setCurrentIndex(1)  # Show views
         
@@ -454,9 +567,208 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         
         # Use shared method to update both views
         self._update_views_with_elements(page_elements)
-    
+
+    def apply_filter(self, filter_spec):
+        """EP2 Task 6: run an advanced query against filter_spec and
+        refresh the chip bar, facet drawer counts, and the active view to
+        match. This is the sole entry point the facet drawer's
+        `filter_changed` signal and the chip bar's `chip_removed`/
+        `cleared` signals route back through.
+
+        Bypasses self.pagination for now -- loads every match in one
+        query and counts via len(rows) rather than a separate
+        count_elements_advanced() + limit/offset page. Wiring pagination
+        to filtered results is left for a later task (see the EP2 Task 6
+        report).
+        """
+        from filter_spec import normalize, is_active
+
+        self.current_filter = normalize(filter_spec)
+        active = is_active(self.current_filter)
+
+        # Fix pass: reconcile the drawer's internal _state with the spec
+        # that is about to drive this refresh, regardless of whether it
+        # changed via a drawer checkbox, a chip removal, or a programmatic
+        # load (e.g. a saved search) -- otherwise self._state can go stale
+        # and a later unrelated checkbox toggle would rebuild the spec from
+        # that stale state and resurrect a value the user just removed.
+        # Runs before set_facets() below so that set_facets()'s own
+        # orphaned-value bookkeeping (which reads self._state to decide
+        # which zero-count rows to keep visible) sees the already-
+        # reconciled state, not the previous refresh's. sync_from_filter()
+        # never emits filter_changed (see its docstring), so this cannot
+        # re-enter apply_filter.
+        self.facet_drawer.sync_from_filter(self.current_filter)
+
+        rows = self.db.search_elements_advanced(self.current_filter)
+        count = len(rows)
+
+        self.chip_bar.set_filter(self.current_filter, count)
+        try:
+            self.facet_drawer.set_facets(self.db.get_facet_counts(self.current_filter))
+        except Exception:
+            logger.exception("facet count refresh failed")
+
+        # Design §3.3: the drawer stays collapsed until a filter is active.
+        self.facet_drawer.setVisible(active)
+
+        # This is a cross-list search (like load_favorites/load_playlist/
+        # load_elements_by_tags), not scoped to whatever list was
+        # previously selected, so clear that context the same way those do.
+        self.current_list_id = None
+        self.current_tag_filter = []
+        self.current_elements = rows
+        self.pagination.setVisible(False)
+
+        self._update_views_with_elements(rows)
+        if rows:
+            self.content_stack.setCurrentIndex(1)
+        elif active:
+            self._show_empty_state("search", query=self.current_filter.get("text") or "current filter")
+        else:
+            self.content_stack.setCurrentIndex(1)
+
+    def run_text_search(self, text):
+        """EP2 Task 12: cross-list, synonym-expanded text search.
+
+        This is a *separate* entry point from `on_search` (the per-list
+        live filter below) -- not the plain-text branch of it. `on_search`
+        early-returns unless `current_list_id` is set and is the per-list
+        browse filter Task 6's regression test
+        (`test_clear_filters_after_zero_match_search_stays_in_same_list`)
+        depends on staying scoped to the current list. `run_text_search`
+        goes through `apply_filter`, which always clears `current_list_id`
+        (it is the cross-list search/facet entry point) -- rerouting
+        `on_search`'s plain-text path into this one would eject a per-list
+        search into the cross-list view on every keystroke and break that
+        test. So the two stay separate: `on_search` keeps its existing
+        per-list behavior untouched, and this is the cross-list path
+        invoked deliberately (directly, not via a live keystroke signal).
+
+        Synonym-expands `text` into `tags_any` as an OR assist alongside
+        the literal `text` clause, applies the resulting FilterSpec via
+        `apply_filter` (EP2 Task 6), and -- if that yields zero matches --
+        shows a `suggest_correction` "did you mean" hint beneath the
+        search box (EP2 Task 12).
+
+        Also records the query for the recent-query completer -- this is
+        a deliberate, one-shot call site (unlike `on_search`'s per-
+        keystroke `textChanged` signal), so no extra debounce is needed
+        here; see `_on_search_committed` for the guard `on_search`'s own
+        path uses.
+        """
+        stripped = (text or "").strip()
+        if stripped:
+            try:
+                self.db.add_recent_search(self._current_user_name(), stripped)
+            except Exception:
+                logger.exception("failed to record recent search for %r", stripped)
+
+        from filter_spec import empty_filter
+
+        spec = empty_filter()
+        spec["text"] = text
+        # Synonym-expand into tags_any as an OR assist; expansion failures
+        # (e.g. a transient DB error) must not block the search itself.
+        try:
+            spec["tags_any"] = self.db.expand_terms(text)
+        except Exception:
+            logger.exception("term expansion failed for %r", text)
+
+        self.apply_filter(spec)
+        count = self.db.count_elements_advanced(spec)
+
+        if count == 0:
+            suggestion = self.db.suggest_correction(text)
+            if suggestion:
+                self.did_you_mean_label.setText(
+                    "Did you mean <b>{}</b>?".format(suggestion))
+                self.did_you_mean_label.setVisible(True)
+                return
+        self.did_you_mean_label.setVisible(False)
+
+    def _on_chip_removed(self, key, value):
+        """Strip one clause value from the active filter and re-apply it.
+
+        `key`/`value` come straight off FilterChipBar.chip_removed, typed
+        (str/int/bool) to match whatever is stored under that spec key.
+        """
+        spec = dict(self.current_filter)
+        if isinstance(spec.get(key), list):
+            spec[key] = [v for v in spec[key] if v != value]
+        elif key == "rating_min":
+            spec[key] = 0
+        elif key == "text":
+            spec[key] = ""
+        else:
+            spec[key] = None
+        self.apply_filter(spec)
+
+    def _current_user_name(self):
+        """Resolve the acting username the same way main.py derives it
+        elsewhere (self.main_window.current_user['username']), falling back
+        to 'guest' when there is no main_window or nobody is logged in yet
+        (EP2 Task 9: saved-search ownership)."""
+        if self.main_window is not None:
+            user = getattr(self.main_window, 'current_user', None)
+            if user:
+                return user.get('username', 'guest')
+        return 'guest'
+
+    def _install_recent_completer(self, user_name):
+        """EP2 Task 12: seed a QCompleter on the search box from this
+        user's recent searches (most-recent-first).
+
+        Called once, from `__init__`, after `setup_ui` has built
+        `self.search_box`. A `QCompleter` is a plain, non-modal popup --
+        safe on a construction path per the repo's modal-placement rule.
+        Works fine with an empty recents list (a brand-new user/db): an
+        empty-string-list QCompleter simply never offers a suggestion,
+        it does not raise.
+        """
+        try:
+            recents = self.db.get_recent_searches(user_name)
+        except Exception:
+            logger.exception("failed to load recent searches for %r", user_name)
+            recents = []
+        completer = QtWidgets.QCompleter(recents, self.search_box)
+        completer.setCaseSensitivity(QtCore.Qt.CaseInsensitive)
+        self.search_box.setCompleter(completer)
+
+    def _on_save_search_clicked(self):
+        """Prompt for a name and persist the active FilterSpec as a personal
+        saved search (EP2 Task 9).
+
+        This only runs from an explicit button click -- never from
+        construction or a filter-changed signal path -- so a modal prompt
+        here is fine per the repo's modal-placement rule.
+        """
+        name, ok = QtWidgets.QInputDialog.getText(
+            self, "Save Search", "Name for this saved search:"
+        )
+        if not ok or not name.strip():
+            return
+        user_name = self._current_user_name()
+        try:
+            self.db.create_saved_search(name.strip(), self.current_filter, user_name)
+        except Exception:
+            logger.exception("Failed to save search %r for user %r", name, user_name)
+            return
+        # StacksListsPanel owns the Saved Searches list; rather than reach
+        # into it directly, just announce that a search was saved and let
+        # MainWindow wire this signal to stacks_panel.refresh_saved_searches.
+        self.saved_search_created.emit()
+
     def show_empty_state(self, message=None, hint=None):
-        """Clear views and display placeholder message."""
+        """Clear views and display placeholder message.
+
+        Called with no arguments this is the generic "nothing selected
+        yet" state (e.g. main.py's restore_active_view fallback), which
+        EP1 renders as the "library" empty page. A custom message/hint
+        (the tag-filter prompts in load_elements_by_tags) doesn't map onto
+        any of the four fixed EP1 kinds, so it keeps rendering on the
+        legacy info_label/hint_label page instead.
+        """
         self.current_list_id = None
         self.current_elements = []
         self.current_tag_filter = []
@@ -465,7 +777,10 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.pagination.setVisible(False)
         self.info_label.setText(message or "Select a list to view elements")
         self.hint_label.setText(hint or "Browse stacks and lists in the navigation panel")
-        self.content_stack.setCurrentIndex(0)  # Show empty state
+        if message is None and hint is None:
+            self._show_empty_state("library")
+        else:
+            self._set_empty_page_widget(self.empty_state_widget)
 
 
 
@@ -487,12 +802,23 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         else:
             self.info_label.setText("No elements found for tags: {}".format(', '.join(cleaned_tags)))
             self.hint_label.setText("Try selecting different tags or add elements with these tags")
-            self.content_stack.setCurrentIndex(0)  # Show empty state
+            # Route through the legacy page explicitly: a bare
+            # setCurrentIndex(0) only flips the outer content_stack index
+            # and would leave a previously-installed EP1 empty page (e.g.
+            # from a prior search) visible on the nested _empty_page_stack.
+            self._set_empty_page_widget(self.empty_state_widget)  # Show empty state
 
         self._update_views_with_elements(elements)
 
     def on_search(self, text):
-        """Handle search text change (live filter) with tag support and pagination."""
+        """Handle search text change (live filter) with tag support and pagination.
+
+        EP2 Task 12: intentionally left as the per-list live filter it
+        already was, not rerouted into the cross-list `run_text_search` --
+        see `run_text_search`'s docstring for why. Recent-search recording
+        for this box lives in `_on_search_committed` (returnPressed),
+        deliberately not here, since this method runs on every keystroke.
+        """
         if not self.current_list_id:
             return
         
@@ -540,18 +866,46 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         
         # Store filtered elements for pagination
         self.current_elements = elements
-        
+
         # Setup pagination for filtered results
         if self.config.get('pagination_enabled', True):
             self.pagination.set_total_items(len(elements))
             self.pagination.setVisible(len(elements) > 0)
         else:
             self.pagination.setVisible(False)
-        
+
+        if not elements and text:
+            # A real query matched nothing: contextual "no matches" page
+            # instead of a blank grid.
+            self._update_views_with_elements([])
+            self._show_empty_state("search", query=text)
+            return
+
+        # A query was cleared or matched something: make sure the views
+        # (not a previously-shown search-empty page) are what's visible.
+        self.content_stack.setCurrentIndex(1)
+
         # Display current page
         self._display_current_page()
-    
-    
+
+    def _on_search_committed(self):
+        """EP2 Task 12: on an explicit commit (Enter/returnPressed), run the
+        cross-list, synonym-expanded text search (`run_text_search`) and let
+        it record the query as a recent search.
+
+        Deliberately NOT wired to `search_box.textChanged`/`on_search` --
+        that fires on every keystroke, which would run a full cross-list
+        search (and record every partial prefix: "f", "fi", "fir", "fire")
+        instead of the query the user actually meant. `#tag`/`tag:` queries
+        are skipped since those are the tag fast paths handled by `on_search`,
+        not the free-text queries the "did you mean"/synonym-expansion/
+        recent-completer feature targets.
+        """
+        text = self.search_box.text().strip()
+        if not text or text.startswith('#') or 'tag:' in text.lower():
+            return
+        self.run_text_search(text)
+
     def _update_views_with_elements(self, elements):
         """Update gallery and table views with given elements."""
         self.stop_current_gif()
@@ -603,7 +957,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                     pixmap = movie.currentPixmap()
                     if not pixmap.isNull():
                         thumbnail = self._build_fixed_thumbnail(pixmap, icon_size)
-                        thumbnail = self._apply_status_badges(thumbnail, element_id)
+                        thumbnail = self._apply_status_badges(thumbnail, element_id, element)
                         item.setIcon(QtGui.QIcon(thumbnail))
                 else:
                     has_gif = False
@@ -659,6 +1013,23 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 comment_text += " [Tags: " + element['tags'] + "]"
             self.table_view.setItem(row, 5, QtWidgets.QTableWidgetItem(comment_text))
 
+            rating_item = QtWidgets.QTableWidgetItem(self._rating_cell_text(element.get('rating', 0)))
+            rating_item.setFlags(rating_item.flags() & ~QtCore.Qt.ItemIsEditable)
+            self.table_view.setItem(row, 6, rating_item)
+
+            label_item = QtWidgets.QTableWidgetItem("")
+            label_item.setFlags(label_item.flags() & ~QtCore.Qt.ItemIsEditable)
+            label_fk = element.get('label_fk')
+            if label_fk:
+                name = self._label_name(label_fk)
+                color = self._label_color(label_fk)
+                if name:
+                    label_item.setToolTip(name)
+                    label_item.setData(QtCore.Qt.AccessibleTextRole, name)
+                if color:
+                    label_item.setBackground(QtGui.QBrush(QtGui.QColor(color)))
+            self.table_view.setItem(row, 7, label_item)
+
             self.table_view.item(row, 0).setData(QtCore.Qt.UserRole, element_id)
 
         if hasattr(self.gallery_view, "set_item_loader"):
@@ -702,7 +1073,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             element_id = element.get('element_id')
             thumbnail = self._build_fixed_thumbnail(cached_pixmap, icon_size)
             if element_id:
-                thumbnail = self._apply_status_badges(thumbnail, element_id)
+                thumbnail = self._apply_status_badges(thumbnail, element_id, element)
             return thumbnail
         return None
 
@@ -776,8 +1147,12 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         thumbnail = self._build_fixed_thumbnail(pixmap, size)
         return QtGui.QIcon(thumbnail)
 
-    def _apply_status_badges(self, pixmap, element_id):
+    def _apply_status_badges(self, pixmap, element_id, element=None):
         """Overlay favorite/deprecated badges onto a pixmap."""
+        # EP1: overlay rating stars + label chip first so every return path
+        # below (no flags / no overlays / flags present) carries it.
+        pixmap = self._draw_curation_badges(pixmap, element_id, element)
+
         flags = self.element_flags.get(element_id)
         if not flags:
             return pixmap
@@ -808,7 +1183,101 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         painter.end()
 
         return result
-    
+
+    def _draw_curation_badges(self, pixmap, element_id, element=None):
+        """Overlay a star strip and a label color-chip onto a thumbnail."""
+        result = QtGui.QPixmap(pixmap)
+        if element_id is None:
+            return result
+        if element is not None:
+            el = element
+        else:
+            try:
+                el = self.db.get_element_by_id(element_id) or {}
+            except Exception:
+                logger.exception("failed reading curation state for %s", element_id)
+                return result
+        rating = el.get("rating", 0) or 0
+        label_fk = el.get("label_fk")
+
+        painter = QtGui.QPainter(result)
+        try:
+            # star strip, bottom-left
+            if rating:
+                painter.setPen(QtGui.QColor("#F5D90A"))
+                painter.drawText(6, result.height() - 6, "★" * int(rating))
+            # label chip, top-right
+            if label_fk:
+                color = self._label_color(label_fk)
+                if color:
+                    painter.fillRect(result.width() - 16, 6, 10, 10, QtGui.QColor(color))
+        finally:
+            painter.end()
+        return result
+
+    def _label_lookup(self):
+        """Lazily build (and cache) a label_id -> label-dict map.
+
+        Shared by `_label_color` and `_label_name` so both resolve from a
+        single `get_labels()` round-trip; `quick_set_label` invalidates this
+        same `_label_color_cache` attribute to force a re-resolve.
+        """
+        cache = getattr(self, "_label_color_cache", None)
+        if cache is None:
+            cache = {l["label_id"]: l for l in self.db.get_labels()}
+            self._label_color_cache = cache
+        return cache
+
+    def _label_color(self, label_fk):
+        """Resolve a label_fk to its color_hex (cached per refresh)."""
+        label = self._label_lookup().get(label_fk)
+        return label["color_hex"] if label else None
+
+    def _label_name(self, label_fk):
+        """Resolve a label_fk to its display name (cached per refresh)."""
+        label = self._label_lookup().get(label_fk)
+        return label["name"] if label else None
+
+    @staticmethod
+    def _rating_cell_text(rating):
+        """Render a rating (0-5, possibly None) as a star string for the table."""
+        return "★" * int(rating or 0)
+
+    def quick_set_rating(self, element_id, stars):
+        """Write-through rating setter for the grid's hover quick-edit."""
+        self.db.set_element_rating(element_id, stars)
+        self._refresh_item(element_id)
+
+    def quick_set_label(self, element_id, label_id):
+        """Write-through label setter for the grid's hover quick-edit."""
+        self.db.set_element_label(element_id, label_id)
+        self._label_color_cache = None  # force re-resolve
+        self._refresh_item(element_id)
+
+    def _refresh_item(self, element_id):
+        """Repaint a single gallery item's icon after a rating/label change.
+
+        Minimal per-item update modeled on on_preview_ready; deliberately a
+        no-op when the element has no current gallery item and never
+        triggers a full view rebuild (see SP2 in-place-update work).
+        """
+        item = self.element_items.get(element_id)
+        if item is None:
+            return
+        try:
+            element = self.db.get_element_by_id(element_id)
+        except Exception:
+            logger.exception("failed refreshing item %s", element_id)
+            return
+        if not element:
+            return
+        icon_size = self.gallery_view.iconSize()
+        element_stub = dict(element)
+        element_stub["element_id"] = element_id
+        pixmap = self._load_preview_pixmap(element_stub, icon_size)
+        if pixmap:
+            item.setIcon(QtGui.QIcon(pixmap))
+
     @QtCore.Slot(int, str, str)
     def on_preview_ready(self, element_id, preview_path, preview_type):
         """Slot connected to PreviewWorker.preview_ready.
@@ -825,8 +1294,17 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             return
         if not preview_path or not os.path.exists(preview_path):
             return
+        try:
+            element = self.db.get_element_by_id(element_id)
+        except Exception:
+            logger.exception("failed loading element %s for preview refresh", element_id)
+            return
+        if not element:
+            return
         icon_size = self.gallery_view.iconSize()
-        element_stub = {"preview_path": preview_path, "element_id": element_id}
+        element_stub = dict(element)
+        element_stub["element_id"] = element_id
+        element_stub["preview_path"] = preview_path
         pixmap = self._load_preview_pixmap(element_stub, icon_size)
         if pixmap:
             item.setIcon(QtGui.QIcon(pixmap))
@@ -1286,6 +1764,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         actions = {}
         actions['fav'] = menu.addAction(get_icon('favorite', size=16), "Add All to Favorites")
         actions['playlist'] = menu.addAction(get_icon('playlist', size=16), "Add All to Playlist...")
+        actions['tag'] = menu.addAction(get_icon('add', size=16), "Add Tag to All...")
         actions['edit'] = menu.addAction(get_icon('edit', size=16), "Batch Edit Metadata...")
 
         menu.addSeparator()
@@ -1303,6 +1782,8 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             self.bulk_add_to_favorites(selected_ids)
         elif action == actions['playlist']:
             self.bulk_add_to_playlist(selected_ids)
+        elif action == actions['tag']:
+            self.bulk_add_tag(selected_ids)
         elif action == actions['edit']:
             self.open_batch_edit(selected_ids)
         elif action == actions['deprecate']:
@@ -1480,20 +1961,248 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             # Refresh display
             if self.current_list_id:
                 self.load_elements(self.current_list_id)
-    
+
+    def bulk_add_tag(self, element_ids):
+        """Prompt once for a tag, then append it to every selected element.
+
+        Tags are a per-element comma-separated string (the same `tags`
+        field EditElementDialog writes via db.update_element(..., tags=...));
+        there is no shared "bulk_set_tag" DB method, so each element is
+        read, updated, and written back individually -- modeled on the
+        neighbouring bulk_add_to_favorites/bulk_mark_deprecated methods.
+        """
+        if not element_ids:
+            return
+
+        tag, ok = QtWidgets.QInputDialog.getText(
+            self,
+            "Add Tag to All",
+            "Tag to add to {} element(s):".format(len(element_ids))
+        )
+        tag = tag.strip() if (ok and tag) else ""
+        if not ok or not tag:
+            return
+
+        updated_count = 0
+        for element_id in element_ids:
+            element = self.db.get_element_by_id(element_id)
+            if not element:
+                continue
+            existing = [t.strip() for t in (element.get('tags') or '').split(',') if t.strip()]
+            if tag in existing:
+                continue
+            existing.append(tag)
+            self.db.update_element(element_id, tags=', '.join(existing))
+            updated_count += 1
+
+        QtWidgets.QMessageBox.information(
+            self,
+            "Success",
+            "Added tag '{}' to {} element(s).".format(tag, updated_count)
+        )
+
+        # Refresh display
+        if self.current_list_id:
+            self.load_elements(self.current_list_id)
+
+    def refresh_current_view(self):
+        """Re-render whatever's currently on screen.
+
+        Used after a bulk rating/label change: MultiSelectActionTray's
+        apply_rating/apply_label already write straight to the DB before
+        emitting rate_requested/label_requested, so this just needs to
+        make the (now stale) rating/label badges on screen catch up.
+        """
+        if self.current_list_id:
+            self.load_elements(self.current_list_id)
+        elif self.current_tag_filter:
+            self.load_elements_by_tags(self.current_tag_filter)
+        elif self.current_elements:
+            # Favorites / playlist views: current_list_id/current_tag_filter
+            # are both unset, so re-pull each element directly for fresh
+            # rating/label values instead of a full reload.
+            ids = [e.get('element_id') for e in self.current_elements if e.get('element_id')]
+            refreshed = [self.db.get_element_by_id(eid) for eid in ids]
+            self.current_elements = [e for e in refreshed if e]
+            self._update_views_with_elements(self.current_elements)
+
+    def _on_selection_changed_ep1(self):
+        """Feed the multi-select action tray from either view's selection."""
+        self.action_tray.set_selection(self.get_selected_element_ids())
+
+    def _show_empty_state(self, kind_key, query=None, list_name=None):
+        """Install one of the four EP1 context-aware empty pages.
+
+        kind_key is one of "library" / "list" / "search" / "favorites".
+        """
+        from ui.empty_state_widget import EmptyStateWidget
+
+        specs = {
+            "library": (
+                "No assets yet",
+                "Ingest footage, sequences, or toolsets to get started.",
+                ("Ingest files…", self._request_ingest_files),
+                None,
+                "action",
+            ),
+            "list": (
+                "This list is empty",
+                "Add assets to {}.".format(list_name or "this list"),
+                ("Ingest into this list…", self._request_ingest_files),
+                None,
+                "action",
+            ),
+            "search": (
+                "No matches for '{}'".format(query or ""),
+                "Try fewer terms or clear filters.",
+                ("Clear filters", self._request_clear_filters),
+                None,
+                "informational",
+            ),
+            "favorites": (
+                "Nothing here yet",
+                "Star assets or add them to a playlist to collect them.",
+                ("Browse library", self._request_browse_library),
+                None,
+                "informational",
+            ),
+        }
+        headline, message, primary, secondary, kind = specs[kind_key]
+        self.current_empty_state = EmptyStateWidget(headline, message, primary, secondary, kind)
+        self._set_empty_page_widget(self.current_empty_state)
+
+    def _set_empty_page_widget(self, widget):
+        """Swap the widget shown on content_stack's empty page (index 0).
+
+        The legacy self.empty_state_widget (and its info_label/hint_label
+        children) stays registered as a permanent page of the nested
+        _empty_page_stack, so pre-existing direct writers (this widget's
+        own show_empty_state/load_elements, and main.py:599-601) keep
+        working without AttributeError -- their text just stops being
+        what's on screen once an EP1 empty state replaces it as the
+        visible page. Previously-installed EP1 pages (but never the
+        legacy one) are dropped so repeated calls don't accumulate.
+        """
+        previous = self._empty_page_stack.currentWidget()
+        if self._empty_page_stack.indexOf(widget) == -1:
+            self._empty_page_stack.addWidget(widget)
+        self._empty_page_stack.setCurrentWidget(widget)
+        if (previous is not None and previous is not widget
+                and previous is not self.empty_state_widget):
+            self._empty_page_stack.removeWidget(previous)
+            previous.deleteLater()
+        self.content_stack.setCurrentIndex(0)
+
+    def _request_ingest_files(self):
+        """Empty-state 'Ingest files…' CTA -> MainWindow.ingest_files()."""
+        if self.main_window and hasattr(self.main_window, 'ingest_files'):
+            self.main_window.ingest_files()
+        else:
+            logger.info("Ingest requested from empty state but no MainWindow.ingest_files() is available")
+
+    def _request_clear_filters(self):
+        """Empty-state 'Clear filters' CTA.
+
+        Reached from two different zero-result callers that share the same
+        "search" empty page (_show_empty_state's "search" entry), and they
+        need different recoveries:
+
+        (b) Per-list browse search: on_search() only acts "if
+            self.current_list_id:" and never clears that attribute itself,
+            so a zero-match search leaves current_list_id still set to the
+            list the user was browsing. Recovery must reset the search/
+            filter state and reload that SAME list -- not eject the user
+            into the unscoped cross-list view.
+        (a) Facet/chip filter: apply_filter() unconditionally sets
+            current_list_id = None (it's the cross-list search entry
+            point -- same as load_favorites/load_playlist/
+            load_elements_by_tags), so by the time this CTA is reachable
+            through that path current_list_id is already None. Recovery
+            here is the unfiltered cross-list view apply_filter(empty_filter())
+            produces.
+
+        Fix pass 2: the prior fix pass (39f0dd6) always ran
+        apply_filter(empty_filter()) here regardless of which caller reached
+        it. Since apply_filter always nulls current_list_id, that silently
+        ejected a per-list search (b) user out of the list they were
+        browsing into the cross-list view -- a real navigation regression on
+        a path that worked before 39f0dd6. Branching on current_list_id
+        restores case (b) while keeping case (a) exactly as 39f0dd6 fixed it.
+        """
+        from filter_spec import empty_filter
+
+        if self.current_list_id is not None:
+            # Case (b): reset the filter spec and reconcile the drawer/chip
+            # bar to it so no facet selection or chip lingers into the
+            # reload below -- this can be reached with a still-armed facet
+            # filter underneath an in-list search (apply_filter never
+            # touches current_list_id, and load_elements never touches
+            # current_filter/facet_drawer/chip_bar, so the two can go out of
+            # sync across a list switch). sync_from_filter() never emits
+            # filter_changed (see its docstring / Fix 1 above), so this
+            # cannot re-enter apply_filter through that connection.
+            self.current_filter = empty_filter()
+            self.facet_drawer.sync_from_filter(self.current_filter)
+            self.facet_drawer.setVisible(False)
+
+            # Clear the search box with signals blocked so on_search() does
+            # not also fire and repaint redundantly -- load_elements() below
+            # is the single reload this branch performs.
+            self.search_box.blockSignals(True)
+            try:
+                self.search_box.clear()
+            finally:
+                self.search_box.blockSignals(False)
+            self.search_hint_label.hide()
+
+            # Reload the SAME list the user was browsing. current_list_id is
+            # deliberately left untouched here (load_elements reassigns it
+            # to the same value anyway) -- this is the one call in this
+            # branch that repaints, so there is no double-load.
+            self.load_elements(self.current_list_id)
+
+            # Bring the chip bar's result count back in sync with the
+            # reloaded list now that current_elements reflects it (set_filter
+            # above would have shown a stale "0 results" until this).
+            self.chip_bar.set_filter(self.current_filter, len(self.current_elements))
+            return
+
+        # Case (a): current_list_id is already None here, so this is exactly
+        # 39f0dd6's fix, unchanged.
+        self.search_box.blockSignals(True)
+        try:
+            self.search_box.clear()
+        finally:
+            self.search_box.blockSignals(False)
+
+        self.apply_filter(empty_filter())
+
+    def _request_browse_library(self):
+        """Empty-state 'Browse library' CTA.
+
+        No MainWindow handler exists today for "show the whole library"
+        (only per-list/per-stack/favorites/playlist/tag navigation), so
+        this is a logged no-op rather than inventing new navigation.
+        """
+        logger.info("Browse library requested from empty state; no whole-library navigation exists yet")
+
     def load_favorites(self):
         """Load and display favorite elements."""
         user = self.config.get('user_name')
         machine = self.config.get('machine_name')
-        
+
         favorites = self.db.get_favorites(user, machine)
-        
+
         self.current_list_id = None  # Clear current list
         self.current_tag_filter = []
         self.current_elements = favorites
         self.pagination.setVisible(False)
-        self.info_label.setText("Favorites ({} items)".format(len(favorites)))
-        self._update_views_with_elements(favorites)
+        if favorites:
+            self.content_stack.setCurrentIndex(1)
+            self.info_label.setText("Favorites ({} items)".format(len(favorites)))
+            self._update_views_with_elements(favorites)
+        else:
+            self._show_empty_state("favorites")
     
     def load_playlist(self, playlist_id):
         """Load and display playlist elements."""
