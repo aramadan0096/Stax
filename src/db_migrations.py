@@ -16,7 +16,7 @@ import logging
 log = logging.getLogger(__name__)
 
 # Bump this every time a new _migrate_vN is appended below.
-CURRENT_SCHEMA_VERSION = 11
+CURRENT_SCHEMA_VERSION = 12
 
 # Default color-label palette (EP1). Seed order defines labels.sort_order.
 DEFAULT_LABELS = [
@@ -299,6 +299,24 @@ def _migrate_v11(conn):
     conn.commit()
 
 
+def _migrate_v12(conn):
+    """v11 -> v12: create element_relationships table for typed links
+    between elements (e.g. variant_of, related) (EP4)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS element_relationships (
+            rel_id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            from_element_fk INTEGER NOT NULL,
+            to_element_fk   INTEGER NOT NULL,
+            rel_type        TEXT NOT NULL,
+            UNIQUE(from_element_fk, to_element_fk, rel_type)
+        )
+        """
+    )
+    log.info("Migration v12: created element_relationships table")
+    conn.commit()
+
+
 # Index N upgrades schema version N-1 -> N.
 _MIGRATIONS = [
     None,          # index 0 — unused placeholder
@@ -313,6 +331,7 @@ _MIGRATIONS = [
     _migrate_v9,   # 8 -> 9
     _migrate_v10,  # 9 -> 10
     _migrate_v11,  # 10 -> 11
+    _migrate_v12,  # 11 -> 12
 ]
 
 

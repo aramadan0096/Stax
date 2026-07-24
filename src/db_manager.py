@@ -2765,3 +2765,29 @@ class DatabaseManager(object):
             total += len(self.check_element_quality(el["element_id"]))
         return {"issues": total}
 
+    # ======================
+    # ELEMENT RELATIONSHIPS (EP4)
+    # ======================
+
+    def add_relationship(self, from_id, to_id, rel_type):
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT OR IGNORE INTO element_relationships "
+                "(from_element_fk, to_element_fk, rel_type) VALUES (?, ?, ?)",
+                (from_id, to_id, rel_type))
+            return cur.lastrowid
+
+    def get_relationships(self, element_id):
+        with self.get_connection(write=False) as conn:
+            rows = conn.execute(
+                "SELECT rel_id, from_element_fk, to_element_fk, rel_type "
+                "FROM element_relationships WHERE from_element_fk = ? OR to_element_fk = ?",
+                (element_id, element_id)).fetchall()
+            return [dict(r) for r in rows]
+
+    def remove_relationship(self, rel_id):
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "DELETE FROM element_relationships WHERE rel_id = ?", (rel_id,))
+
