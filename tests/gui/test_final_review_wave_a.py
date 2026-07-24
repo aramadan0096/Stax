@@ -232,11 +232,16 @@ def test_review_preset_preview_width_survives_a_subsequent_selection(
     win = _mainwindow_with_temp_db(qtbot, tmp_path, monkeypatch)
     eid_a, _eid_b = _two_elements(win.db)
 
-    # Widen the window well past the sum of any preset's main_sizes, so the
-    # rendered preview width is governed by preview_pane_expanded_width --
-    # the thing this fix changes -- not by expand_preview_pane()'s separate
-    # "at most 1/3 of available space" heuristic running out of room.
-    win.resize(3000, 900)
+    # The app's real default window size (main.py: self.resize(1400, 800)).
+    # This is the bracket that matters: expand_preview_pane()'s separate
+    # "at most 1/3 of available space" heuristic is tight enough here that
+    # a naive `min(expanded_width, available // 3)` cap clips Review's
+    # remembered 860px column right back down to ~370 -- byte-identical to
+    # the pre-fix behavior -- even though preview_pane_expanded_width was
+    # correctly updated by apply_preset(). Only a window resized well past
+    # every preset's main_sizes (e.g. 3000x900) would hide that clipping,
+    # so this test asserts at the size that actually exercises it.
+    win.resize(1400, 800)
     qtbot.wait(50)
 
     apply_preset(win, "Review")
@@ -247,10 +252,21 @@ def test_review_preset_preview_width_survives_a_subsequent_selection(
     win.on_selection_changed()
 
     preview_width = win.main_splitter.sizes()[2]
-    assert preview_width >= 800, (
-        "Review's preview column (main_sizes[2]=860) must survive a "
-        "subsequent single selection, not snap back down to ~360 "
-        "(got {})".format(preview_width)
+    assert preview_width >= 600, (
+        "Review's preview column (main_sizes[2]=860) must substantially "
+        "survive a subsequent single selection at the app's default "
+        "1400x800 window size, not snap back down to ~360-400 the way it "
+        "did before the explicit-preset-width cap fix (got {})".format(
+            preview_width
+        )
+    )
+
+    center_width = win.main_splitter.sizes()[1]
+    assert center_width >= 400, (
+        "the center pane's floor must hold even when the remembered "
+        "preset width is allowed past the available//3 cap (got {})".format(
+            center_width
+        )
     )
 
 

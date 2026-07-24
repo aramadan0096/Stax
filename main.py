@@ -632,7 +632,18 @@ class MainWindow(QtWidgets.QMainWindow):
         total = sum(sizes)
         left_width = max(self.stacks_panel.minimumWidth(), sizes[0])
         available = max(0, total - left_width)
-        preview_width = min(self.preview_pane_expanded_width, max(320, available // 3))
+        # An explicitly-remembered preset width (apply_preset(), EP3 Task 6
+        # fix) must be able to raise this cap, not just be clipped by it --
+        # otherwise Review's 860px column snaps right back to ~1/3 of
+        # available space at realistic window sizes (e.g. the app's own
+        # 1400x800 default), which is byte-identical to the pre-fix
+        # behavior. The `available - 420` center-floor guard a few lines
+        # down still applies afterwards, so the center pane's protection is
+        # unchanged.
+        preview_width = min(
+            self.preview_pane_expanded_width,
+            max(320, available // 3, self.preview_pane_expanded_width),
+        )
         preview_width = max(280, preview_width)
         if preview_width > available - 420:
             preview_width = max(240, available - 420)
