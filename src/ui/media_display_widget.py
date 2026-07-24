@@ -233,6 +233,10 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.gallery_view.itemDoubleClicked.connect(self.on_item_double_clicked)
         self.gallery_view.setMouseTracking(True)  # Enable hover tracking
         self.gallery_view.viewport().installEventFilter(self)  # Install event filter
+        # EP3 Task 3: separate filter target from the viewport above --
+        # mouse events (Alt+Hover) land on the viewport, but key events
+        # (Space for quicklook) are delivered to the view itself.
+        self.gallery_view.installEventFilter(self)
         self.view_stack.addWidget(self.gallery_view)
         
         # List view (table)
@@ -247,6 +251,8 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.table_view.itemDoubleClicked.connect(self.on_table_item_double_clicked)
         self.table_view.setMouseTracking(True)  # Enable hover tracking
         self.table_view.viewport().installEventFilter(self)  # Install event filter
+        # EP3 Task 3: see the matching comment on gallery_view above.
+        self.table_view.installEventFilter(self)
         self.view_stack.addWidget(self.table_view)
         
         views_layout.addWidget(self.view_stack)
@@ -1330,11 +1336,23 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.element_double_clicked.emit(element_id)
     
     def eventFilter(self, watched, event):
-        """Event filter to handle Alt+Hover."""
+        """Event filter to handle Alt+Hover and the EP3 Space quicklook trigger."""
         # Check if widgets are initialized
         if not hasattr(self, 'gallery_view') or not hasattr(self, 'table_view'):
             return super(MediaDisplayWidget, self).eventFilter(watched, event)
-        
+
+        # EP3 Task 3: Space opens quicklook for the current selection.
+        # Watched on gallery_view/table_view themselves (not their
+        # viewports, which is where the Alt+Hover block below listens for
+        # MouseMove/Leave) because key events target the focused view, not
+        # its viewport. Swallow the event so QAbstractItemView's own Space
+        # handling (which would otherwise touch selection) never runs.
+        if watched in (self.gallery_view, self.table_view):
+            if event.type() == QtCore.QEvent.KeyPress and event.key() == QtCore.Qt.Key_Space:
+                self._open_quicklook()
+                return True
+            return super(MediaDisplayWidget, self).eventFilter(watched, event)
+
         if watched in [self.gallery_view.viewport(), self.table_view.viewport()]:
             if event.type() == QtCore.QEvent.MouseMove:
                 # Check if Alt is pressed
@@ -1849,9 +1867,116 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                     element_id = item.data(QtCore.Qt.UserRole)
                     if element_id:
                         selected_ids.append(element_id)
-        
+
         return selected_ids
-    
+
+    # ------------------------------------------------------------------
+    # EP3 Task 3: spacebar quicklook overlay
+    # ------------------------------------------------------------------
+
+    def _get_selected_element(self):
+        """Return the element dict (from current_elements) for the current
+        view's selection, or None if nothing is selected."""
+        index = self._current_element_index()
+        if index is None:
+            return None
+        return self.current_elements[index]
+
+    def _current_element_index(self):
+        """Return the current_elements index of the selected element, or
+        None if nothing is selected or the selected id isn't in the
+        currently loaded result set."""
+        selected_ids = self.get_selected_element_ids()
+        if not selected_ids:
+            return None
+        target_id = selected_ids[0]
+        for index, element in enumerate(self.current_elements):
+            if element.get('element_id') == target_id:
+                return index
+        return None
+
+    def _resolve_element_preview_path(self, element):
+        """Resolve an element's static preview to an existing absolute path,
+        or None. Mirrors the idiom used by the thumbnail loader
+        (_load_preview_pixmap)."""
+        preview_path = self._resolve_path(element.get('preview_path'))
+        if not preview_path or not os.path.exists(preview_path):
+            return None
+        return preview_path
+
+    def _select_element_in_view(self, element):
+        """Sync the active view's selection to `element`, without touching
+        the other (currently hidden) view."""
+        element_id = element.get('element_id')
+        if self.view_mode == 'gallery':
+            item = self.element_items.get(element_id)
+            if item is not None:
+                self.gallery_view.clearSelection()
+                self.gallery_view.setCurrentItem(item)
+                item.setSelected(True)
+                self.gallery_view.scrollToItem(item)
+        else:
+            for row in range(self.table_view.rowCount()):
+                cell = self.table_view.item(row, 0)
+                if cell is not None and cell.data(QtCore.Qt.UserRole) == element_id:
+                    self.table_view.clearSelection()
+                    self.table_view.selectRow(row)
+                    self.table_view.scrollToItem(cell)
+                    break
+        self.element_selected.emit(element_id)
+
+    def _move_selection(self, step):
+        """Move the selection by `step` positions within current_elements,
+        clamping at both ends. Returns the newly-selected element dict, or
+        None if the result set is empty or nothing is currently selected."""
+        if not self.current_elements:
+            return None
+        index = self._current_element_index()
+        if index is None:
+            return None
+        new_index = max(0, min(index + step, len(self.current_elements) - 1))
+        element = self.current_elements[new_index]
+        self._select_element_in_view(element)
+        return element
+
+    def select_next_element(self):
+        """Advance the selection to the next element in the current result
+        set (current_elements). Clamps at the last item; no-op (returns
+        None) if the result set is empty or nothing is selected."""
+        return self._move_selection(1)
+
+    def select_previous_element(self):
+        """Move the selection to the previous element in the current result
+        set (current_elements). Clamps at the first item; no-op (returns
+        None) if the result set is empty or nothing is selected."""
+        return self._move_selection(-1)
+
+    def _open_quicklook(self):
+        """Open the spacebar quicklook overlay for the current view's
+        selection. No-op if nothing is selected."""
+        element = self._get_selected_element()
+        if not element:
+            return
+        from ui.quicklook_overlay import QuickLookOverlay
+        self._quicklook = QuickLookOverlay(self)
+        self._quicklook.next_requested.connect(self._quicklook_show_next)
+        self._quicklook.prev_requested.connect(self._quicklook_show_previous)
+        self._quicklook.show_element(element, self._resolve_element_preview_path(element))
+
+    def _quicklook_show_next(self):
+        """Handle the overlay's next_requested: advance the selection and
+        refresh the overlay's preview to match."""
+        element = self.select_next_element()
+        if element is not None:
+            self._quicklook.show_element(element, self._resolve_element_preview_path(element))
+
+    def _quicklook_show_previous(self):
+        """Handle the overlay's prev_requested: move the selection back and
+        refresh the overlay's preview to match."""
+        element = self.select_previous_element()
+        if element is not None:
+            self._quicklook.show_element(element, self._resolve_element_preview_path(element))
+
     def bulk_add_to_favorites(self, element_ids):
         """Add multiple elements to favorites."""
         user = self.config.get('user_name')
