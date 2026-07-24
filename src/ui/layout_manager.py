@@ -117,11 +117,36 @@ def apply_preset(main_window, name):
     # nav back (main_sizes[0] > 0) must restore it explicitly too, or it
     # would stay hidden after switching away from Review.
     stacks_panel = getattr(main_window, "stacks_panel", None)
+    nav_hidden = main_sizes[0] <= 0
     if stacks_panel is not None:
-        if main_sizes[0] <= 0:
+        if nav_hidden:
             stacks_panel.hide()
         else:
             stacks_panel.show()
+
+    # Final fix-pass Minor: the above hide()/show() bypasses
+    # MainWindow.toggle_focus_mode() entirely, so MediaDisplayWidget's
+    # floating focus-mode FAB (media_display_widget.py's
+    # `focus_mode_button` -- not in the toolbar, so easy to miss) kept its
+    # old checked state and tooltip. Under Review the nav is hidden while
+    # the FAB still read "Enter focus mode (hide navigation panel)", so
+    # the first click on it looked like a no-op. Sync it here, with
+    # signals blocked so this can never itself fire toggle_focus_mode
+    # (which independently hides the toolbar/docks and re-derives splitter
+    # sizes -- apply_preset already set the sizes it wants). Guarded for
+    # shells where the button doesn't exist.
+    media_display = getattr(main_window, "media_display", None)
+    focus_button = getattr(media_display, "focus_mode_button", None) if media_display is not None else None
+    if focus_button is not None:
+        focus_button.blockSignals(True)
+        try:
+            focus_button.setChecked(nav_hidden)
+        finally:
+            focus_button.blockSignals(False)
+        focus_button.setToolTip(
+            "Exit focus mode (show navigation panel)" if nav_hidden
+            else "Enter focus mode (hide navigation panel)"
+        )
 
     # Final review Finding 3: remember this preset's right-column width as
     # the "expanded preview" width. expand_preview_pane() (main.py) bounds

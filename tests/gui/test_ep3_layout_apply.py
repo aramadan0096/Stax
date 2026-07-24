@@ -197,3 +197,68 @@ def test_apply_preset_persists_selection_under_layout_preset_config_key(
 
     apply_preset(win, "Review")
     assert win.config.get("layout_preset") == "Review"
+
+
+# ---------------------------------------------------------------------------
+# Final fix-pass Minor: apply_preset() hides/shows stacks_panel directly
+# (see the Finding-3 comment above), bypassing MainWindow.toggle_focus_mode
+# entirely -- so MediaDisplayWidget.focus_mode_button (a floating FAB
+# inside the media pane, not in the toolbar) kept its old checked state
+# and tooltip. Under Review the nav is hidden while the FAB still read
+# "Enter focus mode (hide navigation panel)", so the first click on it
+# appeared to do nothing (it *was* about to hide already-hidden nav).
+# Cosmetic (nothing becomes unreachable), but apply_preset() must keep the
+# FAB's displayed state truthful.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.gui
+def test_apply_preset_syncs_focus_button_checked_state_and_tooltip(
+    qtbot, mock_nuke, monkeypatch, tmp_path
+):
+    win = _mainwindow_with_temp_db(qtbot, tmp_path, monkeypatch)
+    button = win.media_display.focus_mode_button
+    assert button.isChecked() is False
+
+    apply_preset(win, "Review")  # main_sizes[0] == 0 -> nav hidden
+
+    assert win.stacks_panel.isVisible() is False
+    assert button.isChecked() is True
+    assert button.toolTip() == "Exit focus mode (show navigation panel)"
+
+    apply_preset(win, "Browse")  # main_sizes[0] > 0 -> nav restored
+
+    assert win.stacks_panel.isVisible() is True
+    assert button.isChecked() is False
+    assert button.toolTip() == "Enter focus mode (hide navigation panel)"
+
+
+@pytest.mark.gui
+def test_apply_preset_focus_button_sync_does_not_trigger_mainwindow_toggle(
+    qtbot, mock_nuke, monkeypatch, tmp_path
+):
+    """Syncing the FAB's checked state must be signals-blocked -- it must
+    not itself fire MainWindow.toggle_focus_mode (which hides the toolbar/
+    docks and re-derives splitter sizes independently of apply_preset's
+    own, already-applied sizing)."""
+    win = _mainwindow_with_temp_db(qtbot, tmp_path, monkeypatch)
+    calls = []
+    monkeypatch.setattr(win, "toggle_focus_mode", lambda checked: calls.append(checked))
+
+    apply_preset(win, "Review")
+    apply_preset(win, "Browse")
+
+    assert calls == []
+
+
+@pytest.mark.gui
+def test_apply_preset_focus_button_sync_is_noop_without_button(
+    qtbot, mock_nuke, monkeypatch, tmp_path
+):
+    """Guard for shells where MediaDisplayWidget.focus_mode_button doesn't
+    exist (e.g. a differently-configured Nuke embed) -- apply_preset must
+    not raise."""
+    win = _mainwindow_with_temp_db(qtbot, tmp_path, monkeypatch)
+    win.media_display.focus_mode_button = None
+
+    apply_preset(win, "Review")  # must not raise
