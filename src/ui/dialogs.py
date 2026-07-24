@@ -9,6 +9,7 @@ import sys
 from PySide2 import QtWidgets, QtCore, QtGui
 
 from src.icon_loader import get_icon
+from src.ui.custom_fields_widget import CustomFieldsWidget
 
 
 class AdvancedSearchDialog(QtWidgets.QDialog):
@@ -719,13 +720,17 @@ class EditElementDialog(QtWidgets.QDialog):
         tags_layout.addWidget(self.tag_suggestions_label)
         
         form.addRow("Tags:", tags_container)
-        
+
         # Deprecated checkbox
         self.deprecated_checkbox = QtWidgets.QCheckBox("Mark as Deprecated")
         self.deprecated_checkbox.setStyleSheet("color: #ff9a3c;")
         form.addRow("", self.deprecated_checkbox)
-        
+
         layout.addLayout(form)
+
+        # Custom fields (EP4) -- dynamic per-stack metadata fields.
+        self.custom_fields_widget = CustomFieldsWidget(self.db)
+        layout.addWidget(self.custom_fields_widget)
         
         # Info label
         info_label = QtWidgets.QLabel("Note: Name, type, and format cannot be changed after ingestion.")
@@ -747,6 +752,18 @@ class EditElementDialog(QtWidgets.QDialog):
         self.comment_edit.setPlainText(self.element_data.get('comment', '') or '')
         self.tags_edit.setText(self.element_data.get('tags', '') or '')
         self.deprecated_checkbox.setChecked(self.element_data.get('is_deprecated', 0) == 1)
+
+        stack_fk = self._resolve_stack_fk()
+        if stack_fk is not None:
+            self.custom_fields_widget.load(stack_fk, self.element_id)
+
+    def _resolve_stack_fk(self):
+        """Resolve the owning stack_fk for this element via its list."""
+        list_fk = self.element_data.get('list_fk')
+        if not list_fk:
+            return None
+        list_row = self.db.get_list_by_id(list_fk)
+        return list_row.get('stack_fk') if list_row else None
     
     def save_changes(self):
         """Save changes to database."""
@@ -761,7 +778,8 @@ class EditElementDialog(QtWidgets.QDialog):
             
             # Update database
             self.db.update_element(self.element_id, **updates)
-            
+            self.custom_fields_widget.commit(self.element_id)
+
             QtWidgets.QMessageBox.information(self, "Success", "Element updated successfully!")
             self.accept()
             

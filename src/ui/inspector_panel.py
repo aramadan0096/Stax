@@ -12,6 +12,7 @@ import logging
 
 from PySide2 import QtWidgets, QtCore
 
+from src.ui.custom_fields_widget import CustomFieldsWidget
 from src.ui.metadata_format import element_field_rows
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,15 @@ class InspectorPanel(QtWidgets.QWidget):
         form.addRow("Label:", self.label_combo)
         self._reload_labels()
 
+        # Custom fields (EP4) -- dynamic per-stack metadata fields, shown as
+        # a full-width collapsible-looking group below the fixed fields
+        # above. Additive: Task 15 adds a "Related" section the same way.
+        custom_fields_group = QtWidgets.QGroupBox("Custom Fields")
+        custom_fields_layout = QtWidgets.QVBoxLayout(custom_fields_group)
+        self.custom_fields_widget = CustomFieldsWidget(self.db)
+        custom_fields_layout.addWidget(self.custom_fields_widget)
+        form.addRow(custom_fields_group)
+
         # Constructed last, once every widget referenced below exists.
         self.clear()
 
@@ -111,6 +121,7 @@ class InspectorPanel(QtWidgets.QWidget):
         self.label_combo.blockSignals(True)
         self.label_combo.setCurrentIndex(0)
         self.label_combo.blockSignals(False)
+        self.custom_fields_widget.load(stack_fk=None, element_id=None)
         self.setEnabled(False)
 
     def show_element(self, element_id):
@@ -153,7 +164,30 @@ class InspectorPanel(QtWidgets.QWidget):
         self.label_combo.setCurrentIndex(max(0, idx))
         self.label_combo.blockSignals(False)
 
+        self._load_custom_fields(el, element_id)
+
         self._element_id = element_id
+
+    def _load_custom_fields(self, el, element_id):
+        """Populate the Custom Fields section for *el*.
+
+        Never raises: an element whose stack can't be resolved, or has no
+        custom fields defined, just leaves the section empty rather than
+        breaking the rest of show_element().
+        """
+        try:
+            stack_fk = None
+            list_fk = el.get("list_fk")
+            if list_fk:
+                list_row = self.db.get_list_by_id(list_fk)
+                stack_fk = list_row.get("stack_fk") if list_row else None
+            self.custom_fields_widget.load(stack_fk=stack_fk, element_id=element_id)
+        except Exception:
+            logger.exception(
+                "InspectorPanel: failed to load custom fields for element %s",
+                element_id,
+            )
+            self.custom_fields_widget.load(stack_fk=None, element_id=None)
 
     # -------------------------------------------------------------------
     # Commit-on-edit handlers
