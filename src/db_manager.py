@@ -2339,4 +2339,76 @@ class DatabaseManager(object):
             conn.cursor().execute(
                 "DELETE FROM smart_collections WHERE collection_id = ?", (collection_id,))
 
+    def add_synonym(self, term, group_key):
+        """Add a synonym term to a group.
+
+        Args:
+            term (str): The synonym term to add (will be normalized to lowercase)
+            group_key (str): The group key this term belongs to
+
+        Returns:
+            int: The lastrowid (synonym_id) of the inserted row
+        """
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute("INSERT INTO search_synonyms (term, group_key) VALUES (?, ?)",
+                        (term.strip().lower(), group_key))
+            return cur.lastrowid
+
+    def get_synonyms(self):
+        """Get all synonyms ordered by group_key and term.
+
+        Returns:
+            list[dict]: List of synonym dicts with keys: synonym_id, term, group_key
+        """
+        with self.get_connection(write=False) as conn:
+            return [dict(r) for r in conn.execute(
+                "SELECT * FROM search_synonyms ORDER BY group_key, term").fetchall()]
+
+    def delete_synonym(self, synonym_id):
+        """Delete a synonym by ID.
+
+        Args:
+            synonym_id (int): ID of the synonym to delete
+        """
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute("DELETE FROM search_synonyms WHERE synonym_id = ?", (synonym_id,))
+
+    def expand_terms(self, text):
+        """Expand each whitespace token to its synonym group's members.
+
+        For each word in the input text:
+        - If the word belongs to a synonym group, return all terms in that group
+        - If the word is not in any group, return the word unchanged
+        - Deduplicate while preserving order
+
+        Args:
+            text (str): Whitespace-separated search terms
+
+        Returns:
+            list[str]: List of unique expanded terms, order-preserving
+        """
+        words = [w.strip().lower() for w in (text or "").split() if w.strip()]
+        if not words:
+            return []
+        with self.get_connection(write=False) as conn:
+            result = []
+            for w in words:
+                groups = [r[0] for r in conn.execute(
+                    "SELECT group_key FROM search_synonyms WHERE term = ?", (w,)).fetchall()]
+                if groups:
+                    placeholders = ",".join("?" for _ in groups)
+                    siblings = [r[0] for r in conn.execute(
+                        "SELECT DISTINCT term FROM search_synonyms WHERE group_key IN ({})".format(placeholders),
+                        groups).fetchall()]
+                    result.extend(siblings)
+                else:
+                    result.append(w)
+            # dedupe preserving order
+            seen, out = set(), []
+            for t in result:
+                if t not in seen:
+                    seen.add(t); out.append(t)
+            return out
+
 

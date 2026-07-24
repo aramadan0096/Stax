@@ -16,7 +16,7 @@ import logging
 log = logging.getLogger(__name__)
 
 # Bump this every time a new _migrate_vN is appended below.
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 
 # Default color-label palette (EP1). Seed order defines labels.sort_order.
 DEFAULT_LABELS = [
@@ -170,6 +170,21 @@ def _migrate_v5(conn):
     conn.commit()
 
 
+def _migrate_v6(conn):
+    """v5 -> v6: create search_synonyms table for term expansion (EP2)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS search_synonyms (
+            synonym_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            term       TEXT NOT NULL,
+            group_key  TEXT NOT NULL
+        )
+        """
+    )
+    log.info("Migration v6: created search_synonyms table")
+    conn.commit()
+
+
 # Index N upgrades schema version N-1 -> N.
 _MIGRATIONS = [
     None,          # index 0 — unused placeholder
@@ -178,6 +193,7 @@ _MIGRATIONS = [
     _migrate_v3,   # 2 -> 3
     _migrate_v4,   # 3 -> 4
     _migrate_v5,   # 4 -> 5
+    _migrate_v6,   # 5 -> 6
 ]
 
 
