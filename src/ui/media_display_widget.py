@@ -184,8 +184,9 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         
         # List view (table)
         self.table_view = QtWidgets.QTableWidget()
-        self.table_view.setColumnCount(6)
-        self.table_view.setHorizontalHeaderLabels(['Name', 'Format', 'Frames', 'Type', 'Size', 'Comment'])
+        self.table_view.setColumnCount(8)
+        self.table_view.setHorizontalHeaderLabels(
+            ['Name', 'Format', 'Frames', 'Type', 'Size', 'Comment', 'Rating', 'Label'])
         self.table_view.horizontalHeader().setStretchLastSection(True)
         self.table_view.setSelectionBehavior(QtWidgets.QTableWidget.SelectRows)
         self.table_view.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)  # Multi-select
@@ -662,6 +663,19 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 comment_text += " [Tags: " + element['tags'] + "]"
             self.table_view.setItem(row, 5, QtWidgets.QTableWidgetItem(comment_text))
 
+            rating_item = QtWidgets.QTableWidgetItem(self._rating_cell_text(element.get('rating', 0)))
+            rating_item.setFlags(rating_item.flags() & ~QtCore.Qt.ItemIsEditable)
+            self.table_view.setItem(row, 6, rating_item)
+
+            label_item = QtWidgets.QTableWidgetItem("")
+            label_item.setFlags(label_item.flags() & ~QtCore.Qt.ItemIsEditable)
+            label_fk = element.get('label_fk')
+            if label_fk:
+                color = self._label_color(label_fk)
+                if color:
+                    label_item.setBackground(QtGui.QBrush(QtGui.QColor(color)))
+            self.table_view.setItem(row, 7, label_item)
+
             self.table_view.item(row, 0).setData(QtCore.Qt.UserRole, element_id)
 
         if hasattr(self.gallery_view, "set_item_loader"):
@@ -854,6 +868,11 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             cache = {l["label_id"]: l["color_hex"] for l in self.db.get_labels()}
             self._label_color_cache = cache
         return cache.get(label_fk)
+
+    @staticmethod
+    def _rating_cell_text(rating):
+        """Render a rating (0-5, possibly None) as a star string for the table."""
+        return "★" * int(rating or 0)
 
     def quick_set_rating(self, element_id, stars):
         """Write-through rating setter for the grid's hover quick-edit."""
