@@ -2676,3 +2676,34 @@ class DatabaseManager(object):
                 cur.append(t)
         return ",".join(cur)
 
+    # ======================
+    # AUTOTAG RULES (EP4)
+    # ======================
+
+    def create_autotag_rule(self, pattern, match_type, tags="", field_values=None,
+                             stack_fk=None, sort_order=0):
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO autotag_rules (stack_fk, pattern, match_type, tags, "
+                "field_values_json, sort_order) VALUES (?, ?, ?, ?, ?, ?)",
+                (stack_fk, pattern, match_type, tags,
+                 json.dumps(field_values or {}), sort_order))
+            return cur.lastrowid
+
+    def get_autotag_rules(self, stack_fk=None):
+        with self.get_connection(write=False) as conn:
+            rows = conn.execute(
+                "SELECT * FROM autotag_rules WHERE stack_fk IS ? OR stack_fk IS NULL "
+                "ORDER BY sort_order, rule_id", (stack_fk,)).fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                d["fields"] = json.loads(d["field_values_json"]) if d["field_values_json"] else {}
+                out.append(d)
+            return out
+
+    def delete_autotag_rule(self, rule_id):
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute("DELETE FROM autotag_rules WHERE rule_id = ?", (rule_id,))
+

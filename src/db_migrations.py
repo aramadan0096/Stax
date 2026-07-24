@@ -16,7 +16,7 @@ import logging
 log = logging.getLogger(__name__)
 
 # Bump this every time a new _migrate_vN is appended below.
-CURRENT_SCHEMA_VERSION = 9
+CURRENT_SCHEMA_VERSION = 10
 
 # Default color-label palette (EP1). Seed order defines labels.sort_order.
 DEFAULT_LABELS = [
@@ -262,6 +262,26 @@ def _migrate_v9(conn):
     conn.commit()
 
 
+def _migrate_v10(conn):
+    """v9 -> v10: create autotag_rules table for pattern-based auto-tagging
+    on ingest (EP4)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS autotag_rules (
+            rule_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+            stack_fk    INTEGER,
+            pattern     TEXT NOT NULL,
+            match_type  TEXT NOT NULL,
+            tags        TEXT,
+            field_values_json TEXT,
+            sort_order  INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    log.info("Migration v10: created autotag_rules table")
+    conn.commit()
+
+
 # Index N upgrades schema version N-1 -> N.
 _MIGRATIONS = [
     None,          # index 0 — unused placeholder
@@ -274,6 +294,7 @@ _MIGRATIONS = [
     _migrate_v7,   # 6 -> 7
     _migrate_v8,   # 7 -> 8
     _migrate_v9,   # 8 -> 9
+    _migrate_v10,  # 9 -> 10
 ]
 
 
