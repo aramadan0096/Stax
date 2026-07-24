@@ -72,6 +72,9 @@ class DatabaseManager(object):
     _COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
     _LABEL_FIELDS = {"name", "color_hex", "meaning", "sort_order"}
 
+    # Smart collection field whitelist
+    _COLLECTION_FIELDS = {"name", "filter_json", "created_by", "sort_order"}
+
     def __init__(self, db_path, enable_logging=False, use_file_lock=True):
         """
         Initialize database manager.
@@ -2269,5 +2272,71 @@ class DatabaseManager(object):
         with self.get_connection(write=True) as conn:
             conn.cursor().execute(
                 "DELETE FROM saved_searches WHERE saved_search_id = ?", (saved_search_id,))
+
+    def create_smart_collection(self, name, filter_spec, created_by=None, sort_order=0):
+        """Create a shared smart collection.
+
+        Args:
+            name (str): Unique name of the smart collection
+            filter_spec (dict): FilterSpec dict to serialize as JSON
+            created_by (str): Optional user who created this collection
+            sort_order (int): Sort order for display (default 0)
+
+        Returns:
+            int: collection_id of the created collection
+        """
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO smart_collections (name, filter_json, created_by, sort_order) "
+                "VALUES (?, ?, ?, ?)",
+                (name, json.dumps(filter_spec), created_by, sort_order))
+            return cur.lastrowid
+
+    def get_smart_collections(self):
+        """Get all shared smart collections.
+
+        Returns:
+            list[dict]: List of smart collection dicts with parsed 'filter' key,
+                       ordered by sort_order, name
+        """
+        with self.get_connection(write=False) as conn:
+            rows = conn.execute(
+                "SELECT * FROM smart_collections ORDER BY sort_order, name").fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                d["filter"] = json.loads(d["filter_json"])
+                out.append(d)
+            return out
+
+    def update_smart_collection(self, collection_id, **fields):
+        """Update whitelisted smart collection fields.
+
+        Args:
+            collection_id (int): ID of the collection to update
+            **fields: Field updates (e.g., name="New Name", filter_spec={...}, sort_order=1)
+                      filter_spec is translated to filter_json; other fields are whitelisted
+        """
+        if "filter_spec" in fields:
+            fields["filter_json"] = json.dumps(fields.pop("filter_spec"))
+        updates = {k: v for k, v in fields.items() if k in self._COLLECTION_FIELDS}
+        if not updates:
+            return
+        set_clause = ", ".join("{} = ?".format(k) for k in updates)
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "UPDATE smart_collections SET {} WHERE collection_id = ?".format(set_clause),
+                list(updates.values()) + [collection_id])
+
+    def delete_smart_collection(self, collection_id):
+        """Delete a smart collection by ID.
+
+        Args:
+            collection_id (int): ID of the collection to delete
+        """
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "DELETE FROM smart_collections WHERE collection_id = ?", (collection_id,))
 
 

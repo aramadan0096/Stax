@@ -16,7 +16,7 @@ import logging
 log = logging.getLogger(__name__)
 
 # Bump this every time a new _migrate_vN is appended below.
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 
 # Default color-label palette (EP1). Seed order defines labels.sort_order.
 DEFAULT_LABELS = [
@@ -153,6 +153,23 @@ def _migrate_v4(conn):
     conn.commit()
 
 
+def _migrate_v5(conn):
+    """v4 -> v5: create smart_collections table for shared smart collections (EP2)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS smart_collections (
+            collection_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT UNIQUE NOT NULL,
+            filter_json TEXT NOT NULL,
+            created_by  TEXT,
+            sort_order  INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    log.info("Migration v5: created smart_collections table")
+    conn.commit()
+
+
 # Index N upgrades schema version N-1 -> N.
 _MIGRATIONS = [
     None,          # index 0 — unused placeholder
@@ -160,6 +177,7 @@ _MIGRATIONS = [
     _migrate_v2,   # 1 -> 2
     _migrate_v3,   # 2 -> 3
     _migrate_v4,   # 3 -> 4
+    _migrate_v5,   # 4 -> 5
 ]
 
 
