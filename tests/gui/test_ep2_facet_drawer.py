@@ -213,3 +213,78 @@ def test_empty_facet_with_active_selection_still_renders_with_zero_count(qtbot):
     assert checkbox.checkState() == QtCore.Qt.Checked
     assert checkbox.text() == "city (0)"
     assert drawer.current_filter()["tags_any"] == ["city"]
+
+
+@pytest.mark.gui
+def test_sync_from_filter_rebuilds_state_and_clears_stale_entries(qtbot):
+    """sync_from_filter() is current_filter()'s inverse: given a spec, it
+    must rebuild self._state to exactly match it -- including dropping any
+    entry the spec no longer carries -- and must not emit filter_changed
+    (Task 6's apply_filter calls this on every refresh; an emit here would
+    re-enter apply_filter)."""
+    from filter_spec import empty_filter
+
+    drawer = FacetDrawer()
+    qtbot.addWidget(drawer)
+    drawer.set_facets({"type": {"2D": 2, "3D": 1}, "format": {}, "tag": {"fire": 1, "smoke": 1},
+                       "rating": {}, "label": {}, "status": {}})
+    drawer.set_value_state("tag", "fire", "include")
+    drawer.set_value_state("tag", "smoke", "include")
+    assert drawer.current_filter()["tags_any"] == ["fire", "smoke"]
+
+    spec = empty_filter()
+    spec["tags_any"] = ["smoke"]
+
+    emitted = []
+    drawer.filter_changed.connect(emitted.append)
+    drawer.sync_from_filter(spec)
+
+    assert emitted == [], "sync_from_filter() must not emit filter_changed"
+    assert drawer.current_filter()["tags_any"] == ["smoke"]
+    assert ("tag", "fire") not in drawer._state
+    fire_checkbox = drawer._checkboxes[("tag", "fire")]
+    assert fire_checkbox.checkState() == QtCore.Qt.Unchecked
+
+
+@pytest.mark.gui
+def test_sync_from_filter_round_trips_every_mapped_facet(qtbot):
+    """Covers every spec key sync_from_filter maps back onto a facet, using
+    the same correspondence current_filter() uses in the other direction.
+    tags_all is deliberately not exercised here -- current_filter() never
+    emits it, so there is nothing for sync_from_filter to round-trip."""
+    from filter_spec import empty_filter
+
+    drawer = FacetDrawer()
+    qtbot.addWidget(drawer)
+    spec = empty_filter()
+    spec["types"] = ["2D"]
+    spec["formats"] = ["exr"]
+    spec["formats_exclude"] = ["mov"]
+    spec["tags_any"] = ["fire"]
+    spec["tags_exclude"] = ["city"]
+    spec["label_fks"] = [42]
+    spec["rating_min"] = 3
+    spec["is_deprecated"] = True
+
+    drawer.sync_from_filter(spec)
+    rebuilt = drawer.current_filter()
+
+    assert rebuilt["types"] == ["2D"]
+    assert rebuilt["formats"] == ["exr"]
+    assert rebuilt["formats_exclude"] == ["mov"]
+    assert rebuilt["tags_any"] == ["fire"]
+    assert rebuilt["tags_exclude"] == ["city"]
+    assert rebuilt["label_fks"] == [42]
+    assert rebuilt["rating_min"] == 3
+    assert rebuilt["is_deprecated"] is True
+
+    # is_deprecated False must map onto the "active" row, not "deprecated",
+    # and sync_from_filter must fully replace _state, not merge into it --
+    # nothing from the spec above should linger.
+    spec2 = empty_filter()
+    spec2["is_deprecated"] = False
+    drawer.sync_from_filter(spec2)
+    rebuilt2 = drawer.current_filter()
+    assert rebuilt2["is_deprecated"] is False
+    assert rebuilt2["types"] == []
+    assert ("status", "deprecated") not in drawer._state

@@ -560,6 +560,20 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.current_filter = normalize(filter_spec)
         active = is_active(self.current_filter)
 
+        # Fix pass: reconcile the drawer's internal _state with the spec
+        # that is about to drive this refresh, regardless of whether it
+        # changed via a drawer checkbox, a chip removal, or a programmatic
+        # load (e.g. a saved search) -- otherwise self._state can go stale
+        # and a later unrelated checkbox toggle would rebuild the spec from
+        # that stale state and resurrect a value the user just removed.
+        # Runs before set_facets() below so that set_facets()'s own
+        # orphaned-value bookkeeping (which reads self._state to decide
+        # which zero-count rows to keep visible) sees the already-
+        # reconciled state, not the previous refresh's. sync_from_filter()
+        # never emits filter_changed (see its docstring), so this cannot
+        # re-enter apply_filter.
+        self.facet_drawer.sync_from_filter(self.current_filter)
+
         rows = self.db.search_elements_advanced(self.current_filter)
         count = len(rows)
 
@@ -1923,8 +1937,35 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             logger.info("Ingest requested from empty state but no MainWindow.ingest_files() is available")
 
     def _request_clear_filters(self):
-        """Empty-state 'Clear filters' CTA: clear this widget's own search box."""
-        self.search_box.clear()
+        """Empty-state 'Clear filters' CTA: clear the search box AND reset
+        the active filter -- drawer/chip facets included -- back to an
+        unfiltered view.
+
+        Fix pass: previously this only cleared the search box, which did
+        nothing when the zero rows came from a drawer/chip facet filter
+        (the search box was already empty, so no textChanged fired and
+        nothing re-ran) -- a dead button for that case.
+
+        self.search_box.textChanged is connected to self.on_search(), which
+        only acts when self.current_list_id is set (a per-list browse
+        search); it plays no part in the facet/chip filter path apply_filter
+        drives (that path always clears current_list_id to None -- see
+        apply_filter above). Blocking signals around the clear() call below
+        means on_search() never runs here at all, so the single
+        apply_filter(empty_filter()) call below is the only repaint this
+        method triggers -- no double-fire, and nothing for it to recurse
+        into (neither on_search nor apply_filter calls back into this
+        method).
+        """
+        from filter_spec import empty_filter
+
+        self.search_box.blockSignals(True)
+        try:
+            self.search_box.clear()
+        finally:
+            self.search_box.blockSignals(False)
+
+        self.apply_filter(empty_filter())
 
     def _request_browse_library(self):
         """Empty-state 'Browse library' CTA.
