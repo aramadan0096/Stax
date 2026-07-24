@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Command palette: harvest live actions + a small extra-command registry (EP3)."""
+"""Command palette: harvest live actions + jump-target entries (EP3)."""
 
 import difflib
 

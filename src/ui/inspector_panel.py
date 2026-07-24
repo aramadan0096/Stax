@@ -28,10 +28,12 @@ class InspectorPanel(QtWidgets.QWidget):
     blocking each widget's signals while it is being populated.
     """
 
-    # Emitted with the element_id after a rating/label edit commits
-    # successfully, so the gallery/table grid can repaint that one item's
-    # rating-stars + label-chip badge in place (design SS3.4). Name/tags/
-    # comment edits don't affect the badge, so they don't emit this.
+    # Emitted with the element_id after a rating/label/name/tags/comment
+    # edit commits successfully, so the gallery/table grid can repaint
+    # that one item's badge, caption, and table row in place (design
+    # SS3.4). _commit_name/_commit_tags/_commit_comment emit this too --
+    # not just the rating/label widgets -- since a stale gallery caption
+    # or table cell is just as much a visible desync as a stale badge.
     element_updated = QtCore.Signal(int)
 
     def __init__(self, db, parent=None):
