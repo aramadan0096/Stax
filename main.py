@@ -124,6 +124,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._start_preview_worker()
         self._start_api_server()
 
+        from src.ui.layout_manager import apply_preset
+        apply_preset(self, self.config.get("layout_preset", "Browse"))
+
     # -------------------------------------------------------------------------
     # Background services
     # -------------------------------------------------------------------------
@@ -401,6 +404,15 @@ class MainWindow(QtWidgets.QMainWindow):
             analytics_view_action.setCheckable(True)
             analytics_view_action.triggered.connect(self.toggle_analytics)
             view_menu.addAction(analytics_view_action)
+
+        from src.ui.layout_manager import preset_names, apply_preset
+        layout_menu = view_menu.addMenu("Layout")
+        for preset_name in preset_names():
+            act = QtWidgets.QAction(preset_name, self)
+            act.triggered.connect(
+                lambda checked=False, n=preset_name: apply_preset(self, n)
+            )
+            layout_menu.addAction(act)
 
         help_menu = menubar.addMenu("Help")
         doc_action = QtWidgets.QAction("Documentation", self)
