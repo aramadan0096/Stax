@@ -646,7 +646,22 @@ class IngestionCore(object):
         stack = self.db.get_stack_by_id(target_list['stack_fk'])
         if not stack:
             return {'success': False, 'message': 'Stack not found'}
-        
+
+        # EP4: auto-tag + derived fields from source path
+        _ep4_fields = {}
+        try:
+            from metadata_rules import evaluate_autotag
+            _norm_path = (source_path or "").replace("\\", "/")
+            stack_fk = target_list['stack_fk']
+            rules = self.db.get_autotag_rules(stack_fk)
+            derived = evaluate_autotag(_norm_path, rules)
+            if derived['tags']:
+                tags = self.db._merge_tags(tags or "", ",".join(derived['tags']))
+            _ep4_fields = derived['fields']
+        except Exception:
+            log.exception("EP4 auto-tag evaluation failed; continuing ingest")
+            _ep4_fields = {}
+
         try:
             auto_detect_sequences, sequence_pattern_choice = self._refresh_sequence_preferences()
 
@@ -829,6 +844,13 @@ class IngestionCore(object):
                     self.db.update_element_phash(element_id, phash)
                 except Exception as exc:
                     log.debug("update_element_phash failed for %s: %s", element_id, exc)
+
+            # EP4: write auto-tag-derived fields now that element_id is known
+            for _k, _v in _ep4_fields.items():
+                try:
+                    self.db.set_element_metadata(element_id, _k, _v)
+                except Exception:
+                    log.exception("EP4 set field %s failed", _k)
 
             # ---- Submit async preview job (replaces synchronous generation) ----
             if self.config.get('generate_previews', True):
