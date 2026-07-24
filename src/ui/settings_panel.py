@@ -55,7 +55,10 @@ class SettingsPanel(QtWidgets.QWidget):
         
         # Tab 6: Security & Admin (Admin only)
         self.setup_security_tab()
-        
+
+        # Tab 7: Labels (EP1 curation palette)
+        self.tab_widget.addTab(self._build_labels_tab(), "Labels")
+
         layout.addWidget(self.tab_widget)
         
         # Bottom buttons
@@ -683,7 +686,91 @@ class SettingsPanel(QtWidgets.QWidget):
         
         layout.addStretch()
         self.tab_widget.addTab(tab, "Security Admin")
-    
+
+    def _build_labels_tab(self):
+        """Build the Labels tab: read-only palette list, admin-gated Add/Edit/Delete."""
+        tab = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(tab)
+
+        self.labels_table = QtWidgets.QTableWidget(0, 3)
+        self.labels_table.setHorizontalHeaderLabels(["Color", "Name", "Meaning"])
+        self.labels_table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.labels_table)
+
+        controls = QtWidgets.QHBoxLayout()
+        self.add_label_button = QtWidgets.QPushButton("Add…")
+        self.edit_label_button = QtWidgets.QPushButton("Edit…")
+        self.delete_label_button = QtWidgets.QPushButton("Delete")
+        for b in (self.add_label_button, self.edit_label_button, self.delete_label_button):
+            controls.addWidget(b)
+        layout.addLayout(controls)
+
+        self.add_label_button.clicked.connect(self._on_add_label)
+        self.delete_label_button.clicked.connect(self._on_delete_label)
+
+        # State query only — must NOT call check_admin_permission() here, which
+        # prompts (login/permission-denied dialogs) and would block widget
+        # construction. Read the flag directly, as setup_security_tab and
+        # MediaDisplayWidget._is_admin_user() already do.
+        is_admin = bool(getattr(self.main_window, 'is_admin', False))
+        for b in (self.add_label_button, self.edit_label_button, self.delete_label_button):
+            b.setEnabled(is_admin)
+
+        self._reload_labels()
+        return tab
+
+    def _reload_labels(self):
+        """Repopulate labels_table from the DB's current palette."""
+        labels = self.db.get_labels()
+        self.labels_table.setRowCount(len(labels))
+        for row, lbl in enumerate(labels):
+            swatch = QtWidgets.QTableWidgetItem("")
+            swatch.setBackground(QtGui.QBrush(QtGui.QColor(lbl["color_hex"])))
+            self.labels_table.setItem(row, 0, swatch)
+            self.labels_table.setItem(row, 1, QtWidgets.QTableWidgetItem(lbl["name"]))
+            self.labels_table.setItem(row, 2, QtWidgets.QTableWidgetItem(lbl.get("meaning", "") or ""))
+
+    def _create_label_row(self, name, color_hex, meaning):
+        """Create a label, refresh the table, and notify listeners (e.g. open galleries)."""
+        self.db.create_label(name, color_hex, meaning)
+        self._reload_labels()
+        self.settings_changed.emit()
+
+    def _on_add_label(self):
+        """Prompt for a name and color, then create the label.
+
+        Button is already gated for non-admins, but this is a real user action
+        (they clicked), so re-check with check_admin_permission — which may
+        prompt for login/permission — as the actual authorization gate.
+        """
+        if self.main_window and not self.main_window.check_admin_permission("add a label"):
+            return
+        name, ok = QtWidgets.QInputDialog.getText(self, "New label", "Name:")
+        if not ok or not name:
+            return
+        color = QtWidgets.QColorDialog.getColor()
+        if not color.isValid():
+            return
+        self._create_label_row(name, color.name(), "")
+
+    def _on_delete_label(self):
+        """Delete the selected label row, if any.
+
+        Button is already gated for non-admins, but this is a real user action
+        (they clicked), so re-check with check_admin_permission as the actual
+        authorization gate.
+        """
+        if self.main_window and not self.main_window.check_admin_permission("delete a label"):
+            return
+        row = self.labels_table.currentRow()
+        if row < 0:
+            return
+        labels = self.db.get_labels()
+        if row < len(labels):
+            self.db.delete_label(labels[row]["label_id"])
+            self._reload_labels()
+            self.settings_changed.emit()
+
     def browse_database_path(self):
         """Browse for database file."""
         filename, _ = QtWidgets.QFileDialog.getSaveFileName(
