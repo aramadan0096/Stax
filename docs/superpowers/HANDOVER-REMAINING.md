@@ -600,9 +600,96 @@ Apply §Common Execution Rules. Branch: `exec/ep8`. Confirm SP1 + SP4 + EP4 land
 Execute: `docs/superpowers/plans/2026-07-23-ep8-team-collaboration.md`
 
 Watch-outs:
-- **Granular roles supersede `check_admin_permission`.** Add a `check_admin_permission` → `can_manage_*` **shim** so EP1/EP2/EP4/EP6/EP7 admin-gated surfaces keep working without edits (CROSS_PLAN_REVIEW §4.6).
+- **Do not remove `check_admin_permission`.** EP8 adds granular `check_permission`/`has_permission` **alongside** it (Task 3), switching only the ingest/delete/metadata call sites; `has_permission` short-circuits `admin → True`, so the existing `check_admin_permission` gate stays valid and every EP1/EP2/EP4/EP6/EP7 admin surface keeps working without edits (CROSS_PLAN_REVIEW §4.6, spec §Constraints).
 - Team sync is **stdlib `zipfile`/`json` `.staxbundle` export/import** (newest-timestamp-wins) — no real-time/cloud sync, no new deps.
 - PM/DCC bridges (Kitsu/Ftrack/Flow) are **deferred behind the `CollaborationConnector` seam** — build the seam, ship no live bridge.
+
+Done when: role→permission matrix + granular gate + admin Roles tab, activity log + Activity dock + audit hooks, `.staxbundle` export/import (newest-wins) + connector seam — all live. Full suite green.
+
+### Ready-to-copy prompt — Batch 10 (EP8)
+
+Paste verbatim into a fresh Claude Code session opened at `e:\Scripts\Stax`.
+**Only run this after Batch 9 (EP7) has landed on `main`.**
+
+````text
+Execute Batch 10 (EP8 — team collaboration) of the StaX enhancement program.
+One plan, 12 tasks, solo. Stdlib-only — no new pip dependency.
+
+First, confirm the prerequisites are in place:
+- Canonical order is EP7 -> EP8; the hard requirements are SP4 (auth/roles
+  hardening), EP4 (metadata), and EP1. Check
+  docs/superpowers/IMPLEMENTATION_PROGRESS.md shows EP7 (and SP4, EP1, EP4)
+  Impl = done. If EP7 is NOT landed, STOP and tell me.
+
+Read these first, in this order, before doing anything else:
+1. CLAUDE.md
+2. docs/superpowers/HANDOVER-REMAINING.md — especially "§State on main" and
+   "§Common Execution Rules"
+3. docs/superpowers/CROSS_PLAN_REVIEW.md §6-§7
+4. docs/superpowers/specs/2026-07-23-ep8-team-collaboration-design.md
+5. docs/superpowers/plans/2026-07-23-ep8-team-collaboration.md
+
+Method: use the superpowers:subagent-driven-development skill — one fresh
+subagent per plan task, strict TDD (failing test -> confirm red -> implement ->
+confirm green -> conventional commit), tasks in written order. Never weaken or
+delete a test to make it pass. 12 tasks; grouped 8A granular roles /
+8B activity feed+audit / 8C metadata sync — pause with a short summary at each
+cluster boundary.
+
+Setup:
+- Branch off main: git checkout -b exec/ep8
+- Test command (the repo's .venv does NOT have pytest-qt; do not `uv sync` it):
+      .venv-dev\Scripts\python.exe -m pytest -m "not manual and not slow" -q
+  If .venv-dev is missing, create it:
+      uv venv --python 3.9 .venv-dev
+      uv pip install --python .venv-dev\Scripts\python.exe -e ".[dev,build]"
+- Record the pass count before Task 1 and never let it drop. Any new unplanned
+  xfail is a regression to fix, not to accept.
+
+EP8-specific watch-outs:
+- NO new pip dependency. Bundles use stdlib zipfile/json/shutil only. Do NOT
+  import any live external SDK (Kitsu/Ftrack/Flow) anywhere.
+- DO NOT remove or replace check_admin_permission. Task 3 ADDS granular
+  check_permission/has_permission ALONGSIDE it and switches only the ingest /
+  delete / metadata-edit call sites; user-management and schema surfaces stay on
+  check_admin_permission. has_permission short-circuits admin -> True, so every
+  earlier EP's admin gate keeps working unchanged (§4.6). If a step looks like it
+  deletes check_admin_permission, stop and re-read — it must remain callable.
+- Permission contract lives in a Qt-free src/permissions.py shared with SP4.
+  Bundle logic lives in Qt-free src/sync/metadata_bundle.py; the connector seam
+  in src/sync/connector.py (CollaborationConnector ABC + registry +
+  LocalBundleConnector). Keep these DB/Qt-free so they unit-test in isolation.
+- Sync is explicit export -> .staxbundle -> import, whole-element
+  newest-updated_at-wins, returning an {added, updated, skipped} report. No
+  real-time/cloud sync. Build the CollaborationConnector seam but ship NO live
+  bridge (F044-F048 deferred).
+
+Migrations (three tables: roles, role_permissions, activity_log; plus an
+elements.updated_at column):
+- Go through src/db_migrations.py — read the current CURRENT_SCHEMA_VERSION,
+  append to _MIGRATIONS continuing from it, bump the constant. Do not hardcode a
+  version from the plan text. Live schema is lowercase.
+- seed_builtin_roles() must run so admin/existing users keep full access; verify
+  with a test that a fresh DB has the admin role with every permission.
+
+Repo-specific rules that override habit:
+- Tests import flat: `from permissions import ...`, `from sync.metadata_bundle
+  import ...`, `from ui.media_display_widget import MediaDisplayWidget`.
+  Importing `src.ui.*` in a standalone test raises a circular-import ImportError.
+- New settings tabs (Roles, Sync): SettingsPanel(config, db_manager,
+  main_window=None, parent=None) — append addTab in setup_ui with its own
+  _build_*_tab method; admin-gate them via main_window.check_admin_permission.
+- New docks (Activity) append to main.py __init__/setup_menus.
+- Use logging, never print. Keep the media_display_widget god-module split
+  deferred. Do not remove the PySide2.QtQml/QtQuick excludes in setup_freeze.py.
+
+Tracker: tick each task box in docs/superpowers/IMPLEMENTATION_PROGRESS.md and
+set EP8 Impl = done when complete.
+
+Stop and ask before: git push, opening a PR, merging to main, adding any new pip
+dependency, or deviating from a plan step. Commit locally and pause with a
+summary at each cluster boundary and at the end of the batch.
+````
 
 Done when: role→permission matrix + gate + admin UI, activity feed + dock, metadata/preview export-import — all live. Full suite green.
 
