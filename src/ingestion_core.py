@@ -441,6 +441,7 @@ class IngestionCore(object):
         """
         self.db = db_manager
         self.config = config
+        self.ai_index_hook = None   # set by main.py: lambda eid: ai_worker.enqueue(eid)
         # Use previews_path if available, fallback to preview_dir for backward compatibility
         self.preview_dir = config.get('previews_path', config.get('preview_dir', './previews'))
         self.auto_detect_sequences = config.get('auto_detect_sequences', True)
@@ -901,6 +902,13 @@ class IngestionCore(object):
                     'filepath_soft': filepath_soft,
                     'filepath_hard': filepath_hard
                 })
+
+            # EP7: enqueue AI/color indexing for the new element (additive)
+            if self.ai_index_hook:
+                try:
+                    self.ai_index_hook(element_id)
+                except Exception:
+                    log.exception("ai_index_hook failed for element %s", element_id)
 
             # ---- Action chain (F040): whitelisted post-ingest steps ----
             steps = self.config.get('action_chain_steps')
