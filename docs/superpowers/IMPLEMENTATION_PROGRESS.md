@@ -165,7 +165,7 @@ Feature-expansion program derived from [`STAX_FEATURE_ENHANCEMENT_REPORT.md`](..
 | EP1 | Curation primitives | ☑ | ☑ | ☑ | F013, F014, F052, F053 |
 | EP2 | Search & discovery UX (non-AI) | ☑ | ☑ | ☑ | F007–F012, facets |
 | EP3 | Browse productivity shell | ☑ | ☑ | ☑ | F049–F058 |
-| EP4 | Metadata schema & automation | ☑ | ☑ | ☐ | F015, F016, F018–F022 |
+| EP4 | Metadata schema & automation | ☑ | ☑ | ☑ | F015, F016, F018–F022 |
 | EP5 | Review, notes & approval | ☐ | ☐ | ☐ | F023–F030 |
 | EP6 | Ingestion automation & job queue | ☑ | ☑ | ☐ | F031–F040 |
 | EP7 | AI discovery (local-only) | ☑ | ☑ | ☐ | F001–F004 (+auto-tag) |
@@ -243,21 +243,45 @@ Also: `CommandRegistry` was dead code and was deleted (`build_jump_targets` cove
 ### EP4 — Metadata schema & automation
 Spec: [`specs/…-ep4-metadata-schema-design.md`](specs/2026-07-23-ep4-metadata-schema-design.md) · Plan: [`plans/…-ep4-metadata-schema.md`](plans/2026-07-23-ep4-metadata-schema.md) · **Depends on SP1 + SP2 + EP1/EP3.** Clusters: 4A schema · 4B templates/auto-tag · 4C rules/links.
 
-- [ ] Task 1 — Schema tables (fields, EAV values, defaults)
-- [ ] Task 2 — Value coercion helpers (`metadata_rules.py`)
-- [ ] Task 3 — Field CRUD + validation
-- [ ] Task 4 — EAV values + inheritance resolution
-- [ ] Task 5 — `CustomFieldsWidget` + edit/inspector integration
-- [ ] Task 6 — Admin metadata-fields manager tab
-- [ ] Task 7 — Metadata templates + `apply_template`
-- [ ] Task 8 — Auto-tag rules + pure `evaluate_autotag`
-- [ ] Task 9 — Ingest hook (auto-tag + derived fields)
-- [ ] Task 10 — Automation manager tab + ingest template picker
-- [ ] Task 11 — Quality rules + `check_element_quality`
-- [ ] Task 12 — Health panel dock
-- [ ] Task 13 — Naming assistant (`suggest_name`)
-- [ ] Task 14 — Element relationships table + API
-- [ ] Task 15 — Inspector Related section
+- [x] Task 1 — Schema tables (fields, EAV values, defaults)
+- [x] Task 2 — Value coercion helpers (`metadata_rules.py`)
+- [x] Task 3 — Field CRUD + validation
+- [x] Task 4 — EAV values + inheritance resolution
+- [x] Task 5 — `CustomFieldsWidget` + edit/inspector integration
+- [x] Task 6 — Admin metadata-fields manager tab
+- [x] Task 7 — Metadata templates + `apply_template`
+- [x] Task 8 — Auto-tag rules + pure `evaluate_autotag`
+- [x] Task 9 — Ingest hook (auto-tag + derived fields)
+- [x] Task 10 — Automation manager tab + ingest template picker
+- [x] Task 11 — Quality rules + `check_element_quality`
+- [x] Task 12 — Health panel dock
+- [x] Task 13 — Naming assistant (`suggest_name`)
+- [x] Task 14 — Element relationships table + API
+- [x] Task 15 — Inspector Related section
+
+**EP4 complete** (Batch 7, branch `exec/ep4`): 15/15 tasks + a whole-branch review pass.
+Seven new tables via numbered migrations **v8–v12** (`src/db_migrations.py`, `CURRENT_SCHEMA_VERSION=12`);
+pure Qt/DB-free `src/metadata_rules.py` (coercion, `evaluate_autotag`, `check_element_quality`, `suggest_name`);
+per-stack typed custom fields (EAV) + inheritance; `CustomFieldsWidget` in edit dialog + EP3 inspector;
+admin "Metadata Fields" + "Automation" settings tabs; templates + `apply_template`; path-based auto-tag
+hook layered additively on SP2's async `ingest_file`; quality rules + Health dock (Ctrl+5); naming assistant;
+element relationships + inspector Related section. Suite **445 passed / 0 failed / 0 xfailed** (branch point 413).
+The final whole-branch review found 3 cross-task integration defects the per-task reviews could not see — all
+fixed: `delete_metadata_field` deleted EAV values by key string across ALL stacks (data loss) → now scoped to
+the field's own stack (+ `metadata_defaults` cleanup); `CustomFieldsWidget.commit()` froze inherited values as
+per-element overrides on every save (defeated inheritance/F018) → now persists only user-changed or already-
+overridden fields; `InspectorPanel.related_activated` was emitted but never connected in `main.py` (dead
+click-to-navigate) → wired to `on_start_page_element_activated`. Also mid-branch: Task 4's `_last_stack_fk`
+instance side-channel (thread-unsafe under the shared GUI/API `DatabaseManager`) → tuple return; Task 12's
+Health dock had no View toggle (unreachable) → Ctrl+5 + lazy load.
+
+> **Known EP4 deferrals** (deliberate, not defects): the ingest-dialog template picker (spec §4.2) was NOT built
+> — `IngestLibraryDialog` is a folder-scan bulk tool that mints new stacks per run, so there is no `stack_fk` to
+> bind a picker to before scanning; the auto-tag ingest hook + the admin Templates manager still ship, and the
+> picker fits when EP6 adds recipe-bound ingest. Inspector Custom Fields renders inherited values as literal text,
+> not a distinguishable placeholder (spec §3.3 — TODO left in code). "Link selected…" in the Related section
+> prompts for a raw element id (no gallery-selection channel yet). `get_effective_metadata`/`get_quality_summary`
+> are un-batched (N+1; fine for shallow trees/small lists).
 
 > **Cross-note (EP4 ↔ SP2):** EP4 Task 9 adds an additive auto-tag hook to `ingestion_core.ingest_file`, which SP2 (C4) also rewrites (async ingest). Apply EP4's hook on top of SP2's rewritten `ingest_file`, not the pre-SP2 version. `ON CONFLICT … DO UPDATE` upserts require SQLite ≥ 3.24 (bundled with Python 3.9 on Win/Linux); fall back to SELECT-then-write on older SQLite.
 
