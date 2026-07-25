@@ -74,7 +74,14 @@ class IngestLibraryDialog(QtWidgets.QDialog):
         self.copy_policy_combo.addItems(["hard_copy", "soft_copy"])
         self.copy_policy_combo.setCurrentText(self.config.get('default_copy_policy', 'hard_copy'))
         options_layout.addRow("Copy Policy:", self.copy_policy_combo)
-        
+
+        # Ingest recipe (EP6, F032)
+        self.recipe_combo = QtWidgets.QComboBox()
+        self.recipe_combo.addItem("(none)", None)
+        for rec in self.db.get_ingest_recipes():
+            self.recipe_combo.addItem(rec["name"], rec)
+        options_layout.addRow("Recipe:", self.recipe_combo)
+
         # Max depth
         self.max_depth_spin = QtWidgets.QSpinBox()
         self.max_depth_spin.setMinimum(1)
@@ -403,6 +410,10 @@ class IngestLibraryDialog(QtWidgets.QDialog):
         progress.setMinimumDuration(0)
 
         config_dict = self.config.get_all() if hasattr(self.config, "get_all") else self.config
+        from src.ingest_automation import apply_recipe_to_config
+        recipe = self.recipe_combo.currentData()
+        if recipe:
+            config_dict = apply_recipe_to_config(recipe["values"], config_dict)
         worker = IngestWorker(self.db, config_dict, jobs, copy_policy=copy_policy)
         self._ingest_worker = worker
 

@@ -42,6 +42,8 @@ from src.ui.inspector_panel import InspectorPanel
 from src.ui.layout_manager import apply_preset, preset_names
 from src.ui.onboarding_checklist import OnboardingChecklist
 from src.ui.start_page import StartPage
+from src.watch_scanner import WatchFolderScanner
+from src.ingest_automation import apply_recipe_to_config
 
 try:
     from src.preview_worker import get_preview_queue, shutdown_preview_queue
@@ -140,6 +142,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.onboarding_checklist = None
         if not self.config.get("onboarding_dismissed", False):
             self.open_onboarding_checklist()
+
+        self._watch_scanner = None
+        self._start_watch_scanner()
 
     # -------------------------------------------------------------------------
     # Background services
@@ -1116,6 +1121,60 @@ class MainWindow(QtWidgets.QMainWindow):
         worker.finished.connect(lambda w=worker: self._forget_retry_worker(w))
         worker.start()
 
+    # -------------------------------------------------------------------------
+    # Watch-folder scanner lifecycle (EP6, F031/F032)
+    # -------------------------------------------------------------------------
+
+    def _start_watch_scanner(self):
+        """Build and start a WatchFolderScanner over the enabled watch_folders
+        rows. No-op (self._watch_scanner = None) when none are enabled."""
+        rows = self.db.get_watch_folders(enabled_only=True)
+        if not rows:
+            self._watch_scanner = None
+            return
+        interval = min((r["interval_sec"] for r in rows), default=30)
+        self._watch_scanner = WatchFolderScanner(rows, interval_sec=interval)
+        self._watch_scanner.files_detected.connect(self._on_watched_files)
+        self._watch_scanner.start()
+
+    def _stop_watch_scanner(self):
+        """Stop the watch scanner thread (if running) and drop the reference."""
+        scanner = getattr(self, "_watch_scanner", None)
+        if scanner is not None:
+            scanner.stop()
+            scanner.wait(2000)
+        self._watch_scanner = None
+
+    def _on_watched_files(self, watch_id, paths):
+        """Record ledger rows for newly-detected files and ingest them
+        off-thread, applying the watch folder's recipe overlay (if any)."""
+        row = next(
+            (r for r in self.db.get_watch_folders() if r["watch_id"] == watch_id),
+            None)
+        if not row:
+            return
+        target = row.get("target_list_id")
+        recipe_id = row.get("recipe_id")
+        self._record_ingest_jobs(paths, target, recipe_id=recipe_id)
+
+        config = self.config.get_all()
+        if recipe_id:
+            recipe = next(
+                (rc for rc in self.db.get_ingest_recipes()
+                 if rc["recipe_id"] == recipe_id),
+                None)
+            if recipe:
+                config = apply_recipe_to_config(recipe["values"], config)
+
+        jobs = [(p, target) for p in paths]
+        worker = IngestWorker(
+            self.db, config, jobs,
+            copy_policy=config.get("default_copy_policy", "soft"))
+        self._watch_ingest_worker = worker
+        worker.file_done.connect(self._on_job_file_done)
+        worker.ingest_finished.connect(self._on_ingest_finished_notify)
+        worker.start()
+
     def _on_retry_job_failed(self, job_id, message):
         """A retried job's IngestWorker raised (worker.ingest_failed carries
         no job id itself, so this closes over the one being retried)."""
@@ -1188,6 +1247,7 @@ class MainWindow(QtWidgets.QMainWindow):
     # -------------------------------------------------------------------------
 
     def closeEvent(self, event):
+        self._stop_watch_scanner()
         if _PREVIEW_WORKER_AVAILABLE:
             shutdown_preview_queue()
         if _API_SERVER_AVAILABLE:
