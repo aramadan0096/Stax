@@ -16,7 +16,7 @@ import logging
 log = logging.getLogger(__name__)
 
 # Bump this every time a new _migrate_vN is appended below.
-CURRENT_SCHEMA_VERSION = 18
+CURRENT_SCHEMA_VERSION = 19
 
 # Default color-label palette (EP1). Seed order defines labels.sort_order.
 DEFAULT_LABELS = [
@@ -444,6 +444,25 @@ def _migrate_v18(conn):
     conn.commit()
 
 
+def _migrate_v19(conn):
+    """v18 -> v19: create element_embeddings table for AI-embedding-based
+    similarity search / discovery (EP7)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS element_embeddings (
+            element_fk INTEGER PRIMARY KEY,
+            model_id   TEXT NOT NULL,
+            dim        INTEGER NOT NULL,
+            vector     BLOB NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (element_fk) REFERENCES elements(element_id) ON DELETE CASCADE
+        )
+        """
+    )
+    log.info("Migration v19: created element_embeddings table")
+    conn.commit()
+
+
 # Index N upgrades schema version N-1 -> N.
 _MIGRATIONS = [
     None,          # index 0 — unused placeholder
@@ -465,6 +484,7 @@ _MIGRATIONS = [
     _migrate_v16,  # 15 -> 16
     _migrate_v17,  # 16 -> 17
     _migrate_v18,  # 17 -> 18
+    _migrate_v19,  # 18 -> 19
 ]
 
 

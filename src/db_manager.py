@@ -3075,3 +3075,54 @@ class DatabaseManager(object):
             conn.cursor().execute(
                 "DELETE FROM action_chains WHERE chain_id = ?", (chain_id,))
 
+    # ======================
+    # ELEMENT EMBEDDINGS (EP7 — AI discovery)
+    # ======================
+
+    def store_element_embedding(self, element_id, model_id, vector):
+        import numpy as np
+        arr = np.asarray(vector, dtype=np.float32).reshape(-1)
+        with self.get_connection(write=True) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO element_embeddings (element_fk, model_id, dim, vector) "
+                "VALUES (?, ?, ?, ?)",
+                (element_id, model_id, int(arr.shape[0]), arr.tobytes()))
+
+    def get_element_embedding(self, element_id):
+        import numpy as np
+        with self.get_connection(write=False) as conn:
+            row = conn.execute(
+                "SELECT vector FROM element_embeddings WHERE element_fk = ?",
+                (element_id,)).fetchone()
+        if not row:
+            return None
+        return np.frombuffer(row["vector"], dtype=np.float32)
+
+    def get_all_embeddings(self, model_id=None):
+        """Return (ids: list[int], matrix: np.ndarray[N, dim]) for cosine search."""
+        import numpy as np
+        sql = "SELECT element_fk, vector FROM element_embeddings"
+        params = []
+        if model_id:
+            sql += " WHERE model_id = ?"
+            params.append(model_id)
+        ids, vecs = [], []
+        with self.get_connection(write=False) as conn:
+            for r in conn.execute(sql, params).fetchall():
+                ids.append(r["element_fk"])
+                vecs.append(np.frombuffer(r["vector"], dtype=np.float32))
+        if not vecs:
+            return [], np.zeros((0, 0), dtype=np.float32)
+        return ids, np.vstack(vecs)
+
+    def get_elements_missing_embedding(self, model_id):
+        """Elements never embedded OR embedded under a different model_id."""
+        with self.get_connection(write=False) as conn:
+            rows = conn.execute(
+                "SELECT e.element_id FROM elements e "
+                "LEFT JOIN element_embeddings em ON em.element_fk = e.element_id "
+                "WHERE em.element_fk IS NULL OR em.model_id != ? "
+                "ORDER BY e.element_id",
+                (model_id,)).fetchall()
+        return [r[0] for r in rows]
+
