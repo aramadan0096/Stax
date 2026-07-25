@@ -976,6 +976,16 @@ def show_stax_panel():
         raise
     
     if app and not NUKE_MODE:
+        # Bundled UI font (standalone only; never override Nuke's own app font).
+        try:
+            try:
+                from font_manager import apply_ui_font
+            except ImportError:
+                from src.font_manager import apply_ui_font
+            apply_ui_font(app)
+        except Exception as _font_exc:
+            print("[show_stax_panel]   [WARN] Failed to apply UI font: {}".format(_font_exc))
+
         # Only apply stylesheet in standalone mode
         # Skip in Nuke to avoid Qt compatibility issues
         print("[show_stax_panel] Loading stylesheet (standalone mode)...")

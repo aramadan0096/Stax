@@ -1,0 +1,7 @@
+# Font assets are binary — never apply text or line-ending conversion,
+# which would corrupt them on checkout (esp. across Windows/Linux).
+*.ttf binary
+*.otf binary
+*.ttc binary
+*.woff binary
+*.woff2 binary

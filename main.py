@@ -45,6 +45,7 @@ from src.ingest_worker import IngestWorker
 from src.nuke_bridge import NukeBridge, NukeIntegration
 from src.extensibility_hooks import ProcessorManager
 from src.icon_loader import get_icon
+from src.font_manager import apply_ui_font
 from src.dark_palette import apply_dark_palette
 from src.ui.accessibility import apply_accessibility
 from src.window_chrome import set_windows_title_bar_color
@@ -1473,6 +1474,15 @@ def main():
     config = Config()
     DebugManager.sync_from_config(config)
     config.ensure_directories()
+
+    # STEP 0 — bundled UI font. Registers resources/fonts/*.ttf and sets the
+    # app-wide family (default: Inter), replacing Qt's platform-default
+    # (Arial/Segoe). Must run before any widget is built. Swap the font later
+    # by dropping a file in resources/fonts/ and/or setting `ui_font_family`.
+    try:
+        apply_ui_font(app, config)
+    except Exception:
+        logging.getLogger(__name__).exception("Failed to apply bundled UI font")
 
     # STEP 1 — Fusion style
     app.setStyle("Fusion")

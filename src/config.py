@@ -30,7 +30,12 @@ class Config(object):
 
         # Diagnostics
         'debug_mode': True,
-        
+
+        # UI font: family applied app-wide at startup (see src/font_manager.py).
+        # Bundled default 'Inter' (resources/fonts/Inter-Variable.ttf). To swap,
+        # drop a .ttf/.otf into resources/fonts/ and set this to its family name.
+        'ui_font_family': 'Inter',
+
         # GIF settings
         'gif_size': 256,
         'gif_fps': 10,
