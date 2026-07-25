@@ -3126,3 +3126,28 @@ class DatabaseManager(object):
                 (model_id,)).fetchall()
         return [r[0] for r in rows]
 
+    # ======================
+    # ELEMENT COLORS (EP7 — non-AI color search, F004)
+    # ======================
+
+    def store_element_color(self, element_id, histogram, dominant=None):
+        import json
+        import numpy as np
+        blob = np.asarray(histogram, dtype=np.float32).reshape(-1).tobytes()
+        dom = json.dumps(dominant) if dominant is not None else None
+        with self.get_connection(write=True) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO element_colors (element_fk, histogram, dominant) "
+                "VALUES (?, ?, ?)", (element_id, blob, dom))
+
+    def get_all_colors(self):
+        import numpy as np
+        ids, hists = [], []
+        with self.get_connection(write=False) as conn:
+            for r in conn.execute("SELECT element_fk, histogram FROM element_colors").fetchall():
+                ids.append(r["element_fk"])
+                hists.append(np.frombuffer(r["histogram"], dtype=np.float32))
+        if not hists:
+            return [], np.zeros((0, 0), dtype=np.float32)
+        return ids, np.vstack(hists)
+
