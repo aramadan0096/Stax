@@ -22,6 +22,37 @@ for _p in (_REPO_ROOT, _SRC):
 
 
 # ---------------------------------------------------------------------------
+# Windows PySide2 shutdown-crash guard
+# ---------------------------------------------------------------------------
+# On Windows, PySide2/QtWebEngine can segfault (STATUS_STACK_BUFFER_OVERRUN,
+# 0xC0000409) during interpreter shutdown -- AFTER every test has passed and the
+# summary has printed -- as Py_Finalize destroys lingering Qt C++ objects. That
+# makes a fully-passing run exit non-zero, which any CI exit-code gate reads as
+# a failure. We record pytest's real exit status at session finish and then, at
+# the very end (pytest_unconfigure, after junitxml/cov and the terminal summary
+# have been written), exit the process with that status via os._exit -- which
+# skips the crashy native teardown entirely. Scoped to Windows so Linux/CI there
+# keeps its normal, clean shutdown.
+
+_PYTEST_EXIT_STATUS = {"code": 0}
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session, exitstatus):
+    _PYTEST_EXIT_STATUS["code"] = int(exitstatus)
+
+
+def pytest_unconfigure(config):
+    if sys.platform.startswith("win"):
+        try:
+            sys.stdout.flush()
+            sys.stderr.flush()
+        except Exception:
+            pass
+        os._exit(_PYTEST_EXIT_STATUS["code"])
+
+
+# ---------------------------------------------------------------------------
 # Real DatabaseManager on a temp DB
 # ---------------------------------------------------------------------------
 
