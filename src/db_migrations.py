@@ -17,7 +17,7 @@ import sqlite3
 log = logging.getLogger(__name__)
 
 # Bump this every time a new _migrate_vN is appended below.
-CURRENT_SCHEMA_VERSION = 24
+CURRENT_SCHEMA_VERSION = 25
 
 # Default color-label palette (EP1). Seed order defines labels.sort_order.
 DEFAULT_LABELS = [
@@ -636,6 +636,25 @@ def _migrate_v24(conn):
     conn.commit()
 
 
+def _migrate_v25(conn):
+    """v24 -> v25: search_events table + index for search success/zero-result stats (EP9)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS search_events (
+            event_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_name    TEXT,
+            query_text   TEXT NOT NULL,
+            result_count INTEGER NOT NULL DEFAULT 0,
+            ran_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_search_events_zero ON search_events(result_count)")
+    conn.commit()
+    log.info("Migration v25: created search_events table + index")
+
+
 # Index N upgrades schema version N-1 -> N.
 _MIGRATIONS = [
     None,          # index 0 — unused placeholder
@@ -663,6 +682,7 @@ _MIGRATIONS = [
     _migrate_v22,  # 21 -> 22
     _migrate_v23,  # 22 -> 23
     _migrate_v24,  # 23 -> 24
+    _migrate_v25,  # 24 -> 25
 ]
 
 

@@ -3302,3 +3302,50 @@ class DatabaseManager(object):
         with self.get_connection(write=False) as conn:
             return [dict(r) for r in conn.execute(sql, params).fetchall()]
 
+    # ======================
+    # SEARCH ANALYTICS (EP9 — search success / zero-result stats)
+    # ======================
+
+    def log_search_event(self, query, result_count, user_name=None):
+        """Record one search and its result count (EP9 F060). Never raises into the caller."""
+        try:
+            with self.get_connection(write=True) as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO search_events (user_name, query_text, result_count) "
+                    "VALUES (?, ?, ?)",
+                    (user_name, (query or "").strip(), int(result_count or 0)))
+                conn.commit()
+                return cur.lastrowid
+        except Exception:
+            logger.warning("Could not log search event", exc_info=True)
+            return None
+
+    def get_search_success_stats(self):
+        """Aggregate search success. success_rate/zero_result_rate are fractions in [0,1]."""
+        with self.get_connection(write=False) as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS total, "
+                "SUM(CASE WHEN result_count = 0 THEN 1 ELSE 0 END) AS zero "
+                "FROM search_events").fetchone()
+        total = row["total"] or 0
+        zero = row["zero"] or 0
+        success = total - zero
+        return {
+            "total": total,
+            "zero_result": zero,
+            "success": success,
+            "success_rate": (success / total) if total else 0.0,
+            "zero_result_rate": (zero / total) if total else 0.0,
+        }
+
+    def get_zero_result_queries(self, limit=20):
+        """Top zero-result queries, most frequent first (EP9 F060)."""
+        with self.get_connection(write=False) as conn:
+            rows = conn.execute(
+                "SELECT query_text, COUNT(*) AS count FROM search_events "
+                "WHERE result_count = 0 AND query_text != '' "
+                "GROUP BY query_text ORDER BY count DESC, query_text LIMIT ?",
+                (limit,)).fetchall()
+            return [dict(r) for r in rows]
+
