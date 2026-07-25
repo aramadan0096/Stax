@@ -63,3 +63,73 @@ def export_list_bundle(db, list_id, out_path, source_site="", include_previews=T
 def read_manifest(bundle_path):
     with zipfile.ZipFile(bundle_path) as zf:
         return json.loads(zf.read("manifest.json").decode("utf-8"))
+
+
+def _load_records(bundle_path):
+    with zipfile.ZipFile(bundle_path) as zf:
+        return json.loads(zf.read("elements.json").decode("utf-8"))
+
+
+def _extract_preview(bundle_path, arc, previews_dir):
+    if not arc or not previews_dir:
+        return None
+    try:
+        with zipfile.ZipFile(bundle_path) as zf:
+            data = zf.read(arc)
+        dest = os.path.join(previews_dir, os.path.basename(arc))
+        if not os.path.isdir(previews_dir):
+            os.makedirs(previews_dir)
+        with open(dest, "wb") as fh:
+            fh.write(data)
+        return dest
+    except (OSError, KeyError):
+        logger.exception("failed to extract preview %s", arc)
+        return None
+
+
+def import_bundle(db, bundle_path, target_list_id, conflict="timestamp", previews_dir=None):
+    """Merge a bundle into target_list_id. Match by name; newest updated_at wins."""
+    records = _load_records(bundle_path)
+    existing = {e["name"]: e for e in db.get_elements_by_list(target_list_id,
+                                                              include_deprecated=True)}
+    summary = {"added": 0, "updated": 0, "skipped": 0}
+
+    for rec in records:
+        name = rec.get("name")
+        preview_dest = _extract_preview(bundle_path, rec.get("preview_file"), previews_dir)
+        payload = {k: rec.get(k) for k in
+                   ("type", "format", "frame_range", "comment", "tags", "is_deprecated")}
+        if preview_dest:
+            payload["preview_path"] = preview_dest
+
+        current = existing.get(name)
+        if current is None:
+            with db.get_connection() as conn:
+                cols = ["list_fk", "name"] + list(payload.keys()) + ["updated_at"]
+                vals = [target_list_id, name] + list(payload.values()) + [rec.get("updated_at")]
+                placeholders = ", ".join("?" for _ in cols)
+                conn.execute("INSERT INTO elements ({}) VALUES ({})".format(
+                    ", ".join(cols), placeholders), vals)
+                conn.commit()
+            summary["added"] += 1
+            continue
+
+        incoming = rec.get("updated_at") or ""
+        local = current.get("updated_at") or ""
+        if conflict == "timestamp" and incoming > local:
+            # update in place; preserve updated_at from the bundle
+            payload_with_ts = dict(payload)
+            payload_with_ts["updated_at"] = incoming
+            with db.get_connection() as conn:
+                set_clause = ", ".join("{} = ?".format(k) for k in payload_with_ts)
+                conn.execute("UPDATE elements SET {} WHERE element_id = ?".format(set_clause),
+                             list(payload_with_ts.values()) + [current["element_id"]])
+                conn.commit()
+            summary["updated"] += 1
+        else:
+            summary["skipped"] += 1
+
+    if hasattr(db, "log_activity"):
+        db.log_activity("system", "import", "bundle", target_list_id,
+                        "added={added} updated={updated} skipped={skipped}".format(**summary))
+    return summary
