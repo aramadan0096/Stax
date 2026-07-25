@@ -1352,7 +1352,19 @@ class SettingsPanel(QtWidgets.QWidget):
         path = QtWidgets.QFileDialog.getExistingDirectory(self, "Watch Folder")
         if not path:
             return
-        self.db.create_watch_folder(path)
+        choices = []  # (label, list_id)
+        for st in self.db.get_all_stacks():
+            for ls in self.db.get_lists_by_stack(st["stack_id"]):
+                choices.append(("{} / {}".format(st["name"], ls["name"]), ls["list_id"]))
+        target_list_id = None
+        if choices:
+            label, ok = QtWidgets.QInputDialog.getItem(
+                self, "Target List", "Ingest watched files into:",
+                [c[0] for c in choices], 0, False)
+            if not ok:
+                return
+            target_list_id = dict(choices).get(label)
+        self.db.create_watch_folder(path, target_list_id=target_list_id)
         self._reload_ingest_automation()
         self.settings_changed.emit()
 

@@ -41,3 +41,20 @@ def test_admin_can_delete_watch(qtbot, stax_config, stax_db):
     panel.watch_table.selectRow(0)
     panel._on_delete_watch()
     assert stax_db.get_watch_folders() == []
+
+
+@pytest.mark.gui
+def test_add_watch_captures_target_list(qtbot, monkeypatch, stax_config, stax_db):
+    sid = stax_db.create_stack("S", "/tmp/S")
+    lid = stax_db.create_list(sid, "L")
+    from ui.settings_panel import SettingsPanel
+    panel = SettingsPanel(config=stax_config, db_manager=stax_db, main_window=_Main(True))
+    qtbot.addWidget(panel)
+    monkeypatch.setattr(
+        "PySide2.QtWidgets.QFileDialog.getExistingDirectory",
+        staticmethod(lambda *a, **k: "/inbox"))
+    monkeypatch.setattr(
+        "PySide2.QtWidgets.QInputDialog.getItem",
+        staticmethod(lambda *a, **k: ("S / L", True)))
+    panel._on_add_watch()
+    assert stax_db.get_watch_folders()[0]["target_list_id"] == lid
