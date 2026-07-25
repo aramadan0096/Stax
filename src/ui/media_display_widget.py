@@ -763,6 +763,39 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             element_id, filter_spec=getattr(self, "current_filter", None))
         return self.show_ai_results(rows, "similar assets")
 
+    def suggest_tags_for_element(self, element_id):
+        """EP7 Task 9: "Suggest tags" -- human-in-the-loop auto-tag
+        suggestion. ai_service.suggest_tags() only *ranks* candidate tags;
+        nothing is written until the user checks boxes in TagSuggestDialog
+        and accepts, at which point the checked tags are merged into the
+        element's existing comma-separated `tags` field via
+        db.update_element(..., tags=...) -- the same write path
+        bulk_add_tag() and EditElementDialog use.
+        """
+        if not self.ai_enabled():
+            logger.info("tag suggestion unavailable — no embedder")
+            return
+        from ui.tag_suggest_dialog import TagSuggestDialog
+
+        suggestions = self.ai_service.suggest_tags(element_id)
+        if not suggestions:
+            QtWidgets.QMessageBox.information(
+                self, "Suggest Tags", "No tag suggestions available for this element.")
+            return
+
+        element = self.db.get_element_by_id(element_id)
+        current_csv = (element.get('tags') or '') if element else ''
+        existing = [t.strip() for t in current_csv.split(',') if t.strip()]
+
+        dlg = TagSuggestDialog(suggestions, existing_tags=existing, parent=self)
+        if dlg.exec_() == QtWidgets.QDialog.Accepted:
+            accepted = dlg.accepted_tags()
+            if accepted:
+                merged = TagSuggestDialog.merge_tags(current_csv, accepted)
+                self.db.update_element(element_id, tags=merged)
+                if self.current_list_id:
+                    self.load_elements(self.current_list_id)
+
     def run_color_search(self, rgb):
         """EP7 Task 8 (F004): rank elements by dominant-color similarity to
         an RGB query. Pure PIL/numpy (ai/color_index.py) -- deliberately does
@@ -2012,6 +2045,15 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 find_similar_action.setToolTip(
                     "AI model not installed — Settings → AI → Download model")
 
+            # EP7 Task 9: "Suggest tags" -- human-in-the-loop auto-tag
+            # suggestion (TagSuggestDialog). Same ai_enabled() gating as
+            # "Find similar" above.
+            suggest_tags_action = menu.addAction(get_icon('edit', size=16), "Suggest tags")
+            suggest_tags_action.setEnabled(self.ai_enabled())
+            if not self.ai_enabled():
+                suggest_tags_action.setToolTip(
+                    "AI model not installed — Settings → AI → Download model")
+
             menu.addSeparator()
 
             # Get element to check deprecated status
@@ -2039,6 +2081,8 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 self.edit_element(element_id)
             elif action == find_similar_action:
                 self.run_similar_search(element_id)
+            elif action == suggest_tags_action:
+                self.suggest_tags_for_element(element_id)
             elif action == deprecated_action:
                 self.toggle_deprecated(element_id)
             elif action == delete_action:
