@@ -21,9 +21,16 @@ StaX helps VFX artists and studios manage large collections of stock footage, 3D
 
 - **Hierarchical Organization**: Organize assets into Stacks → Lists → Elements with support for nested sub-lists
 - **Smart Ingestion**: Automatic image sequence detection, frame range discovery, and metadata extraction
+- **Ingestion Automation**: Durable job queue with retry, polling watch-folders, ingest recipes, and duplicate-policy resolution
 - **Dual-Path Storage**: Choose between hard copies (physical repository) or soft copies (reference links)
 - **Rich Previews**: Automatic thumbnail, GIF, and video preview generation for quick asset review
  - **Interactive 3D Preview**: Inspect geometry assets directly inside StaX with the built-in Scene Viewer. The viewer embeds a lightweight WebGL frontend (the bundled `js-3d-model-viewer`) to render `glb`/`gltf` payloads inside the preview pane. For non-GLB geometry sources StaX can convert assets to GLB using Blender (via the tracked `src/convert_to_glb.py` script) or attempt Python-library fallbacks so they can be inspected in the viewer.
+- **Curation**: Star ratings, color labels, favorites, playlists, and multi-select bulk actions
+- **Search & Discovery**: Faceted filtering, saved searches, shared smart collections, synonyms, and "did-you-mean" suggestions
+- **Local AI Discovery**: Text (semantic), image (visual), and "find similar" search plus auto-tag suggestions — all offline via a local CLIP model. Color-palette search works with no model. See the [User Guide](docs/USER_GUIDE.md#6-ai-discovery)
+- **Custom Metadata**: Per-stack typed custom fields with inheritance, metadata templates, and auto-tagging at ingest
+- **Team Collaboration**: Granular role/permission matrix, activity feed, and `.staxbundle` metadata/preview export–import (newest-wins)
+- **Analytics**: Search-quality, storage-hygiene, and top-used-asset dashboards with CSV export
 - **Nuke Integration**: Drag and drop assets directly into Nuke's Node Graph with automatic Read/ReadGeo node creation
 - **Network-Ready**: SQLite database with file locking for multi-user workstation access
 - **Extensible**: Custom Python processors for pre-ingest validation, post-ingest hooks, and post-import node configuration
@@ -45,6 +52,7 @@ cd Stax
 ---
 ## Documentation
 
+- **[User Guide](docs/USER_GUIDE.md)**: Quick-start walkthrough of everyday workflows, including the new local AI discovery features.
 - **[documentation](https://aramadan0096.github.io/stax-docs/)**: An internal reference describing StaX features, installation, and usage.
 <!-- - **[instructions.md](instructions.md)**: Complete technical specification and architecture
 - **[Roadmap.md](Roadmap.md)**: Development phases, milestones, and feature roadmap
@@ -55,23 +63,27 @@ cd Stax
 ## Project Status
 
 **Current Phase:** Beta  
-**Python Version:** 2.7 / 3.x (dual compatibility)  
-**GUI Framework:** PySide2
+**Python Version:** 3.9+ (Windows & Linux)  
+**GUI Framework:** PySide2 (Qt5)
 
 **Completed Features:**
-- ✅ Database layer with network-aware file locking
+- ✅ Database layer with network-aware file locking and versioned migrations
 - ✅ Ingestion engine with sequence detection
+- ✅ Ingestion automation: job queue, retry, watch-folders, recipes, duplicate policies
+- ✅ Async preview pipeline (off the GUI thread)
 - ✅ Nuke integration (standalone and plugin modes)
 - ✅ Extensibility hooks (custom processors)
-- ✅ Complete GUI with gallery/list views
+- ✅ Complete GUI with gallery/list views + interactive 3D preview
 - ✅ Preview generation (thumbnails, GIFs, videos)
-- ✅ User/permission management
-- ✅ Favorites and playlists
-- ✅ Advanced search and filtering
-- ✅ Drag & drop to Nuke DAG
-- ✅ Toolset registration
+- ✅ Curation: ratings, color labels, favorites, playlists, bulk actions
+- ✅ Search & discovery: facets, saved searches, smart collections, synonyms
+- ✅ **Local AI discovery: semantic / visual / similar search + auto-tags (offline CLIP); color-palette search**
+- ✅ Custom metadata fields, templates, and auto-tagging
+- ✅ Team collaboration: granular roles/permissions, activity feed, `.staxbundle` export–import
+- ✅ Analytics dashboards (search, storage, top-used) with CSV export
+- ✅ Drag & drop to Nuke DAG + toolset registration
 
-See [Roadmap.md](Roadmap.md) for planned features and [changelog.md](changelog.md) for recent updates.
+See the **[User Guide](docs/USER_GUIDE.md)** for how to use these features.
 
 ---
 
