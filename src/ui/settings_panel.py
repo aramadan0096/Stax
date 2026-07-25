@@ -82,6 +82,11 @@ class SettingsPanel(QtWidgets.QWidget):
         # Tab 11: Automation (EP4 per-stack metadata templates + auto-tag rules)
         self.tab_widget.addTab(self._build_automation_tab(), "Automation")
 
+        # Tab 12: Ingest Automation (EP6 watch folders / recipes / proxy
+        # profiles / action chains) — distinct name/label from the EP4
+        # Automation tab above; do not merge or rename either.
+        self.tab_widget.addTab(self._build_ingest_automation_tab(), "Ingest Automation")
+
         layout.addWidget(self.tab_widget)
         
         # Bottom buttons
@@ -1245,6 +1250,146 @@ class SettingsPanel(QtWidgets.QWidget):
         if row < len(rules):
             self.db.delete_autotag_rule(rules[row]["rule_id"])
             self.select_automation_stack(self._automation_stack_id)
+            self.settings_changed.emit()
+
+    def _build_ingest_automation_tab(self):
+        """Build the Ingest Automation tab: watch folders, ingest recipes,
+        proxy/transcode profiles, and action chains (EP6). Admin-gated
+        Add/Delete controls for watch folders and recipes; profiles and
+        chains are read-only lists here.
+
+        Named distinctly from _build_automation_tab (the EP4 per-stack
+        metadata-templates/auto-tag-rules tab) to avoid shadowing it.
+        """
+        tab = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(tab)
+
+        layout.addWidget(QtWidgets.QLabel("Watch Folders"))
+        self.watch_table = QtWidgets.QTableWidget(0, 3)
+        self.watch_table.setHorizontalHeaderLabels(["Path", "Interval (s)", "Enabled"])
+        self.watch_table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.watch_table)
+
+        watch_controls = QtWidgets.QHBoxLayout()
+        self.add_watch_button = QtWidgets.QPushButton("Add folder…")
+        self.delete_watch_button = QtWidgets.QPushButton("Remove")
+        watch_controls.addWidget(self.add_watch_button)
+        watch_controls.addWidget(self.delete_watch_button)
+        layout.addLayout(watch_controls)
+
+        layout.addWidget(QtWidgets.QLabel("Ingest Recipes"))
+        self.recipes_table = QtWidgets.QTableWidget(0, 1)
+        self.recipes_table.setHorizontalHeaderLabels(["Name"])
+        self.recipes_table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.recipes_table)
+        self.delete_recipe_button = QtWidgets.QPushButton("Delete recipe")
+        layout.addWidget(self.delete_recipe_button)
+
+        layout.addWidget(QtWidgets.QLabel("Proxy / Transcode Profiles"))
+        self.profiles_table = QtWidgets.QTableWidget(0, 3)
+        self.profiles_table.setHorizontalHeaderLabels(["Name", "Kind", "Max size"])
+        self.profiles_table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.profiles_table)
+
+        layout.addWidget(QtWidgets.QLabel("Action Chains"))
+        self.chains_table = QtWidgets.QTableWidget(0, 1)
+        self.chains_table.setHorizontalHeaderLabels(["Name"])
+        self.chains_table.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.chains_table)
+
+        self.add_watch_button.clicked.connect(self._on_add_watch)
+        self.delete_watch_button.clicked.connect(self._on_delete_watch)
+        self.delete_recipe_button.clicked.connect(self._on_delete_recipe)
+
+        # State query only — must NOT call check_admin_permission() here, which
+        # prompts (login/permission-denied dialogs) and would block widget
+        # construction. Read the flag directly, as _build_fields_tab and
+        # _build_labels_tab / _build_automation_tab do.
+        is_admin = bool(getattr(self.main_window, 'is_admin', False)) if self.main_window else False
+        for b in (self.add_watch_button, self.delete_watch_button, self.delete_recipe_button):
+            b.setEnabled(is_admin)
+
+        self._reload_ingest_automation()
+        return tab
+
+    def _reload_ingest_automation(self):
+        """Repopulate watch_table, recipes_table, profiles_table and
+        chains_table from the DB's current EP6 ingestion-automation state."""
+        watches = self.db.get_watch_folders()
+        self.watch_table.setRowCount(len(watches))
+        for row, w in enumerate(watches):
+            self.watch_table.setItem(row, 0, QtWidgets.QTableWidgetItem(w["path"]))
+            self.watch_table.setItem(row, 1, QtWidgets.QTableWidgetItem(str(w["interval_sec"])))
+            self.watch_table.setItem(row, 2, QtWidgets.QTableWidgetItem(
+                "yes" if w["enabled"] else "no"))
+
+        recipes = self.db.get_ingest_recipes()
+        self.recipes_table.setRowCount(len(recipes))
+        for row, rec in enumerate(recipes):
+            self.recipes_table.setItem(row, 0, QtWidgets.QTableWidgetItem(rec["name"]))
+
+        profiles = self.db.get_proxy_profiles()
+        self.profiles_table.setRowCount(len(profiles))
+        for row, p in enumerate(profiles):
+            self.profiles_table.setItem(row, 0, QtWidgets.QTableWidgetItem(p["name"]))
+            self.profiles_table.setItem(row, 1, QtWidgets.QTableWidgetItem(p["kind"]))
+            self.profiles_table.setItem(row, 2, QtWidgets.QTableWidgetItem(str(p["max_size"])))
+
+        chains = self.db.get_action_chains()
+        self.chains_table.setRowCount(len(chains))
+        for row, c in enumerate(chains):
+            self.chains_table.setItem(row, 0, QtWidgets.QTableWidgetItem(c["name"]))
+
+    def _on_add_watch(self):
+        """Prompt for a folder to watch, then create the watch folder.
+
+        Button is already gated for non-admins, but this is a real user action
+        (they clicked), so re-check with check_admin_permission — which may
+        prompt for login/permission — as the actual authorization gate.
+        """
+        if self.main_window and not self.main_window.check_admin_permission("manage ingest automation"):
+            return
+        path = QtWidgets.QFileDialog.getExistingDirectory(self, "Watch Folder")
+        if not path:
+            return
+        self.db.create_watch_folder(path)
+        self._reload_ingest_automation()
+        self.settings_changed.emit()
+
+    def _on_delete_watch(self):
+        """Delete the selected watch-folder row, if any.
+
+        Button is already gated for non-admins, but this is a real user action
+        (they clicked), so re-check with check_admin_permission as the actual
+        authorization gate.
+        """
+        if self.main_window and not self.main_window.check_admin_permission("manage ingest automation"):
+            return
+        row = self.watch_table.currentRow()
+        if row < 0:
+            return
+        watches = self.db.get_watch_folders()
+        if row < len(watches):
+            self.db.delete_watch_folder(watches[row]["watch_id"])
+            self._reload_ingest_automation()
+            self.settings_changed.emit()
+
+    def _on_delete_recipe(self):
+        """Delete the selected ingest-recipe row, if any.
+
+        Button is already gated for non-admins, but this is a real user action
+        (they clicked), so re-check with check_admin_permission as the actual
+        authorization gate.
+        """
+        if self.main_window and not self.main_window.check_admin_permission("manage ingest automation"):
+            return
+        row = self.recipes_table.currentRow()
+        if row < 0:
+            return
+        recipes = self.db.get_ingest_recipes()
+        if row < len(recipes):
+            self.db.delete_ingest_recipe(recipes[row]["recipe_id"])
+            self._reload_ingest_automation()
             self.settings_changed.emit()
 
     def browse_database_path(self):
