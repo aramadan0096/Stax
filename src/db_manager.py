@@ -3349,3 +3349,48 @@ class DatabaseManager(object):
                 (limit,)).fetchall()
             return [dict(r) for r in rows]
 
+    # ======================
+    # STORAGE / DUPLICATE STATS (EP9 F063 — storage hygiene dashboard)
+    # ======================
+
+    def get_storage_stats(self):
+        """Repository size + hard/soft/deprecated breakdown (EP9 F063). Bytes coerce NULL to 0."""
+        with self.get_connection(write=False) as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS element_count, "
+                "COALESCE(SUM(file_size), 0) AS total_bytes, "
+                "COALESCE(SUM(CASE WHEN is_hard_copy = 1 THEN file_size ELSE 0 END), 0) "
+                "    AS hard_copy_bytes, "
+                "SUM(CASE WHEN is_hard_copy = 1 THEN 1 ELSE 0 END) AS hard_copy_count, "
+                "SUM(CASE WHEN is_hard_copy = 0 THEN 1 ELSE 0 END) AS soft_copy_count, "
+                "SUM(CASE WHEN is_deprecated = 1 THEN 1 ELSE 0 END) AS deprecated_count, "
+                "COALESCE(SUM(CASE WHEN is_deprecated = 1 THEN file_size ELSE 0 END), 0) "
+                "    AS deprecated_bytes "
+                "FROM elements").fetchone()
+            return {k: (row[k] or 0) for k in row.keys()}
+
+    def get_duplicate_stats(self):
+        """Duplicate clusters (exact phash) + reclaimable bytes (EP9 F063).
+
+        Per cluster of size > 1: keep the largest copy, reclaim the rest.
+        Depends on SP1's elements.phash column.
+        """
+        with self.get_connection(write=False) as conn:
+            rows = conn.execute(
+                "SELECT phash, file_size FROM elements "
+                "WHERE phash IS NOT NULL AND phash != ''").fetchall()
+        clusters = {}
+        for r in rows:
+            clusters.setdefault(r["phash"], []).append(r["file_size"] or 0)
+        cluster_count = duplicate_count = reclaimable_bytes = 0
+        for sizes in clusters.values():
+            if len(sizes) > 1:
+                cluster_count += 1
+                duplicate_count += len(sizes) - 1
+                reclaimable_bytes += sum(sizes) - max(sizes)
+        return {
+            "cluster_count": cluster_count,
+            "duplicate_count": duplicate_count,
+            "reclaimable_bytes": reclaimable_bytes,
+        }
+
