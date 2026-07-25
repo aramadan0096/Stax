@@ -38,3 +38,20 @@ def test_delete_role_refuses_builtin(stax_db):
 @pytest.mark.unit
 def test_unknown_user_or_role_has_no_permission(stax_db):
     assert stax_db.has_permission("ghost", "can_ingest") is False
+
+
+@pytest.mark.unit
+def test_v22_users_rebuild_preserves_user_sessions_fk(stax_db):
+    """Regression: migration v22 (relaxing users.role's CHECK constraint)
+    must not leave user_sessions.user_fk dangling after the ALTER TABLE
+    RENAME + rebuild. If it does, create_session() blows up on every login
+    with "no such table: users_v22_old"."""
+    user_id = stax_db.create_user("sess_user", "pw")
+    assert user_id
+
+    session_id = stax_db.create_session(user_id, "test-machine")
+    assert session_id
+
+    with stax_db.get_connection() as conn:
+        dangling = conn.execute("PRAGMA foreign_key_check").fetchall()
+    assert dangling == []

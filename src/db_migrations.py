@@ -533,35 +533,60 @@ def _migrate_v22(conn):
     'admin'/'user') so EP8 custom/built-in role names (reviewer, ingestor,
     viewer, ...) can be assigned to a user. SQLite has no ALTER TABLE ...
     DROP CONSTRAINT, so this rebuilds the table (idempotent: only runs the
-    rebuild if the old CHECK is still present)."""
+    rebuild if the old CHECK is still present).
+
+    IMPORTANT — table-rebuild ordering matters here. user_sessions.user_fk
+    REFERENCES users(user_id). Renaming the *live* "users" table away (e.g.
+    "ALTER TABLE users RENAME TO users_old") makes SQLite auto-rewrite
+    user_sessions' FOREIGN KEY clause to point at "users_old" — verified
+    empirically, and this happens regardless of PRAGMA foreign_keys. Once
+    "users_old" is then dropped, user_sessions is left with a dangling FK
+    and every login breaks (create_session -> "no such table: users_old").
+    To avoid the rewrite entirely, this never renames the live "users"
+    table: it builds "users_new" under an unrelated name, copies the data,
+    drops the *old* "users" table (not a rename, so no other schema gets
+    rewritten), then renames "users_new" -> "users" — renaming *into* a
+    name other tables already reference does not trigger a rewrite (also
+    verified empirically). foreign_keys is toggled OFF only around the
+    DROP, because SQLite's FK enforcement otherwise refuses to drop a
+    table that still has referencing child rows."""
     row = conn.execute(
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='users'"
     ).fetchone()
     if row and row[0] and "CHECK(role IN ('admin', 'user'))" in row[0]:
-        conn.execute("ALTER TABLE users RENAME TO users_v22_old")
-        conn.execute(
-            """
-            CREATE TABLE users (
-                user_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                password_hash TEXT NOT NULL,
-                role TEXT NOT NULL DEFAULT 'user',
-                email TEXT,
-                is_active BOOLEAN DEFAULT 1,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_login TIMESTAMP,
-                must_change_password INTEGER DEFAULT 0
+        conn.commit()  # close any open txn so the pragma toggle below applies
+        conn.execute("PRAGMA foreign_keys=OFF")
+        try:
+            conn.execute(
+                """
+                CREATE TABLE users_v22_new (
+                    user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    role TEXT NOT NULL DEFAULT 'user',
+                    email TEXT,
+                    is_active BOOLEAN DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_login TIMESTAMP,
+                    must_change_password INTEGER DEFAULT 0
+                )
+                """
             )
-            """
-        )
-        conn.execute(
-            "INSERT INTO users (user_id, username, password_hash, role, email, "
-            "is_active, created_at, last_login, must_change_password) "
-            "SELECT user_id, username, password_hash, role, email, is_active, "
-            "created_at, last_login, must_change_password FROM users_v22_old"
-        )
-        conn.execute("DROP TABLE users_v22_old")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
+            conn.execute(
+                "INSERT INTO users_v22_new (user_id, username, password_hash, role, email, "
+                "is_active, created_at, last_login, must_change_password) "
+                "SELECT user_id, username, password_hash, role, email, is_active, "
+                "created_at, last_login, must_change_password FROM users"
+            )
+            conn.execute("DROP TABLE users")
+            conn.execute("ALTER TABLE users_v22_new RENAME TO users")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
+            conn.commit()
+        finally:
+            conn.execute("PRAGMA foreign_keys=ON")
+        bad = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if bad:
+            raise RuntimeError("v22 left dangling FKs: {}".format(bad))
         log.info("Migration v22: relaxed users.role CHECK constraint for EP8 custom roles")
     conn.commit()
 
