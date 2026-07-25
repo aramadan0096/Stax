@@ -327,7 +327,22 @@ found") + the scanner now restarts on settings change. Packaging freeze smoke gr
 > surfaces (no Nuke `StaXPanel` menu): Job Queue dock toggle, Automation settings tab, preflight gate — each fails safe.
 
 ### EP7 — AI discovery (local-only)
-Spec: [`specs/…-ep7-ai-discovery-design.md`](specs/2026-07-23-ep7-ai-discovery-design.md) · Plan: [`plans/…-ep7-ai-discovery.md`](plans/2026-07-23-ep7-ai-discovery.md) · **Depends on SP1 + SP2 + EP1/EP2.** `Embedder` abstraction (local CLIP ViT-B/32 via **onnxruntime CPU**, ~120–170 MB first-run download) + `FakeEmbedder` for tests; SQLite embeddings + brute-force numpy cosine; semantic/visual/similar + color search + human-in-the-loop auto-tag. F005 (transcript) / F006 (scene descriptors) deferred.
+Spec: [`specs/…-ep7-ai-discovery-design.md`](specs/2026-07-23-ep7-ai-discovery-design.md) · Plan: [`plans/…-ep7-ai-discovery.md`](plans/2026-07-23-ep7-ai-discovery.md) · **Depends on SP1 + SP2 + EP1/EP2.** `Embedder` abstraction (local CLIP ViT-B/32 via **onnxruntime CPU**, ~120–170 MB first-run download) + `FakeEmbedder` for tests; SQLite embeddings + brute-force numpy cosine; semantic/visual/similar + color search + human-in-the-loop auto-tag. F005 (transcript) / F006 (scene descriptors) deferred. 11 tasks, clusters 7A embedding/index core · 7B AI search surfaces · 7C color picker + auto-tag.
+
+- [x] Task 1 — local-only `Embedder`/`FakeEmbedder`/`ClipOnnxEmbedder` (lazy onnxruntime) + `get_embedder`→None
+- [x] Task 2 — `element_embeddings` table (migration **v19**) + blob store/load API
+- [x] Task 3 — `AiSearchService` numpy cosine core (semantic/visual/similar/suggest_tags; [] w/o embedder)
+- [x] Task 4 — non-AI color signatures + palette search `element_colors` (migration **v20**, PIL/numpy, F004)
+- [x] Task 5 — `index_element` + `AiIndexWorker` (SP2 pattern) + additive at-ingest hook
+- [x] Task 6 — `ImageDropZone` + `show_ai_results`/`run_visual_search` on EP2 result surface (F002)
+- [x] Task 7 — semantic-search toggle + "Find similar" context action (F001/F003)
+- [x] Task 8 — color-palette picker + `run_color_search` (F004, non-AI)
+- [x] Task 9 — human-in-the-loop `TagSuggestDialog` + "Suggest tags" action
+- [x] Task 10 — Settings AI tab (status/download/reindex) + `tools/download_clip_model.py` **(onnxruntime pyproject line DEFERRED — human gate)**
+- [x] Task 11 — `main.py` wiring: embedder + `AiSearchService` + `AiIndexWorker` + ingest hook
+
+**EP7 implementation complete** (Batch 9, branch `exec/ep7`, off `main` @ `a3e8f0b`): 11/11 tasks, each strict-TDD + two-stage reviewed clean, plus a whole-branch review (verdict: ready to merge). Two new tables via numbered migrations **v19–v20** (`CURRENT_SCHEMA_VERSION` 18→20). Suite **520 passed / 0 failed / 0 xfailed**. Local-only, no cloud/API embedder, no vector DB; every AI path guards a missing embedder and returns `[]` (color search works with no model); `onnxruntime` imported lazily so the branch builds/tests with it absent (all tests inject `FakeEmbedder`; real-model tests `@pytest.mark.manual`).
+**NOT yet on `main`** and **`onnxruntime` NOT yet in `pyproject.toml`** — both await human go-ahead. Follow-ups for the dependency-landing PR (all inert while the embedder is `None`): wire `settings_panel.ai_index_worker` so "Reindex library" reaches the worker (+ refresh `_ai_embedder`); add a reveal control for the hidden `ImageDropZone` (F002 has no user trigger yet); ship the `clip_tokenizer` module (real-inference path); optional startup backfill enqueue of `get_elements_missing_embedding`.
 
 ### EP8 — Team collaboration (metadata sync first)
 Spec: [`specs/…-ep8-team-collaboration-design.md`](specs/2026-07-23-ep8-team-collaboration-design.md) · Plan: [`plans/…-ep8-team-collaboration.md`](plans/2026-07-23-ep8-team-collaboration.md) · **Depends on SP1 + SP4 + EP4.** Clusters: 8A granular roles · 8B activity feed · 8C `.staxbundle` metadata/preview export-import (newest-wins). `CollaborationConnector` ABC seam; Kitsu/Ftrack/Flow/DCC (F044–F048) deferred behind it.
