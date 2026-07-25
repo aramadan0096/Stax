@@ -15,6 +15,7 @@ from src.ui.media_info_popup import MediaInfoPopup
 from src.ui.drag_gallery_view import DragGalleryView
 from src.ui.pagination_widget import PaginationWidget
 from src.ui.dialogs import AddToPlaylistDialog, EditElementDialog
+from src.ui.image_drop_zone import ImageDropZone
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +123,31 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.did_you_mean_label.hide()  # Hidden by default
         search_layout.addWidget(self.did_you_mean_label)
 
+        # EP7 Task 7 (F002): reference-image drop zone for visual search.
+        # Hosted here (same panel as the search box) but hidden by default --
+        # it's an alternate search entry point, not something that should
+        # eat vertical space in the toolbar on every list browse. A future
+        # task can wire a button to reveal/collapse it; for now it stays
+        # available for main.py/tests to .show() explicitly.
+        self.image_drop_zone = ImageDropZone()
+        self.image_drop_zone.setToolTip("Drop a reference image to find visually similar assets")
+        self.image_drop_zone.image_dropped.connect(self.run_visual_search)
+        self.image_drop_zone.hide()
+        search_layout.addWidget(self.image_drop_zone)
+
         toolbar.addWidget(search_container, 1)  # Give it stretch priority
+
+        # EP7 Task 7 (F001): AI semantic-search toggle -- when checked,
+        # on_search() routes plain text through run_semantic_search instead
+        # of the per-list live filter. Disabled (with a tooltip) whenever
+        # ai_enabled() is False (no embedder wired up yet).
+        self.ai_search_toggle = QtWidgets.QPushButton("AI")
+        self.ai_search_toggle.setToolTip("Toggle AI semantic search")
+        self.ai_search_toggle.setObjectName('small')
+        self.ai_search_toggle.setProperty('class', 'small')
+        self.ai_search_toggle.setCheckable(True)
+        self.ai_search_toggle.setEnabled(False)
+        toolbar.addWidget(self.ai_search_toggle)
 
         # Save current search/filter as a personal saved search (EP2 Task 9).
         self.save_search_btn = QtWidgets.QPushButton("Save search…")
@@ -648,7 +673,16 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         """EP7 Task 6: render a ranked, non-paginated AI result set via the
         existing element-render surface -- the same `_update_views_with_elements`
         + content_stack index that apply_filter (EP2 Task 6) uses.
+
+        EP7 Task 7 fix: this is a cross-list result set (like apply_filter's
+        cross-list search), so clear current_list_id/current_tag_filter the
+        same way apply_filter does -- otherwise a later mutation-triggered
+        refresh (e.g. toggle_favorite's `if self.current_list_id:
+        self.load_elements(...)`) would silently reload the stale
+        previously-browsed list instead of leaving the AI results in place.
         """
+        self.current_list_id = None
+        self.current_tag_filter = []
         self.current_elements = rows
         self._update_views_with_elements(rows)
         self.pagination.setVisible(False)
@@ -672,6 +706,51 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         spec = getattr(self, "current_filter", None)
         rows = self.ai_service.visual_search(image_path, filter_spec=spec)
         return self.show_ai_results(rows, "similar to reference image")
+
+    def ai_enabled(self):
+        """EP7 Task 7: True iff an AiSearchService with a real embedder is
+        wired up -- drives the search-box AI toggle and the "Find similar"
+        context-menu action's enable state.
+        """
+        return bool(self.ai_service and self.ai_service.embedder)
+
+    def _sync_ai_toggle_state(self):
+        """EP7 Task 7: keep the AI search-box toggle's enabled state and
+        tooltip in sync with ai_enabled(). ai_service is assigned as a
+        plain attribute post-construction (by main.py, or directly by
+        tests) rather than through a setter/signal, so there is nothing to
+        react to -- this is called defensively wherever the toggle's state
+        matters (on_search, and before building the context menu).
+        """
+        enabled = self.ai_enabled()
+        self.ai_search_toggle.setEnabled(enabled)
+        if enabled:
+            self.ai_search_toggle.setToolTip("Toggle AI semantic search")
+        else:
+            self.ai_search_toggle.setToolTip(
+                "AI model not installed — Settings → AI → Download model")
+
+    def run_semantic_search(self, text):
+        """EP7 Task 7 (F001): cross-list semantic (text-embedding) search,
+        rendered via the same AI result surface as run_visual_search.
+        """
+        if not self.ai_enabled():
+            logger.info("semantic search unavailable — no embedder")
+            return []
+        spec = getattr(self, "current_filter", None)
+        rows = self.ai_service.semantic_search(text, filter_spec=spec)
+        return self.show_ai_results(rows, "semantic: " + text)
+
+    def run_similar_search(self, element_id):
+        """EP7 Task 7 (F003): "Find similar" -- rank other elements by
+        embedding-cosine similarity to element_id.
+        """
+        if not self.ai_enabled():
+            logger.info("similar search unavailable — no embedder")
+            return []
+        rows = self.ai_service.similar_to(
+            element_id, filter_spec=getattr(self, "current_filter", None))
+        return self.show_ai_results(rows, "similar assets")
 
     def run_text_search(self, text):
         """EP2 Task 12: cross-list, synonym-expanded text search.
@@ -889,7 +968,19 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         see `run_text_search`'s docstring for why. Recent-search recording
         for this box lives in `_on_search_committed` (returnPressed),
         deliberately not here, since this method runs on every keystroke.
+
+        EP7 Task 7 (F001): when the AI toggle is checked and an embedder is
+        available, plain text routes to the cross-list `run_semantic_search`
+        instead of this per-list live filter -- checked ahead of the
+        `current_list_id` early return below since semantic search (like
+        `run_text_search`/`apply_filter`) is cross-list, not scoped to
+        whatever list happens to be selected.
         """
+        self._sync_ai_toggle_state()
+        if self.ai_search_toggle.isChecked() and self.ai_enabled():
+            self.run_semantic_search(text.strip())
+            return
+
         if not self.current_list_id:
             return
         
@@ -1867,9 +1958,19 @@ class MediaDisplayWidget(QtWidgets.QWidget):
 
             # Edit metadata action
             edit_action = menu.addAction(get_icon('edit', size=16), "Edit Metadata...")
-            
+
+            # EP7 Task 7 (F003): "Find similar" -- rank other elements by
+            # embedding-cosine similarity to this one. Disabled (with a
+            # tooltip) when no embedder is wired up, same as the AI search
+            # toggle.
+            find_similar_action = menu.addAction(get_icon('search', size=16), "Find similar")
+            find_similar_action.setEnabled(self.ai_enabled())
+            if not self.ai_enabled():
+                find_similar_action.setToolTip(
+                    "AI model not installed — Settings → AI → Download model")
+
             menu.addSeparator()
-            
+
             # Get element to check deprecated status
             element = self.db.get_element_by_id(element_id)
             
@@ -1893,6 +1994,8 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 self.element_double_clicked.emit(element_id)
             elif action == edit_action:
                 self.edit_element(element_id)
+            elif action == find_similar_action:
+                self.run_similar_search(element_id)
             elif action == deprecated_action:
                 self.toggle_deprecated(element_id)
             elif action == delete_action:
