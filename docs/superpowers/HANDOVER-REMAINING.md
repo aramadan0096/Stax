@@ -478,18 +478,118 @@ so and I'll add the same merge-when-green block — it is NOT pre-authorized her
 
 ## Batch 9 — EP7 (AI discovery, local-only, solo — adds a dependency)
 
-Apply §Common Execution Rules. Branch: `exec/ep7`. Confirm SP1 + SP2 + EP1 + EP2 landed.
+Apply §Common Execution Rules. Branch: `exec/ep7`. Confirm **EP6 landed** (canonical order EP6 → EP7; EP7's `ingest_file` hook layers on top of EP6's per §4.5, and its search surfaces need EP1's columns + EP2's `FilterSpec`). At minimum EP1+EP2+EP4 must be present.
 
 Execute: `docs/superpowers/plans/2026-07-23-ep7-ai-discovery.md`
 
-**Stop-and-confirm gate:** EP7 adds **`onnxruntime`** to `pyproject.toml` and downloads a **~120–170 MB CLIP model on first run**. Before adding the dependency or triggering any model download, **PAUSE and confirm with the human**. Until then, implement against the injected `FakeEmbedder` (all unit tests use it; real-model tests are `@pytest.mark.manual`).
+**Stop-and-confirm gate — narrow and exact:** the ONLY step that adds the dependency is **Task 10** (`pyproject.toml` gets `onnxruntime>=1.17.0`). The real model (~120–170 MB CLIP-ONNX) is downloaded only by `tools/download_clip_model.py` at end-user first-run, never during the build. `ClipOnnxEmbedder` imports `onnxruntime` lazily, so **Tasks 1–9 and 11 implement and test fully with nothing installed and nothing downloaded** — every test injects `FakeEmbedder`; real-model tests are `@pytest.mark.manual`. **PAUSE before Task 10's `pyproject.toml` edit** and confirm with the human; **never run the model downloader.**
 
 Watch-outs:
-- **Local-only, no cloud** — every AI code path must guard for a missing embedder (`get_embedder()` returns `None`) and degrade gracefully.
+- **Local-only, no cloud** — every AI code path must guard for a missing embedder (`get_embedder()` returns `None`) and degrade gracefully (return `[]`, UI disables with a message). Color search is non-AI (PIL/numpy) and always works.
 - Embeddings + color histograms are SQLite blobs; similarity is brute-force numpy cosine/L1 (no vector DB).
 - Reuse EP2's `FilterSpec`/result surface for AI results. Transcript/scene (F005/F006) are out of scope.
 
 Done when: semantic/visual/similar/color search + human-in-the-loop auto-tag live behind a guarded local embedder; suite green with fakes (real-model tests skipped/manual).
+
+### Ready-to-copy prompt — Batch 9 (EP7)
+
+Paste verbatim into a fresh Claude Code session opened at `e:\Scripts\Stax`.
+**Only run this after Batch 8 (EP6) has landed on `main`.**
+
+````text
+Execute Batch 9 (EP7 — AI discovery, local-only) of the StaX enhancement
+program. One plan, 11 tasks, solo. This batch adds the program's ONLY new heavy
+pip dependency — read the dependency gate below before starting.
+
+First, confirm the prerequisites are in place:
+- EP6 must already be merged to main (canonical order is EP6 -> EP7; EP7's
+  ingest_file embedding/color hook layers on top of EP6's recipe/proxy hook per
+  CROSS_PLAN_REVIEW §4.5). EP7's search surfaces also need EP1's rating/label
+  columns and EP2's FilterSpec result surface. Check
+  docs/superpowers/IMPLEMENTATION_PROGRESS.md shows EP6 (and EP1, EP2, EP4)
+  Impl = done. If EP6 is NOT landed, STOP and tell me.
+
+Read these first, in this order, before doing anything else:
+1. CLAUDE.md
+2. docs/superpowers/HANDOVER-REMAINING.md — especially "§State on main" and
+   "§Common Execution Rules"
+3. docs/superpowers/CROSS_PLAN_REVIEW.md §6-§7
+4. docs/superpowers/specs/2026-07-23-ep7-ai-discovery-design.md
+5. docs/superpowers/plans/2026-07-23-ep7-ai-discovery.md
+
+Method: use the superpowers:subagent-driven-development skill — one fresh
+subagent per plan task, strict TDD (failing test -> confirm red -> implement ->
+confirm green -> conventional commit), tasks in written order. Never weaken or
+delete a test to make it pass. 11 tasks; grouped 7A embedding/index core /
+7B AI search surfaces / 7C color picker + auto-tag — pause with a short summary
+at each cluster boundary.
+
+Setup:
+- Branch off main: git checkout -b exec/ep7
+- Test command (the repo's .venv does NOT have pytest-qt; do not `uv sync` it):
+      .venv-dev\Scripts\python.exe -m pytest -m "not manual and not slow" -q
+  If .venv-dev is missing, create it:
+      uv venv --python 3.9 .venv-dev
+      uv pip install --python .venv-dev\Scripts\python.exe -e ".[dev,build]"
+- Record the pass count before Task 1 and never let it drop. Any new unplanned
+  xfail is a regression to fix, not to accept.
+
+DEPENDENCY GATE — the most important instruction in this batch:
+- onnxruntime is added to pyproject.toml ONLY in Task 10. The ~120-170 MB CLIP
+  model is fetched ONLY by tools/download_clip_model.py at end-user first run.
+- ClipOnnxEmbedder imports onnxruntime LAZILY (inside is_available/__init__), so
+  Tasks 1-9 and 11 are fully implementable and testable with onnxruntime NOT
+  installed and NO model downloaded. Every test injects FakeEmbedder; real-model
+  tests are @pytest.mark.manual and are not collected by `-m "not manual"`.
+- Implement Tasks 1-9 and 11 completely against FakeEmbedder. When you reach
+  Task 10 (the pyproject.toml edit that adds onnxruntime), STOP and ask me before
+  editing pyproject.toml. Do the rest of Task 10 (Settings AI tab UI, the
+  download_clip_model.py helper file, tests) but leave the actual dependency line
+  and any `uv`/`pip install` of onnxruntime for my go-ahead.
+- NEVER run tools/download_clip_model.py or otherwise download the model. NEVER
+  add a cloud/API embedder — local-only, forever.
+
+EP7-specific watch-outs:
+- Graceful degradation is mandatory: get_embedder(config) returns None when the
+  runtime/model is absent; every AI method guards `self.embedder` and returns []
+  so the UI disables with a message instead of crashing. Verify this with a test
+  that constructs the service with embedder=None.
+- Embeddings (element_embeddings) and color signatures (element_colors) are
+  SQLite blobs; similarity is brute-force numpy cosine / L1 histogram distance.
+  NO FAISS/Chroma/pgvector/vector DB.
+- Color search (Task 4/8) is pure PIL + numpy and needs no model — it must work
+  with embedder=None.
+- The AiIndexWorker follows SP2's QThread pattern; the at-ingest hook layers on
+  the CURRENT ingest_file (SP2 async + EP4 + EP6). Read ingest_file before
+  editing.
+- Reuse EP2's FilterSpec / result surface for AI results (element rows + a score);
+  do not build a parallel results widget.
+
+Migrations (two new tables: element_embeddings, element_colors):
+- Go through src/db_migrations.py — read the current CURRENT_SCHEMA_VERSION,
+  append to _MIGRATIONS continuing from it, bump the constant. Do not hardcode a
+  version from the plan text.
+
+Repo-specific rules that override habit:
+- Tests import flat: `from ai.embedder import FakeEmbedder, get_embedder`,
+  `from ui.media_display_widget import MediaDisplayWidget`. Importing `src.ui.*`
+  in a standalone test raises a circular-import ImportError.
+- New settings tab: SettingsPanel(config, db_manager, main_window=None,
+  parent=None) — append addTab in setup_ui with its own _build_*_tab method.
+- New docks/shortcuts/actions: main.py __init__/setup_menus for docks;
+  MediaDisplayWidget._populate_bulk_menu / _dispatch_bulk_action for menu actions.
+- Admin gating uses check_admin_permission for now.
+- Use logging, never print. Keep the media_display_widget god-module split
+  deferred. Do not remove the PySide2.QtQml/QtQuick excludes in setup_freeze.py.
+
+Tracker: tick each task box in docs/superpowers/IMPLEMENTATION_PROGRESS.md and
+set EP7 Impl = done when complete.
+
+Stop and ask before: adding onnxruntime to pyproject.toml (Task 10), running any
+model download, git push, opening a PR, merging to main, or deviating from a plan
+step. Commit locally and pause with a summary at each cluster boundary and at the
+end of the batch.
+````
 
 ---
 
