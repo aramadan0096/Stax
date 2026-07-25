@@ -124,6 +124,12 @@ class MainWindow(QtWidgets.QMainWindow):
         # batch-ingest worker slot) so a retry can't clobber a still-running
         # batch worker's reference, or vice-versa. See _retry_job/_cancel_job.
         self._retry_workers = []
+        # EP6: same premature-GC hazard as _retry_workers -- WatchFolderScanner
+        # can emit files_detected for multiple enabled folders back-to-back in
+        # one pass, so a single self._watch_ingest_worker slot would be
+        # overwritten by the second call while the first worker's QThread is
+        # still running. See _forget_watch_worker.
+        self._watch_ingest_workers = []
 
         self.setWindowTitle("Stax")
         self.resize(1400, 800)
@@ -1170,9 +1176,14 @@ class MainWindow(QtWidgets.QMainWindow):
         worker = IngestWorker(
             self.db, config, jobs,
             copy_policy=config.get("default_copy_policy", "soft"))
-        self._watch_ingest_worker = worker
+        # Hold a strong reference in a list, not a single overwritable slot:
+        # WatchFolderScanner.scan_once can emit files_detected for several
+        # enabled folders in the same pass, so a second _on_watched_files
+        # call must not clobber a still-running worker from the first.
+        self._watch_ingest_workers.append(worker)
         worker.file_done.connect(self._on_job_file_done)
         worker.ingest_finished.connect(self._on_ingest_finished_notify)
+        worker.finished.connect(lambda w=worker: self._forget_watch_worker(w))
         worker.start()
 
     def _on_retry_job_failed(self, job_id, message):
@@ -1184,6 +1195,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def _forget_retry_worker(self, worker):
         if worker in self._retry_workers:
             self._retry_workers.remove(worker)
+
+    def _forget_watch_worker(self, worker):
+        if worker in self._watch_ingest_workers:
+            self._watch_ingest_workers.remove(worker)
 
     def _cancel_job(self, job_id):
         if getattr(self, "_ingest_worker", None) is not None:
