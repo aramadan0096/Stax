@@ -254,6 +254,24 @@ if _QT_AVAILABLE:
             tl4.addWidget(self._users_table)
             tabs.addTab(tab_users, "By User")
 
+            # Tab 5 — search success (EP9 F060)
+            tab_search = QtWidgets.QWidget()
+            tls = QtWidgets.QVBoxLayout(tab_search)
+            self._search_summary = QtWidgets.QLabel("No search data yet.")
+            self._search_summary.setTextFormat(QtCore.Qt.RichText)
+            tls.addWidget(self._search_summary)
+            tls.addWidget(QtWidgets.QLabel("<b>Top failing searches</b> (zero results)"))
+            self._zero_table = QtWidgets.QTableWidget(0, 2)
+            self._zero_table.setHorizontalHeaderLabels(["Query", "Count"])
+            self._zero_table.horizontalHeader().setStretchLastSection(True)
+            self._zero_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+            self._zero_table.verticalHeader().hide()
+            tls.addWidget(self._zero_table)
+            export_search_btn = QtWidgets.QPushButton("Export CSV…")
+            export_search_btn.clicked.connect(self._export_search_csv)
+            tls.addWidget(export_search_btn)
+            tabs.addTab(tab_search, "Search")
+
             self._total_label = QtWidgets.QLabel("")
             root.addWidget(self._total_label)
 
@@ -267,6 +285,7 @@ if _QT_AVAILABLE:
             self._load_top_assets(n)
             self._load_over_time()
             self._load_by_user()
+            self._load_search()
             self._load_total()
 
         def showEvent(self, event):
@@ -318,6 +337,27 @@ if _QT_AVAILABLE:
                 self._users_table.setItem(i, 2, QtWidgets.QTableWidgetItem(row.get("last_active") or "—"))
             self._users_table.resizeColumnsToContents()
 
+        def _load_search(self):
+            try:
+                stats = self.db.get_search_success_stats()
+                zeros = self.db.get_zero_result_queries(self._n_spin.value())
+            except Exception as exc:
+                log.warning("Analytics search: %s", exc)
+                stats, zeros = {"total": 0, "success_rate": 0.0, "zero_result_rate": 0.0}, []
+            self._search_summary.setText(
+                "Searches: <b>{}</b> &nbsp;·&nbsp; Success: <b>{:.0f}%</b> "
+                "&nbsp;·&nbsp; Zero-result: <b>{:.0f}%</b>".format(
+                    stats.get("total", 0),
+                    stats.get("success_rate", 0.0) * 100,
+                    stats.get("zero_result_rate", 0.0) * 100))
+            self._zero_table.setRowCount(len(zeros))
+            for i, row in enumerate(zeros):
+                self._zero_table.setItem(i, 0, QtWidgets.QTableWidgetItem(row.get("query_text", "")))
+                cnt = QtWidgets.QTableWidgetItem(str(row.get("count", 0)))
+                cnt.setTextAlignment(QtCore.Qt.AlignCenter)
+                self._zero_table.setItem(i, 1, cnt)
+            self._zero_table.resizeColumnsToContents()
+
         def _load_total(self):
             try:
                 total = self.db.get_total_insertions()
@@ -365,6 +405,31 @@ if _QT_AVAILABLE:
                     self, "Export Failed",
                     "Could not write CSV:\n{}".format(exc)
                 )
+
+        def _export_search_csv(self):
+            path, _ = QtWidgets.QFileDialog.getSaveFileName(
+                self, "Export Search Analytics CSV", "stax_search_analytics.csv",
+                "CSV files (*.csv)")
+            if not path:
+                return
+            try:
+                stats = self.db.get_search_success_stats()
+                zeros = self.db.get_zero_result_queries(1000)
+                with open(path, "w", newline="") as fh:
+                    writer = csv.writer(fh)
+                    writer.writerow(["metric", "value"])
+                    for k in ("total", "success", "zero_result",
+                              "success_rate", "zero_result_rate"):
+                        writer.writerow([k, stats.get(k, 0)])
+                    writer.writerow([])
+                    writer.writerow(["zero_result_query", "count"])
+                    for row in zeros:
+                        writer.writerow([row.get("query_text", ""), row.get("count", 0)])
+                QtWidgets.QMessageBox.information(
+                    self, "Exported", "Search analytics exported to:\n{}".format(path))
+            except Exception as exc:
+                QtWidgets.QMessageBox.critical(
+                    self, "Export Failed", "Could not write CSV:\n{}".format(exc))
 
 else:
     # -----------------------------------------------------------------------
