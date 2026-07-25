@@ -33,6 +33,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.config = config
         self.nuke_bridge = nuke_bridge
         self.main_window = main_window  # Reference to MainWindow for permission checks
+        self.ai_service = None  # EP7: set by main.py -- AiSearchService(db, get_embedder(config))
         self.current_list_id = None
         self.current_elements = []  # Store all elements for pagination
         self.current_tag_filter = []
@@ -642,6 +643,35 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             self._show_empty_state("search", query=self.current_filter.get("text") or "current filter")
         else:
             self.content_stack.setCurrentIndex(1)
+
+    def show_ai_results(self, rows, heading=""):
+        """EP7 Task 6: render a ranked, non-paginated AI result set via the
+        existing element-render surface -- the same `_update_views_with_elements`
+        + content_stack index that apply_filter (EP2 Task 6) uses.
+        """
+        self.current_elements = rows
+        self._update_views_with_elements(rows)
+        self.pagination.setVisible(False)
+        if rows:
+            self.content_stack.setCurrentIndex(1)  # show the grid/table
+        try:
+            if hasattr(self, "chip_bar") and hasattr(self.chip_bar, "count_label"):
+                self.chip_bar.count_label.setText("{} results{}".format(
+                    len(rows), " — " + heading if heading else ""))
+        except Exception:
+            logger.exception("ai result count label update failed")
+        return rows
+
+    def run_visual_search(self, image_path):
+        """EP7 Task 6 (F002): rank elements by cosine similarity to a
+        reference image's embedding and render them via show_ai_results.
+        """
+        if not self.ai_service or not self.ai_service.embedder:
+            logger.info("visual search unavailable — no embedder")
+            return []
+        spec = getattr(self, "current_filter", None)
+        rows = self.ai_service.visual_search(image_path, filter_spec=spec)
+        return self.show_ai_results(rows, "similar to reference image")
 
     def run_text_search(self, text):
         """EP2 Task 12: cross-list, synonym-expanded text search.
