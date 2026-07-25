@@ -863,6 +863,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
 
         self.apply_filter(spec)
         count = self.db.count_elements_advanced(spec)
+        self._log_search(text, count)
 
         if count == 0:
             suggestion = self.db.suggest_correction(text)
@@ -872,6 +873,17 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 self.did_you_mean_label.setVisible(True)
                 return
         self.did_you_mean_label.setVisible(False)
+
+    def _log_search(self, text, result_count):
+        """Record a search for EP9 analytics. Never breaks the search itself."""
+        query = (text or "").strip()
+        if not query:
+            return
+        try:
+            user = self._current_user_name()
+            self.db.log_search_event(query, result_count, user)
+        except Exception:
+            logger.exception("search event logging failed")
 
     def _on_chip_removed(self, key, value):
         """Strip one clause value from the active filter and re-apply it.
