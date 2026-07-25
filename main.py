@@ -293,6 +293,27 @@ class MainWindow(QtWidgets.QMainWindow):
         self.main_splitter.addWidget(self.media_display)
         self.main_splitter.setStretchFactor(1, 1)
 
+        # EP7 Task 11: local AI discovery wiring. get_embedder() never raises
+        # and returns None when the CLIP/onnxruntime model isn't installed, so
+        # every step below is guarded and startup never depends on the model
+        # being present. AiIndexWorker is itself None headless (no PySide2 --
+        # see ai/indexer.py), which is guarded separately from the embedder.
+        from ai.embedder import get_embedder
+        from ai.ai_search import AiSearchService
+        from ai.indexer import AiIndexWorker
+
+        self.embedder = get_embedder(self.config)
+        self.media_display.ai_service = AiSearchService(self.db, self.embedder)
+        if AiIndexWorker is not None:
+            self.ai_index_worker = AiIndexWorker(self.db, self.embedder)
+            self.ai_index_worker.start()
+            self.ingestion.ai_index_hook = self.ai_index_worker.enqueue
+        else:
+            self.ai_index_worker = None
+        if self.embedder is None:
+            log.info("EP7: AI embedder unavailable — AI discovery features disabled "
+                      "(color search still active).")
+
         # RIGHT (EP3 Task 6: preview + persistent editable inspector, stacked
         # in their own vertical splitter so main_splitter keeps exactly 3
         # direct children -- every main_splitter.sizes()/setSizes() index
@@ -1312,6 +1333,9 @@ class MainWindow(QtWidgets.QMainWindow):
     # -------------------------------------------------------------------------
 
     def closeEvent(self, event):
+        if getattr(self, "ai_index_worker", None) is not None:
+            self.ai_index_worker.stop()
+            self.ai_index_worker.wait(2000)
         self._stop_watch_scanner()
         if _PREVIEW_WORKER_AVAILABLE:
             shutdown_preview_queue()
