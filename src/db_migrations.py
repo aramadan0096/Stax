@@ -16,7 +16,7 @@ import logging
 log = logging.getLogger(__name__)
 
 # Bump this every time a new _migrate_vN is appended below.
-CURRENT_SCHEMA_VERSION = 22
+CURRENT_SCHEMA_VERSION = 23
 
 # Default color-label palette (EP1). Seed order defines labels.sort_order.
 DEFAULT_LABELS = [
@@ -591,6 +591,27 @@ def _migrate_v22(conn):
     conn.commit()
 
 
+def _migrate_v23(conn):
+    """v22 -> v23: activity_log table + indexes for the audit feed (EP8)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS activity_log (
+            activity_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor       TEXT,
+            action      TEXT NOT NULL,
+            target_type TEXT,
+            target_id   INTEGER,
+            detail      TEXT,
+            at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_at ON activity_log(at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_action ON activity_log(action)")
+    conn.commit()
+    log.info("Migration v23: created activity_log table + indexes")
+
+
 # Index N upgrades schema version N-1 -> N.
 _MIGRATIONS = [
     None,          # index 0 — unused placeholder
@@ -616,6 +637,7 @@ _MIGRATIONS = [
     _migrate_v20,  # 19 -> 20
     _migrate_v21,  # 20 -> 21
     _migrate_v22,  # 21 -> 22
+    _migrate_v23,  # 22 -> 23
 ]
 
 

@@ -3236,3 +3236,31 @@ class DatabaseManager(object):
             return True
         return permission in self.get_role_permissions(role)
 
+    # ======================
+    # ACTIVITY LOG (EP8 — team-collaboration audit feed)
+    # ======================
+
+    def log_activity(self, actor, action, target_type=None, target_id=None, detail=None):
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO activity_log (actor, action, target_type, target_id, detail) "
+                "VALUES (?, ?, ?, ?, ?)", (actor, action, target_type, target_id, detail))
+            conn.commit()
+            return cur.lastrowid
+
+    def get_activity(self, limit=100, action=None, actor=None, target_type=None):
+        clauses, params = [], []
+        if action is not None:
+            clauses.append("action = ?"); params.append(action)
+        if actor is not None:
+            clauses.append("actor = ?"); params.append(actor)
+        if target_type is not None:
+            clauses.append("target_type = ?"); params.append(target_type)
+        where = " AND ".join(clauses) if clauses else "1=1"
+        sql = ("SELECT * FROM activity_log WHERE {} "
+               "ORDER BY at DESC, activity_id DESC LIMIT ?".format(where))
+        params.append(limit)
+        with self.get_connection(write=False) as conn:
+            return [dict(r) for r in conn.execute(sql, params).fetchall()]
+
