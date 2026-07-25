@@ -2130,7 +2130,9 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             self.load_elements(self.current_list_id)
     
     def edit_element(self, element_id):
-        """Show edit element dialog."""
+        """Show edit element dialog (EP8: requires the can_edit_metadata permission)."""
+        if self.main_window and not self.main_window.check_permission("can_edit_metadata", "editing metadata"):
+            return
         try:
             dialog = EditElementDialog(self.db, element_id, self)
             if dialog.exec_() == QtWidgets.QDialog.Accepted:
@@ -2160,10 +2162,15 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", "Failed to update element: {}".format(str(e)))
     
+    def _current_actor(self):
+        """Username of the acting user for EP8 audit attribution, or None."""
+        user = getattr(self.main_window, "current_user", None)
+        return user.get("username") if user else None
+
     def delete_element(self, element_id):
-        """Delete element after confirmation (admin only)."""
-        # Check admin permission
-        if self.main_window and not self.main_window.check_admin_permission("delete elements"):
+        """Delete element after confirmation (EP8: requires the can_delete permission)."""
+        # Granular permission gate (EP8) — admins always pass via check_permission.
+        if self.main_window and not self.main_window.check_permission("can_delete", "deleting assets"):
             return
         
         try:
@@ -2192,8 +2199,8 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                         except OSError as err:
                             removal_errors.append((resolved_path, str(err)))
 
-                # Delete from database
-                deleted = self.db.delete_element(element_id)
+                # Delete from database (EP8: attribute the delete to the actor)
+                deleted = self.db.delete_element(element_id, actor=self._current_actor())
 
                 if not deleted:
                     QtWidgets.QMessageBox.warning(self, "Delete Failed", "Element could not be removed from the database.")

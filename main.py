@@ -1066,6 +1066,9 @@ class MainWindow(QtWidgets.QMainWindow):
     # -------------------------------------------------------------------------
 
     def ingest_files(self):
+        # Granular permission gate (EP8) — admins always pass via check_permission.
+        if not self.check_permission("can_ingest", "ingestion"):
+            return
         files, _ = QtWidgets.QFileDialog.getOpenFileNames(
             self, "Select Files to Ingest", "", "All Files (*.*)"
         )
@@ -1314,6 +1317,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.job_dashboard.refresh()
 
     def ingest_library(self):
+        # Granular permission gate (EP8) — admins always pass via check_permission.
+        if not self.check_permission("can_ingest", "ingestion"):
+            return
         dialog = IngestLibraryDialog(self.db, self.ingestion, self.config, self)
         if dialog.exec_():
             self.stacks_panel.load_data()
