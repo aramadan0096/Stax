@@ -17,7 +17,11 @@ dependencies = [
     # EP7 AI discovery: local CPU inference runtime for the CLIP ONNX model
     # (~15 MB prebuilt Win+Linux wheel, no PyTorch). The model itself is
     # downloaded at runtime by tools/download_clip_model.py, not pip-installed.
-    "onnxruntime>=1.17.0",
+    # onnxruntime 1.20+ dropped Python 3.9 wheels (cp310+ only); StaX targets
+    # 3.9, so cap it there (1.19.2 is the last release with cp39 wheels) while
+    # letting 3.10+ environments use the current release.
+    "onnxruntime>=1.17.0,<1.20; python_full_version < '3.10'",
+    "onnxruntime>=1.17.0; python_full_version >= '3.10'",
     "opencv-python>=4.13.0.92",
     "pillow>=11.3.0",
     "pyside2>=5.15.2.1",
