@@ -969,6 +969,7 @@ class DatabaseManager(object):
         }
         if not updates:
             return False
+        updates["updated_at"] = self._now_iso()
 
         with self.get_connection() as conn:
             cursor = conn.cursor()
@@ -986,6 +987,11 @@ class DatabaseManager(object):
             self.log_activity(_actor, "metadata_edit", "element", element_id,
                                ",".join(sorted(updates.keys())))
         return updated
+
+    @staticmethod
+    def _now_iso():
+        import datetime
+        return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     def delete_element(self, element_id, actor=None):
         """Delete element.

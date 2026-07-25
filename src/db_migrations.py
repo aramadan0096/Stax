@@ -12,11 +12,12 @@ Each _migrate_vN(conn) applies exactly one change and is idempotent.
 """
 
 import logging
+import sqlite3
 
 log = logging.getLogger(__name__)
 
 # Bump this every time a new _migrate_vN is appended below.
-CURRENT_SCHEMA_VERSION = 23
+CURRENT_SCHEMA_VERSION = 24
 
 # Default color-label palette (EP1). Seed order defines labels.sort_order.
 DEFAULT_LABELS = [
@@ -612,6 +613,29 @@ def _migrate_v23(conn):
     log.info("Migration v23: created activity_log table + indexes")
 
 
+def _migrate_v24(conn):
+    """v23 -> v24: add elements.updated_at (backfilled from created_at) for sync conflict resolution (EP8)."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(elements)")}
+    if "updated_at" not in cols:
+        try:
+            # elements is empty (e.g. a brand-new DB): SQLite permits a
+            # non-constant DEFAULT (CURRENT_TIMESTAMP) here, which also makes
+            # it the standing default for any future INSERT that omits the
+            # column, instead of leaving updated_at NULL.
+            conn.execute(
+                "ALTER TABLE elements ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+            )
+        except sqlite3.OperationalError:
+            # elements already has rows (the real-world upgrade case): SQLite
+            # refuses a non-constant default here ("Cannot add a column with
+            # non-constant default"), so add the column plain and backfill
+            # explicitly from created_at instead.
+            conn.execute("ALTER TABLE elements ADD COLUMN updated_at TIMESTAMP")
+            conn.execute("UPDATE elements SET updated_at = created_at WHERE updated_at IS NULL")
+        log.info("Migration v24: added elements.updated_at (backfilled from created_at)")
+    conn.commit()
+
+
 # Index N upgrades schema version N-1 -> N.
 _MIGRATIONS = [
     None,          # index 0 — unused placeholder
@@ -638,6 +662,7 @@ _MIGRATIONS = [
     _migrate_v21,  # 20 -> 21
     _migrate_v22,  # 21 -> 22
     _migrate_v23,  # 22 -> 23
+    _migrate_v24,  # 23 -> 24
 ]
 
 
