@@ -410,10 +410,9 @@ class IngestLibraryDialog(QtWidgets.QDialog):
         progress.setMinimumDuration(0)
 
         config_dict = self.config.get_all() if hasattr(self.config, "get_all") else self.config
-        from src.ingest_automation import apply_recipe_to_config
         recipe = self.recipe_combo.currentData()
         if recipe:
-            config_dict = apply_recipe_to_config(recipe["values"], config_dict)
+            config_dict = self.db.resolve_recipe_config(recipe["values"], config_dict)
         worker = IngestWorker(self.db, config_dict, jobs, copy_policy=copy_policy)
         self._ingest_worker = worker
 

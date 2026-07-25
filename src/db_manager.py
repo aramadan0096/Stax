@@ -3002,6 +3002,27 @@ class DatabaseManager(object):
             conn.cursor().execute(
                 "DELETE FROM ingest_recipes WHERE recipe_id = ?", (recipe_id,))
 
+    def resolve_recipe_config(self, recipe_values, base_config):
+        """Overlay a recipe's values onto base_config, then resolve its
+        proxy_profile_id -> PreviewWorker config keys and its
+        action_chain_id -> action_chain_steps. Returns a new dict."""
+        from ingest_automation import apply_recipe_to_config, profile_to_config_overlay
+        recipe_values = recipe_values or {}
+        cfg = apply_recipe_to_config(recipe_values, base_config)
+        ppid = recipe_values.get('proxy_profile_id')
+        if ppid:
+            prof = next((p for p in self.get_proxy_profiles()
+                         if p.get('profile_id') == ppid), None)
+            if prof:
+                cfg.update(profile_to_config_overlay(prof))
+        acid = recipe_values.get('action_chain_id')
+        if acid:
+            chain = next((c for c in self.get_action_chains()
+                          if c.get('chain_id') == acid), None)
+            if chain:
+                cfg['action_chain_steps'] = chain.get('steps')
+        return cfg
+
     # ======================
     # PROXY PROFILES (EP6)
     # ======================

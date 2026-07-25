@@ -43,7 +43,6 @@ from src.ui.layout_manager import apply_preset, preset_names
 from src.ui.onboarding_checklist import OnboardingChecklist
 from src.ui.start_page import StartPage
 from src.watch_scanner import WatchFolderScanner
-from src.ingest_automation import apply_recipe_to_config
 
 try:
     from src.preview_worker import get_preview_queue, shutdown_preview_queue
@@ -1189,7 +1188,7 @@ class MainWindow(QtWidgets.QMainWindow):
                  if rc["recipe_id"] == recipe_id),
                 None)
             if recipe:
-                config = apply_recipe_to_config(recipe["values"], config)
+                config = self.db.resolve_recipe_config(recipe["values"], config)
 
         jobs = [(p, target) for p in paths]
         worker = IngestWorker(
