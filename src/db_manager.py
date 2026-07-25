@@ -2543,12 +2543,30 @@ class DatabaseManager(object):
                 list(updates.values()) + [field_id])
 
     def delete_metadata_field(self, field_id):
+        """Delete a metadata field definition and its values (EP4 I1 fix).
+
+        Because ``metadata_fields`` allows the same ``key`` to exist in
+        multiple stacks (UNIQUE(stack_fk, key)), scoping the cleanup by key
+        alone would wipe that key's element values/defaults in EVERY stack.
+        Scope all cleanup to this field's own stack_fk.
+        """
         with self.get_connection(write=True) as conn:
             cur = conn.cursor()
-            row = cur.execute("SELECT key FROM metadata_fields WHERE field_id = ?",
+            row = cur.execute("SELECT key, stack_fk FROM metadata_fields WHERE field_id = ?",
                               (field_id,)).fetchone()
             if row:
-                cur.execute("DELETE FROM element_metadata WHERE field_key = ?", (row[0],))
+                key, stack_fk = row[0], row[1]
+                cur.execute(
+                    "DELETE FROM element_metadata WHERE field_key = ? AND element_fk IN "
+                    "(SELECT e.element_id FROM elements e JOIN lists l ON e.list_fk = l.list_id "
+                    "WHERE l.stack_fk = ?)",
+                    (key, stack_fk))
+                cur.execute(
+                    "DELETE FROM metadata_defaults WHERE field_key = ? AND ("
+                    "(scope_type = 'stack' AND scope_id = ?) OR "
+                    "(scope_type = 'list' AND scope_id IN "
+                    "(SELECT list_id FROM lists WHERE stack_fk = ?)))",
+                    (key, stack_fk, stack_fk))
             cur.execute("DELETE FROM metadata_fields WHERE field_id = ?", (field_id,))
 
     # ======================
@@ -2737,13 +2755,26 @@ class DatabaseManager(object):
             return out
 
     def naming_pattern_for_stack(self, stack_fk):
-        """Return the stack's `naming_regex` quality-rule pattern, if any (EP4)."""
+        """Return the stack's `naming_regex` quality-rule pattern, if any (EP4).
+
+        ``get_quality_rules`` has no ORDER BY, so when both a stack-scoped
+        and a global (stack_fk IS NULL) naming_regex rule exist the winner
+        would otherwise be undefined (I4 fix). Deterministically prefer the
+        rule whose stack_fk matches this stack; fall back to the global one.
+        """
+        stack_pattern = None
+        global_pattern = None
         for rule in self.get_quality_rules(stack_fk):
-            if rule.get("kind") == "naming_regex":
-                pattern = (rule.get("config") or {}).get("pattern")
-                if pattern:
-                    return pattern
-        return None
+            if rule.get("kind") != "naming_regex":
+                continue
+            pattern = (rule.get("config") or {}).get("pattern")
+            if not pattern:
+                continue
+            if rule.get("stack_fk") == stack_fk and stack_pattern is None:
+                stack_pattern = pattern
+            elif rule.get("stack_fk") is None and global_pattern is None:
+                global_pattern = pattern
+        return stack_pattern if stack_pattern is not None else global_pattern
 
     def check_element_quality(self, element_id):
         from metadata_rules import check_element_quality as _check_element_quality

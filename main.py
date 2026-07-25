@@ -295,6 +295,10 @@ class MainWindow(QtWidgets.QMainWindow):
         # Rating/label edits repaint that one gallery/table row's badge in
         # place, reusing the grid's own quick-edit refresh hook (design SS3.4).
         self.inspector.element_updated.connect(self.media_display.refresh_item_badge)
+        # EP4 final review I3: double-click on a Related row was a dead
+        # click -- route it through the same select/reveal path StartPage
+        # card activation uses.
+        self.inspector.related_activated.connect(self.on_start_page_element_activated)
 
         self.right_splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
         self.right_splitter.setChildrenCollapsible(False)
