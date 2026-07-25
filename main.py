@@ -394,6 +394,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Settings dock
         self.settings_dock = QtWidgets.QDockWidget("Settings", self)
         self.settings_panel = SettingsPanel(self.config, self.db, main_window=self)
+        self._attach_ai_worker_to_settings()
         self._force_panel_palette(self.settings_panel, "#191a1a")
         self.settings_panel.settings_changed.connect(self.on_settings_changed)
         self.settings_dock.setWidget(self.settings_panel)
@@ -869,6 +870,14 @@ class MainWindow(QtWidgets.QMainWindow):
                 username or "guest",
                 self.current_user.get("role", "guest") if self.current_user else "guest"))
         return False
+
+    def _attach_ai_worker_to_settings(self):
+        """Give the Settings AI tab a handle to the running index worker so its
+        'Reindex library' button can enqueue elements (EP7 wiring). The panel's
+        _on_reindex_library reads self.ai_index_worker; without this it is always
+        None and the button silently no-ops."""
+        if getattr(self, "settings_panel", None) is not None:
+            self.settings_panel.ai_index_worker = getattr(self, "ai_index_worker", None)
 
     def logout(self):
         if self.current_user and self.current_user.get("user_id"):
