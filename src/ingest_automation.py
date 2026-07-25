@@ -115,3 +115,80 @@ def profile_to_config_overlay(profile):
         overlay["gif_duration"] = profile["duration"]
     overlay["generate_video_previews"] = (profile.get("kind") == "mp4")
     return overlay
+
+
+# ---------------------------------------------------------------------------
+# Whitelisted action-chain executor (F040). NEVER exec()/eval() — see C2.
+# ---------------------------------------------------------------------------
+
+def _action_add_tag(context, params):
+    db, eid = context.get("db"), context.get("element_id")
+    tag = params.get("tag")
+    if db and eid and tag and hasattr(db, "add_tag_to_element"):
+        db.add_tag_to_element(eid, tag)
+    return "added tag {!r}".format(tag)
+
+
+def _action_set_field(context, params):
+    # EP4 seam: writes a custom metadata field when EP4's API is present.
+    db, eid = context.get("db"), context.get("element_id")
+    key, value = params.get("field_key"), params.get("value")
+    if db and eid and key and hasattr(db, "set_element_metadata"):
+        db.set_element_metadata(eid, key, value)
+        return "set {}={!r}".format(key, value)
+    return "set_field skipped (EP4 not available)"
+
+
+def _action_move_to_list(context, params):
+    db, eid = context.get("db"), context.get("element_id")
+    list_id = params.get("list_id")
+    if db and eid and list_id and hasattr(db, "move_element"):
+        db.move_element(eid, list_id)
+    return "moved to list {}".format(list_id)
+
+
+def _action_generate_proxy(context, params):
+    # Records intent; actual transcode runs via the PreviewWorker overlay.
+    return "queued proxy profile {}".format(params.get("profile_id"))
+
+
+def _action_notify(context, params):
+    db = context.get("db")
+    if db and hasattr(db, "add_notification"):
+        db.add_notification(params.get("title", "Action chain"),
+                            params.get("body"), level=params.get("level", "info"))
+    return "notified"
+
+
+BUILTIN_ACTIONS = {
+    "add_tag": _action_add_tag,
+    "set_field": _action_set_field,
+    "move_to_list": _action_move_to_list,
+    "generate_proxy": _action_generate_proxy,
+    "notify": _action_notify,
+}
+
+
+def run_action_chain(steps, context, handlers=None):
+    """Run an ordered list of {action, params} steps against a whitelist.
+
+    Only actions present in `handlers` (default BUILTIN_ACTIONS) execute;
+    unknown actions are reported as failed and NEVER evaluated. Returns a list
+    of {action, ok, message}.
+    """
+    handlers = BUILTIN_ACTIONS if handlers is None else handlers
+    results = []
+    for step in (steps or []):
+        action = step.get("action")
+        params = step.get("params") or {}
+        fn = handlers.get(action)
+        if fn is None:
+            results.append({"action": action, "ok": False, "message": "unknown action"})
+            continue
+        try:
+            msg = fn(context, params)
+            results.append({"action": action, "ok": True, "message": msg or ""})
+        except Exception as exc:              # noqa: BLE001
+            log.exception("action %r failed", action)
+            results.append({"action": action, "ok": False, "message": str(exc)})
+    return results

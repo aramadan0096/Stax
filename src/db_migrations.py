@@ -16,7 +16,7 @@ import logging
 log = logging.getLogger(__name__)
 
 # Bump this every time a new _migrate_vN is appended below.
-CURRENT_SCHEMA_VERSION = 17
+CURRENT_SCHEMA_VERSION = 18
 
 # Default color-label palette (EP1). Seed order defines labels.sort_order.
 DEFAULT_LABELS = [
@@ -427,6 +427,23 @@ def _migrate_v17(conn):
     conn.commit()
 
 
+def _migrate_v18(conn):
+    """v17 -> v18: create action_chains table for ordered, whitelisted
+    ingest-automation action chains (EP6)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS action_chains (
+            chain_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT UNIQUE NOT NULL,
+            steps_json TEXT NOT NULL,
+            sort_order INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    log.info("Migration v18: created action_chains table")
+    conn.commit()
+
+
 # Index N upgrades schema version N-1 -> N.
 _MIGRATIONS = [
     None,          # index 0 — unused placeholder
@@ -447,6 +464,7 @@ _MIGRATIONS = [
     _migrate_v15,  # 14 -> 15
     _migrate_v16,  # 15 -> 16
     _migrate_v17,  # 16 -> 17
+    _migrate_v18,  # 17 -> 18
 ]
 
 

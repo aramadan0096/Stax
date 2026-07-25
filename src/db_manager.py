@@ -3026,3 +3026,31 @@ class DatabaseManager(object):
             conn.cursor().execute(
                 "DELETE FROM proxy_profiles WHERE profile_id = ?", (profile_id,))
 
+    # ======================
+    # ACTION CHAINS (EP6)
+    # ======================
+
+    def create_action_chain(self, name, steps, sort_order=0):
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO action_chains (name, steps_json, sort_order) VALUES (?, ?, ?)",
+                (name, json.dumps(steps), sort_order))
+            return cur.lastrowid
+
+    def get_action_chains(self):
+        with self.get_connection(write=False) as conn:
+            rows = conn.execute(
+                "SELECT * FROM action_chains ORDER BY sort_order, name").fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                d["steps"] = json.loads(d["steps_json"])
+                out.append(d)
+            return out
+
+    def delete_action_chain(self, chain_id):
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "DELETE FROM action_chains WHERE chain_id = ?", (chain_id,))
+
