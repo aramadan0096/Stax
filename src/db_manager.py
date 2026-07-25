@@ -2887,3 +2887,32 @@ class DatabaseManager(object):
                 "DELETE FROM ingest_jobs WHERE status IN ({})".format(placeholders),
                 list(self._FINISHED_JOB_STATES))
 
+    # ======================
+    # NOTIFICATION CENTER (EP6)
+    # ======================
+
+    def add_notification(self, title, body=None, level="info"):
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO notifications (level, title, body) VALUES (?, ?, ?)",
+                (level, title, body))
+            return cur.lastrowid
+
+    def get_notifications(self, unread_only=False, limit=100):
+        sql = "SELECT * FROM notifications"
+        if unread_only:
+            sql += " WHERE is_read = 0"
+        sql += " ORDER BY notification_id DESC LIMIT ?"
+        with self.get_connection(write=False) as conn:
+            return [dict(r) for r in conn.execute(sql, (limit,)).fetchall()]
+
+    def unread_notification_count(self):
+        with self.get_connection(write=False) as conn:
+            return conn.execute(
+                "SELECT COUNT(*) FROM notifications WHERE is_read = 0").fetchone()[0]
+
+    def mark_notifications_read(self):
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute("UPDATE notifications SET is_read = 1 WHERE is_read = 0")
+
