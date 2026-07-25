@@ -3002,3 +3002,27 @@ class DatabaseManager(object):
             conn.cursor().execute(
                 "DELETE FROM ingest_recipes WHERE recipe_id = ?", (recipe_id,))
 
+    # ======================
+    # PROXY PROFILES (EP6)
+    # ======================
+
+    def create_proxy_profile(self, name, kind="mp4", max_size=512, fps=24,
+                             duration=None, sort_order=0):
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO proxy_profiles (name, kind, max_size, fps, duration, sort_order) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (name, kind, max_size, fps, duration, sort_order))
+            return cur.lastrowid
+
+    def get_proxy_profiles(self):
+        with self.get_connection(write=False) as conn:
+            return [dict(r) for r in conn.execute(
+                "SELECT * FROM proxy_profiles ORDER BY sort_order, name").fetchall()]
+
+    def delete_proxy_profile(self, profile_id):
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "DELETE FROM proxy_profiles WHERE profile_id = ?", (profile_id,))
+

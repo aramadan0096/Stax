@@ -16,7 +16,7 @@ import logging
 log = logging.getLogger(__name__)
 
 # Bump this every time a new _migrate_vN is appended below.
-CURRENT_SCHEMA_VERSION = 16
+CURRENT_SCHEMA_VERSION = 17
 
 # Default color-label palette (EP1). Seed order defines labels.sort_order.
 DEFAULT_LABELS = [
@@ -397,6 +397,36 @@ def _migrate_v16(conn):
     conn.commit()
 
 
+def _migrate_v17(conn):
+    """v16 -> v17: create proxy_profiles table + seed Low/Medium/High
+    quality presets for proxy/transcode generation (EP6)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS proxy_profiles (
+            profile_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT UNIQUE NOT NULL,
+            kind        TEXT NOT NULL DEFAULT 'mp4',
+            max_size    INTEGER NOT NULL DEFAULT 512,
+            fps         INTEGER NOT NULL DEFAULT 24,
+            duration    INTEGER,
+            is_default  INTEGER NOT NULL DEFAULT 0,
+            sort_order  INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    # Seed default quality presets (F036) when the table is empty
+    if conn.execute("SELECT COUNT(*) FROM proxy_profiles").fetchone()[0] == 0:
+        conn.executemany(
+            "INSERT INTO proxy_profiles (name, kind, max_size, fps, is_default, sort_order) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            [("Low", "mp4", 256, 24, 0, 0),
+             ("Medium", "mp4", 512, 24, 1, 1),
+             ("High", "mp4", 1024, 24, 0, 2)])
+        log.info("Seeded %d default proxy profiles", 3)
+    log.info("Migration v17: created proxy_profiles table")
+    conn.commit()
+
+
 # Index N upgrades schema version N-1 -> N.
 _MIGRATIONS = [
     None,          # index 0 — unused placeholder
@@ -416,6 +446,7 @@ _MIGRATIONS = [
     _migrate_v14,  # 13 -> 14
     _migrate_v15,  # 14 -> 15
     _migrate_v16,  # 15 -> 16
+    _migrate_v17,  # 16 -> 17
 ]
 
 

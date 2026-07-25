@@ -94,3 +94,24 @@ def run_preflight(paths, known_exts=None, duplicate_paths=None):
             issues.append({"level": "warning", "code": "duplicate", "path": p,
                            "message": "Possible duplicate of an existing asset"})
     return issues
+
+
+def profile_to_config_overlay(profile):
+    """Map a proxy/transcode profile row to the SP2 PreviewWorker config keys.
+
+    Only keys PreviewWorker._process already reads are produced — no new
+    ffmpeg knobs are invented. `kind == 'mp4'` enables video previews.
+    """
+    overlay = {}
+    max_size = profile.get("max_size")
+    if max_size:
+        overlay["preview_size"] = int(max_size)
+        overlay["gif_size"] = int(max_size)
+    fps = profile.get("fps")
+    if fps:
+        overlay["sequence_preview_fps"] = int(fps)
+        overlay["gif_fps"] = int(fps)
+    if profile.get("duration") is not None:
+        overlay["gif_duration"] = profile["duration"]
+    overlay["generate_video_previews"] = (profile.get("kind") == "mp4")
+    return overlay
