@@ -81,6 +81,7 @@ from src.ui import (
     HealthPanel,
     SettingsPanel,
 )
+from src.ui.job_queue_dashboard import JobQueueDashboard
 
 log = logging.getLogger(__name__)
 
@@ -321,6 +322,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.history_dock.setWidget(self.history_panel)
         self.history_dock.setVisible(False)
         self.addDockWidget(QtCore.Qt.BottomDockWidgetArea, self.history_dock)
+
+        # Job Queue dock (EP6: ingest_jobs ledger + IngestWorker retry/cancel)
+        self.job_dashboard = JobQueueDashboard(self.db)
+        self._force_panel_palette(self.job_dashboard, "#191a1a")
+        self.job_queue_dock = QtWidgets.QDockWidget("Job Queue", self)
+        self.job_queue_dock.setWidget(self.job_dashboard)
+        self.job_queue_dock.setVisible(False)
+        self.addDockWidget(QtCore.Qt.BottomDockWidgetArea, self.job_queue_dock)
+        self.job_dashboard.retry_requested.connect(self._retry_job)
+        self.job_dashboard.cancel_requested.connect(self._cancel_job)
 
         # Health dock (EP4 Task 12: metadata quality issues for the
         # currently-selected list)
@@ -1003,6 +1014,13 @@ class MainWindow(QtWidgets.QMainWindow):
         worker.ingest_failed.connect(
             lambda msg: self._on_perform_ingestion_failed(progress, msg)
         )
+
+        # EP6: ingest_jobs ledger + Job Queue dashboard wiring (additive --
+        # does not replace the SP2 connections above).
+        self._record_ingest_jobs(files, target_list_id)
+        worker.file_done.connect(self._on_job_file_done)
+        worker.ingest_finished.connect(self._on_ingest_finished_notify)
+
         worker.start()
         progress.exec_()
 
@@ -1020,6 +1038,75 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_perform_ingestion_failed(self, progress, message):
         progress.reset()
         QtWidgets.QMessageBox.critical(self, "Ingestion Error", message)
+
+    # -------------------------------------------------------------------------
+    # Ingest job ledger + dashboard wiring (EP6, F033/F034/F039)
+    # -------------------------------------------------------------------------
+
+    def _record_ingest_jobs(self, files, target_list_id, recipe_id=None):
+        """Insert one pending ingest_jobs row per file; return the job ids."""
+        ids = []
+        for f in files:
+            ids.append(self.db.create_job(
+                "ingest", f, target_list_id=target_list_id, recipe_id=recipe_id,
+                payload={"source_path": f, "target_list_id": target_list_id,
+                         "recipe_id": recipe_id}))
+        return ids
+
+    def _on_job_file_done(self, result):
+        """Update the matching pending/running ledger row from an IngestWorker result."""
+        if not isinstance(result, dict):
+            return
+        src = result.get("source_path")
+        job = None
+        for j in self.db.get_jobs(status="running") + self.db.get_jobs(status="pending"):
+            if j.get("source_path") == src:
+                job = j
+                break
+        if job is None:
+            return
+        if result.get("success"):
+            status = "done"
+        elif result.get("reason") == "duplicate_skipped":
+            status = "skipped"
+        else:
+            status = "failed"
+        self.db.update_job_status(job["job_id"], status, message=result.get("message"))
+        self.job_dashboard.refresh()
+
+    def _on_ingest_finished_notify(self, success, skipped, errors):
+        level = "error" if errors else "success"
+        self.db.add_notification(
+            "Ingest complete",
+            "{} ok / {} skipped / {} errors".format(success, skipped, errors),
+            level=level)
+        self.statusBar().showMessage(
+            "Ingest complete: {} ok, {} skipped, {} errors".format(success, skipped, errors),
+            5000)
+        self.job_dashboard.refresh()
+
+    def _retry_job(self, job_id):
+        """Re-submit a failed job's payload to a fresh IngestWorker (SP2 seam)."""
+        job = self.db.get_job(job_id)
+        if not job or not job.get("payload"):
+            return
+        payload = job["payload"]
+        self.db.update_job_status(job_id, "pending")
+        self.db.bump_job_attempt(job_id)
+        worker = IngestWorker(
+            self.db, self.config.get_all(),
+            [(payload["source_path"], payload["target_list_id"])],
+            copy_policy=self.config.get("default_copy_policy"))
+        self._ingest_worker = worker
+        worker.file_done.connect(self._on_job_file_done)
+        worker.ingest_finished.connect(self._on_ingest_finished_notify)
+        worker.start()
+
+    def _cancel_job(self, job_id):
+        if getattr(self, "_ingest_worker", None) is not None:
+            self._ingest_worker.cancel()
+        self.db.update_job_status(job_id, "cancelled")
+        self.job_dashboard.refresh()
 
     def ingest_library(self):
         dialog = IngestLibraryDialog(self.db, self.ingestion, self.config, self)
