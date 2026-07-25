@@ -2916,3 +2916,47 @@ class DatabaseManager(object):
         with self.get_connection(write=True) as conn:
             conn.cursor().execute("UPDATE notifications SET is_read = 1 WHERE is_read = 0")
 
+    # ======================
+    # WATCH FOLDERS (EP6)
+    # ======================
+
+    _WATCH_FIELDS = {"path", "target_list_id", "recipe_id", "interval_sec", "enabled"}
+
+    def create_watch_folder(self, path, target_list_id=None, recipe_id=None,
+                             interval_sec=30, enabled=True):
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO watch_folders (path, target_list_id, recipe_id, interval_sec, enabled) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (path, target_list_id, recipe_id, interval_sec, 1 if enabled else 0))
+            return cur.lastrowid
+
+    def get_watch_folders(self, enabled_only=False):
+        sql = "SELECT * FROM watch_folders"
+        if enabled_only:
+            sql += " WHERE enabled = 1"
+        sql += " ORDER BY watch_id"
+        with self.get_connection(write=False) as conn:
+            return [dict(r) for r in conn.execute(sql).fetchall()]
+
+    def update_watch_folder(self, watch_id, **fields):
+        updates = {k: v for k, v in fields.items() if k in self._WATCH_FIELDS}
+        if not updates:
+            return
+        set_clause = ", ".join("{} = ?".format(k) for k in updates)
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "UPDATE watch_folders SET {} WHERE watch_id = ?".format(set_clause),
+                list(updates.values()) + [watch_id])
+
+    def delete_watch_folder(self, watch_id):
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute("DELETE FROM watch_folders WHERE watch_id = ?", (watch_id,))
+
+    def set_watch_last_scan(self, watch_id):
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "UPDATE watch_folders SET last_scan = CURRENT_TIMESTAMP WHERE watch_id = ?",
+                (watch_id,))
+

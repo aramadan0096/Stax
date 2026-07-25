@@ -16,7 +16,7 @@ import logging
 log = logging.getLogger(__name__)
 
 # Bump this every time a new _migrate_vN is appended below.
-CURRENT_SCHEMA_VERSION = 14
+CURRENT_SCHEMA_VERSION = 15
 
 # Default color-label palette (EP1). Seed order defines labels.sort_order.
 DEFAULT_LABELS = [
@@ -360,6 +360,26 @@ def _migrate_v14(conn):
     conn.commit()
 
 
+def _migrate_v15(conn):
+    """v14 -> v15: create watch_folders table for the folder-watcher
+    ingestion-automation feature (EP6)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS watch_folders (
+            watch_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            path           TEXT NOT NULL,
+            target_list_id INTEGER,
+            recipe_id      INTEGER,
+            interval_sec   INTEGER NOT NULL DEFAULT 30,
+            enabled        INTEGER NOT NULL DEFAULT 1,
+            last_scan      TIMESTAMP
+        )
+        """
+    )
+    log.info("Migration v15: created watch_folders table")
+    conn.commit()
+
+
 # Index N upgrades schema version N-1 -> N.
 _MIGRATIONS = [
     None,          # index 0 — unused placeholder
@@ -377,6 +397,7 @@ _MIGRATIONS = [
     _migrate_v12,  # 11 -> 12
     _migrate_v13,  # 12 -> 13
     _migrate_v14,  # 13 -> 14
+    _migrate_v15,  # 14 -> 15
 ]
 
 
