@@ -1013,7 +1013,32 @@ class MainWindow(QtWidgets.QMainWindow):
             if target_list_id:
                 self.perform_ingestion(files, target_list_id)
 
+    def _preflight_ok(self, files):
+        """Run preflight validation on `files`; return True if ingestion should
+        proceed. No issues -> proceed silently. Error-level issues -> show the
+        blocking checklist and refuse. Warnings only -> let the user confirm.
+
+        Flat imports (not `src.xxx`): keeps this method resolving the same
+        module/class object tests patch via `ui.preflight_dialog.
+        PreflightDialog.exec_` -- see the dual-import note in
+        `src/ui/media_display_widget.py::ingest_dropped_files`. Importing via
+        `src.ui.preflight_dialog` here would load a second, distinct
+        PreflightDialog class that test monkeypatches never touch, leaving a
+        real modal dialog to block headless test runs."""
+        from ingest_automation import run_preflight, MEDIA_EXTS
+        from ui.preflight_dialog import PreflightDialog
+        issues = run_preflight(files, known_exts=MEDIA_EXTS)
+        if not issues:
+            return True
+        dlg = PreflightDialog(issues, self)
+        if not dlg.can_ingest():
+            dlg.exec_()          # errors present: show, then refuse
+            return False
+        return dlg.exec_() == QtWidgets.QDialog.Accepted   # warnings: confirm
+
     def perform_ingestion(self, files, target_list_id):
+        if not self._preflight_ok(files):
+            return
         jobs = [(f, target_list_id) for f in files]
         progress = QtWidgets.QProgressDialog(
             "Ingesting files...", "Cancel", 0, len(jobs), self
