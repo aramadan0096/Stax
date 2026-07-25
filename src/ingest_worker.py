@@ -61,6 +61,7 @@ class IngestWorker(QtCore.QThread):
                 result = core.ingest_file(source_path, list_id,
                                           copy_policy=self.copy_policy)
                 if isinstance(result, dict):
+                    result.setdefault("source_path", source_path)
                     self.file_done.emit(result)
                     if result.get("success"):
                         success += 1

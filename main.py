@@ -118,6 +118,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self._suspend_tag_restore = False
         self.current_user = None
         self.is_admin = False
+        # EP6: retry workers are kept separate from self._ingest_worker (the
+        # batch-ingest worker slot) so a retry can't clobber a still-running
+        # batch worker's reference, or vice-versa. See _retry_job/_cancel_job.
+        self._retry_workers = []
 
         self.setWindowTitle("Stax")
         self.resize(1400, 800)
@@ -1098,9 +1102,29 @@ class MainWindow(QtWidgets.QMainWindow):
             [(payload["source_path"], payload["target_list_id"])],
             copy_policy=self.config.get("default_copy_policy"))
         self._ingest_worker = worker
+        # Also hold a strong reference in self._retry_workers: a second
+        # retry (or a retry overlapping an in-flight batch ingest)
+        # overwrites self._ingest_worker, and without this list the
+        # superseded worker's only reference would be gone while its
+        # QThread is still running -- a premature-GC risk. Entries are
+        # dropped once the thread's `finished` signal fires.
+        self._retry_workers.append(worker)
         worker.file_done.connect(self._on_job_file_done)
         worker.ingest_finished.connect(self._on_ingest_finished_notify)
+        worker.ingest_failed.connect(
+            lambda msg, jid=job_id: self._on_retry_job_failed(jid, msg))
+        worker.finished.connect(lambda w=worker: self._forget_retry_worker(w))
         worker.start()
+
+    def _on_retry_job_failed(self, job_id, message):
+        """A retried job's IngestWorker raised (worker.ingest_failed carries
+        no job id itself, so this closes over the one being retried)."""
+        self.db.update_job_status(job_id, "failed", message=message)
+        self.job_dashboard.refresh()
+
+    def _forget_retry_worker(self, worker):
+        if worker in self._retry_workers:
+            self._retry_workers.remove(worker)
 
     def _cancel_job(self, job_id):
         if getattr(self, "_ingest_worker", None) is not None:

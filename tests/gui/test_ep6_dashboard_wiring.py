@@ -58,3 +58,58 @@ def test_retry_job_starts_worker(qtbot, mock_nuke, monkeypatch, tmp_path):
     assert win._ingest_worker is not None
 
     win._ingest_worker.wait(3000)
+
+
+@pytest.mark.gui
+def test_on_job_file_done_updates_ledger_by_source_path(qtbot, mock_nuke, monkeypatch, tmp_path):
+    """Regression (task-4 review, Finding 1): _on_job_file_done matches a
+    file_done result back to its ledger row by result["source_path"]. If
+    IngestWorker doesn't stamp that key onto the dict it emits, this match
+    always fails and the row is stuck at pending/running forever. Feed
+    realistic (post-fix-shaped) payloads directly, independent of a real
+    worker thread."""
+    win = _mainwindow_with_temp_db(qtbot, tmp_path, monkeypatch)
+
+    done_path = "/a/done.exr"
+    skip_path = "/a/skip.exr"
+    fail_path = "/a/fail.exr"
+    jid_done = win.db.create_job("ingest", done_path, target_list_id=2,
+                                  payload={"source_path": done_path, "target_list_id": 2})
+    jid_skip = win.db.create_job("ingest", skip_path, target_list_id=2,
+                                  payload={"source_path": skip_path, "target_list_id": 2})
+    jid_fail = win.db.create_job("ingest", fail_path, target_list_id=2,
+                                  payload={"source_path": fail_path, "target_list_id": 2})
+
+    win._on_job_file_done({"success": True, "source_path": done_path})
+    assert win.db.get_job(jid_done)["status"] == "done"
+
+    win._on_job_file_done({"success": False, "reason": "duplicate_skipped",
+                            "source_path": skip_path})
+    assert win.db.get_job(jid_skip)["status"] == "skipped"
+
+    win._on_job_file_done({"success": False, "message": "boom", "source_path": fail_path})
+    assert win.db.get_job(jid_fail)["status"] == "failed"
+
+
+@pytest.mark.gui
+def test_retry_job_ingest_failed_marks_job_failed(qtbot, mock_nuke, monkeypatch, tmp_path):
+    """Regression (task-4 review, Finding 2): _retry_job never connected
+    worker.ingest_failed, so a retry that raised inside ingest_file left the
+    job stuck "running" with the failure silently dropped. Exercise the real
+    wiring created by _retry_job, then emit ingest_failed directly -- same
+    thread as the connect, so it runs synchronously and doesn't depend on
+    real QThread scheduling."""
+    win = _mainwindow_with_temp_db(qtbot, tmp_path, monkeypatch)
+
+    jid = win.db.create_job("ingest", "/a/x.exr", target_list_id=2,
+                             payload={"source_path": "/a/x.exr", "target_list_id": 2})
+    win.db.update_job_status(jid, "failed", message="boom")
+
+    win._retry_job(jid)
+    worker = win._ingest_worker
+
+    worker.ingest_failed.emit("simulated crash")
+
+    assert win.db.get_job(jid)["status"] == "failed"
+
+    worker.wait(3000)
