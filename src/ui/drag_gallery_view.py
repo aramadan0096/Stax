@@ -9,12 +9,22 @@ import os
 from PySide2 import QtWidgets, QtCore, QtGui
 
 from src.ingestion_core import SequenceDetector
+from src.utils.paths import resolve_path
 # Flat import (not `src.ui.xxx`): src/ui/__init__.py eagerly imports this
 # module via the absolute `src.ui.*` path, which would otherwise leave two
 # independent LazyGalleryView classes loaded under "ui.lazy_gallery_view"
 # and "src.ui.lazy_gallery_view" — breaking isinstance() checks against
 # whichever one a caller imported flatly (see tests/gui, which import flat).
-from ui.lazy_gallery_view import LazyGalleryView
+#
+# The fallback is required when this module is reached via `src.ui` FIRST
+# (as main.py does): importing `ui.lazy_gallery_view` runs the flat `ui`
+# package __init__, whose own line 9 re-imports this still-initializing module
+# and raises "cannot import name 'DragGalleryView'". Entering via `src.ui.*`
+# already fixes the class identity, so the fallback is safe there.
+try:
+    from ui.lazy_gallery_view import LazyGalleryView
+except ImportError:
+    from src.ui.lazy_gallery_view import LazyGalleryView
 
 
 class DragGalleryView(LazyGalleryView):
@@ -30,15 +40,8 @@ class DragGalleryView(LazyGalleryView):
         self.setAcceptDrops(False)  # We don't accept drops, only drag out
 
     def _resolve_storage_path(self, path_value):
-        if not path_value:
-            return None
-        if os.path.isabs(path_value):
-            return os.path.normpath(path_value)
-        if self.config:
-            resolved = self.config.resolve_path(path_value)
-            if resolved:
-                return os.path.normpath(resolved)
-        return os.path.normpath(os.path.join(self._project_root, path_value))
+        """Resolve a stored path, consulting Config first for relative values."""
+        return resolve_path(path_value, project_root=self._project_root, config=self.config)
     
     def startDrag(self, supportedActions):
         """Override startDrag to set custom mime data with element info."""

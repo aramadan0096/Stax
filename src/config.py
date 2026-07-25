@@ -7,6 +7,9 @@ Handles application settings and user preferences
 import os
 import json
 import errno
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class Config(object):
@@ -108,8 +111,8 @@ class Config(object):
             db_dir = os.path.dirname(stock_db_env)
             self.config['previews_path'] = os.path.join(db_dir, 'previews')
             self.config['preview_dir'] = os.path.join(db_dir, 'previews')  # Keep backward compatibility
-            print("Using database from STOCK_DB environment variable: {}".format(stock_db_env))
-            print("Using previews from derived path: {}".format(self.config['previews_path']))
+            logger.info("Using database from STOCK_DB environment variable: %s", stock_db_env)
+            logger.info("Using previews from derived path: %s", self.config['previews_path'])
         
         # Auto-detect user identity
         if self.config['machine_name'] is None:
@@ -148,9 +151,9 @@ class Config(object):
             # Merge with defaults (in case new keys were added)
             self.config.update(loaded_config)
             
-            print("Configuration loaded from: {}".format(self.config_path))
-        except Exception as e:
-            print("Failed to load configuration: {}".format(e))
+            logger.info("Configuration loaded from: %s", self.config_path)
+        except Exception:
+            logger.exception("Failed to load configuration from %s", self.config_path)
     
     def save(self):
         """Save configuration to file."""
@@ -163,9 +166,9 @@ class Config(object):
             with open(self.config_path, 'w') as f:
                 json.dump(self.config, f, indent=4, sort_keys=True)
             
-            print("Configuration saved to: {}".format(self.config_path))
-        except Exception as e:
-            print("Failed to save configuration: {}".format(e))
+            logger.info("Configuration saved to: %s", self.config_path)
+        except Exception:
+            logger.exception("Failed to save configuration to %s", self.config_path)
     
     def get(self, key, default=None):
         """Get configuration value."""
@@ -211,13 +214,13 @@ class Config(object):
                 if not os.environ.get('STOCK_DB'):
                     self.config['previews_path'] = previews_path
                     self.config['preview_dir'] = previews_path  # Backward compatibility
-                    print("[Config] Loaded previews_path from database: {}".format(previews_path))
+                    logger.info("Loaded previews_path from database: %s", previews_path)
 
             blender_setting = db_manager.get_setting('blender_path')
             if blender_setting is not None and blender_setting != '':
                 self.config['blender_path'] = blender_setting
-        except Exception as e:
-            print("[Config] Warning: Could not load settings from database: {}".format(e))
+        except Exception:
+            logger.warning("Could not load config settings from database", exc_info=True)
     
     def save_to_database(self, db_manager):
         """
@@ -232,14 +235,14 @@ class Config(object):
                 previews_path = self.config.get('previews_path')
                 if previews_path:
                     db_manager.set_setting('previews_path', previews_path)
-                    print("[Config] Saved previews_path to database: {}".format(previews_path))
+                    logger.info("Saved previews_path to database: %s", previews_path)
 
             blender_setting = self.config.get('blender_path')
             if blender_setting is not None:
                 db_manager.set_setting('blender_path', blender_setting or '')
-                print("[Config] Saved blender_path to database")
-        except Exception as e:
-            print("[Config] Warning: Could not save settings to database: {}".format(e))
+                logger.info("Saved blender_path to database")
+        except Exception:
+            logger.warning("Could not save config settings to database", exc_info=True)
     
     def ensure_directories(self):
         """Ensure all configured directories exist."""
@@ -278,13 +281,15 @@ class Config(object):
 
             if not os.path.exists(normalised):
                 try:
-                    print("[Config] Creating directory: {}".format(normalised))
+                    logger.info("Creating directory: %s", normalised)
                     os.makedirs(normalised)
-                    print("[Config]   [OK] Directory created successfully")
                 except OSError as e:
                     if e.errno != errno.EEXIST:
-                        print("[Config]   [WARN] Failed to create directory {}: {}".format(normalised, e))
-                        print("[Config]   (Continuing - directory may not be needed immediately)")
+                        logger.warning(
+                            "Failed to create directory %s: %s "
+                            "(continuing - it may not be needed immediately)",
+                            normalised, e,
+                        )
                     # Don't raise - some directories might not be writable in Nuke context
 
     def resolve_path(self, path, ensure_dir=False, treat_as_dir=None):

@@ -11,9 +11,11 @@ import json
 import hashlib
 import hmac
 import secrets
+import logging
 from contextlib import contextmanager
 from file_lock import FileLockManager
 
+logger = logging.getLogger(__name__)
 
 _PBKDF2_ITERATIONS = 260000
 
@@ -219,16 +221,16 @@ class DatabaseManager(object):
                 try:
                     conn.close()
                     self._log("Connection closed")
-                except:
-                    pass
-            
+                except Exception:
+                    logger.debug("Error closing DB connection", exc_info=True)
+
             # Release file lock if acquired
             if file_lock:
                 try:
                     file_lock.release()
                     self._log("File lock released")
-                except:
-                    pass
+                except Exception:
+                    logger.debug("Error releasing file lock", exc_info=True)
     
     def _create_schema(self):
         """Create database schema with all required tables."""
@@ -1713,7 +1715,7 @@ class DatabaseManager(object):
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                "UPDATE users SET password_hash = ? WHERE user_id = ?",
+                "UPDATE users SET password_hash = ?, must_change_password = 0 WHERE user_id = ?",
                 (password_hash, user_id)
             )
             conn.commit()

@@ -13,6 +13,9 @@ from src.icon_loader import get_icon
 
 class AdvancedSearchDialog(QtWidgets.QDialog):
     """Advanced search dialog with property and match type selection."""
+
+    result_activated = QtCore.Signal(int)  # element_id (fixes audit issue M4)
+
     def __init__(self, db_manager, parent=None):
         super(AdvancedSearchDialog, self).__init__(parent)
         self.db = db_manager
@@ -120,11 +123,15 @@ class AdvancedSearchDialog(QtWidgets.QDialog):
         self.status_label.setStyleSheet("color: green;" if len(self.results) > 0 else "color: orange;")
     
     def on_result_double_clicked(self, item):
-        """Handle double-click on result."""
+        """Handle double-click on result by emitting result_activated(element_id).
+
+        Previously called self.parent().on_advanced_search_result(...), a method
+        MainWindow does not define -> AttributeError (audit issue M4). Emitting a
+        signal decouples the dialog from its owner.
+        """
         element_id = self.results_table.item(item.row(), 0).data(QtCore.Qt.UserRole)
         if element_id:
-            # Emit signal or trigger action
-            self.parent().on_advanced_search_result(element_id)
+            self.result_activated.emit(int(element_id))
 
 
 
@@ -516,7 +523,7 @@ class LoginDialog(QtWidgets.QDialog):
         layout.addLayout(button_layout)
         
         # Info label
-        info_label = QtWidgets.QLabel("Default: admin / admin")
+        info_label = QtWidgets.QLabel("Contact an administrator if you need account access.")
         info_label.setStyleSheet("color: #666666; font-size: 10px; font-style: italic;")
         info_label.setAlignment(QtCore.Qt.AlignCenter)
         layout.addWidget(info_label)
@@ -537,6 +544,16 @@ class LoginDialog(QtWidgets.QDialog):
         user = self.db.authenticate_user(username, password)
         
         if user:
+            if user.get('must_change_password'):
+                if not self._force_password_change(user):
+                    self.show_error("Password change is required before continuing")
+                    self.password_edit.clear()
+                    self.password_edit.setFocus()
+                    return
+                refreshed = self.db.get_user_by_id(user['user_id'])
+                if refreshed:
+                    user = refreshed
+
             self.authenticated_user = user
             
             # Create session
@@ -549,6 +566,63 @@ class LoginDialog(QtWidgets.QDialog):
             self.show_error("Invalid username or password")
             self.password_edit.clear()
             self.password_edit.setFocus()
+
+    def _force_password_change(self, user):
+        """Force a password reset for users flagged must_change_password."""
+        while True:
+            dialog = QtWidgets.QDialog(self)
+            dialog.setWindowTitle("Password Reset Required")
+            dialog.setModal(True)
+            dialog.setFixedSize(420, 220)
+
+            layout = QtWidgets.QVBoxLayout(dialog)
+            info = QtWidgets.QLabel(
+                "Your account requires a password reset before you can continue."
+            )
+            info.setWordWrap(True)
+            layout.addWidget(info)
+
+            form = QtWidgets.QFormLayout()
+            new_password_edit = QtWidgets.QLineEdit()
+            new_password_edit.setEchoMode(QtWidgets.QLineEdit.Password)
+            new_password_edit.setPlaceholderText("Enter a new password")
+            confirm_password_edit = QtWidgets.QLineEdit()
+            confirm_password_edit.setEchoMode(QtWidgets.QLineEdit.Password)
+            confirm_password_edit.setPlaceholderText("Confirm new password")
+            form.addRow("New Password:", new_password_edit)
+            form.addRow("Confirm Password:", confirm_password_edit)
+            layout.addLayout(form)
+
+            buttons = QtWidgets.QDialogButtonBox(
+                QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
+            )
+            ok_btn = buttons.button(QtWidgets.QDialogButtonBox.Ok)
+            ok_btn.setText("Update Password")
+            buttons.accepted.connect(dialog.accept)
+            buttons.rejected.connect(dialog.reject)
+            layout.addWidget(buttons)
+
+            if dialog.exec_() != QtWidgets.QDialog.Accepted:
+                return False
+
+            new_password = new_password_edit.text()
+            confirm_password = confirm_password_edit.text()
+
+            if not new_password:
+                QtWidgets.QMessageBox.warning(self, "Invalid Password", "Password is required.")
+                continue
+            if new_password != confirm_password:
+                QtWidgets.QMessageBox.warning(self, "Password Mismatch", "Passwords do not match.")
+                continue
+            if len(new_password) < 4:
+                QtWidgets.QMessageBox.warning(self, "Weak Password", "Password must be at least 4 characters.")
+                continue
+
+            if not self.db.change_user_password(user['user_id'], new_password):
+                QtWidgets.QMessageBox.warning(self, "Password Reset Failed", "Could not update password. Try again.")
+                continue
+
+            return True
     
     def continue_as_guest(self):
         """Continue without authentication (read-only mode)."""

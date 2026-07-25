@@ -38,14 +38,13 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
 def _read_version():
-    """Read __version__ from main.py, src/version.py, or pyproject.toml."""
-    for candidate in ("main.py", os.path.join("src", "version.py")):
-        p = os.path.join(ROOT, candidate)
-        if os.path.isfile(p):
-            with open(p, encoding="utf-8", errors="replace") as fh:
-                m = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', fh.read())
-                if m:
-                    return m.group(1)
+    """Read __version__ from src/version.py; fall back to pyproject.toml."""
+    version_py = os.path.join(ROOT, "src", "version.py")
+    if os.path.isfile(version_py):
+        with open(version_py, encoding="utf-8") as fh:
+            m = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', fh.read())
+            if m:
+                return m.group(1)
     pyproject = os.path.join(ROOT, "pyproject.toml")
     if os.path.isfile(pyproject):
         with open(pyproject, encoding="utf-8") as fh:
@@ -75,7 +74,7 @@ if os.path.isdir(BUILD_OUT):
         shutil.rmtree(BUILD_OUT)
     except OSError as exc:
         print(
-            "\nERROR: Cannot remove previous build directory:\n"
+            "\nERROR: Cannot remove previous build directory.\n"
             "  {}\n\n"
             "  Close any Explorer windows, terminals, or processes that\n"
             "  have files open inside that folder, then try again.\n".format(exc)
@@ -136,6 +135,14 @@ PACKAGES = [
 # Modules to exclude (reduces bundle size by ~15-20 MB)
 # ---------------------------------------------------------------------------
 EXCLUDES = [
+    # Qt5 QML bindings. StaX never imports QtQml/QtQuick (grep-verified), and
+    # cx_Freeze's qtqml hook asks QLibraryInfo for "QmlImportsPath" — a Qt6-only
+    # key. On PySide2/Qt5 (which exposes "Qml2ImportsPath" instead) that hook
+    # raises KeyError and aborts the whole build, so these must be excluded to
+    # stop include_package("PySide2") from walking into them.
+    "PySide2.QtQml",
+    "PySide2.QtQuick",
+    "PySide2.QtQuickWidgets",
     "tkinter",
     "tkinter.ttk",
     "unittest",
@@ -203,7 +210,7 @@ BUILD_OPTIONS = {
 # ---------------------------------------------------------------------------
 _WIN_GUI     = "Win32GUI" if sys.platform == "win32" else None
 _WIN_CONSOLE = "Console"  if sys.platform == "win32" else None
-_ICON        = os.path.join(ROOT, "resources", "logo.png")
+_ICON        = os.path.join(ROOT, "resources", "logo.ico")
 _ICON        = _ICON if os.path.isfile(_ICON) else None
 
 EXECUTABLES = [

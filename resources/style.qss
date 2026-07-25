@@ -1434,3 +1434,190 @@ QFrame[frameShape="5"] {
     border: none;
     max-width: 1px;
 }
+
+
+/* ============================================================================
+   10. VS CODE-LIKE EDGE DEFINITION
+   Adds subtle gray boundaries so panel and control edges remain visible on dark
+   surfaces without overpowering the teal accent.
+   ============================================================================ */
+
+QMainWindow {
+    border: 1px solid #3c3c3c;
+}
+
+QWidget#stacks_panel,
+QWidget#media_display,
+QWidget#video_player_pane,
+StacksListsPanel,
+MediaDisplayWidget,
+VideoPlayerWidget,
+QDockWidget,
+QDialog {
+    border: 1px solid #3c3c3c;
+}
+
+QToolBar,
+QMenuBar,
+QStatusBar {
+    border: none;
+    border-top: 1px solid #2b2b2b;
+    border-bottom: 1px solid #3c3c3c;
+}
+
+QStatusBar {
+    border-top: 1px solid #3c3c3c;
+    border-bottom: none;
+}
+
+QSplitter::handle {
+    background-color: #2b2b2b;
+    border: 1px solid #3c3c3c;
+}
+
+QSplitter::handle:hover {
+    background-color: #3c3c3c;
+}
+
+QFrame[frameShape="4"],
+QFrame[frameShape="5"] {
+    background-color: #3c3c3c;
+    border: none;
+}
+
+QAbstractItemView,
+QAbstractScrollArea,
+QStackedWidget,
+QTableView,
+QTreeView,
+QListView,
+QListWidget,
+QTreeWidget {
+    border: 1px solid #2b2b2b;
+    border-radius: 0;
+}
+
+QAbstractItemView:focus,
+QLineEdit:focus,
+QComboBox:focus,
+QSpinBox:focus,
+QDoubleSpinBox:focus {
+    border: 1px solid #3c3c3c;
+    border-bottom: 2px solid #71d7cd;
+}
+
+QHeaderView::section {
+    border: none;
+    border-right: 1px solid #2b2b2b;
+    border-bottom: 1px solid #3c3c3c;
+}
+
+QPushButton,
+QToolButton,
+QLineEdit,
+QComboBox,
+QSpinBox,
+QDoubleSpinBox,
+QSlider::groove:horizontal,
+QProgressBar {
+    border: 1px solid #3c3c3c;
+}
+
+QPushButton:hover,
+QToolButton:hover {
+    border-color: #5a5a5a;
+}
+
+QPushButton:pressed,
+QPushButton:checked,
+QToolButton:pressed,
+QToolButton:checked {
+    border-color: #71d7cd;
+}
+
+QMenu,
+QToolTip,
+QMessageBox,
+QProgressDialog,
+QFileDialog,
+QGroupBox,
+QTabWidget::pane,
+MediaInfoPopup {
+    border: 1px solid #3c3c3c;
+}
+
+QTabBar::tab {
+    border: 1px solid #2b2b2b;
+    border-bottom: 2px solid transparent;
+}
+
+QTabBar::tab:selected {
+    border-color: #3c3c3c;
+    border-bottom: 2px solid #71d7cd;
+}
+
+QScrollBar:vertical {
+    border-left: 1px solid #2b2b2b;
+}
+
+QScrollBar:horizontal {
+    border-top: 1px solid #2b2b2b;
+}
+
+
+/* Explicit boundaries for the main visible work areas shown in the app shell. */
+QWidget#app_root {
+    background-color: #0e0e0e;
+    border: 1px solid #4b5563;
+}
+
+QSplitter#main_splitter,
+QSplitter#nav_main_splitter,
+QSplitter#nav_section_splitter {
+    background-color: #111111;
+    border: 1px solid #4b5563;
+}
+
+QWidget#stacks_panel,
+QWidget#media_display,
+QWidget#video_player_pane {
+    border: 1px solid #4b5563;
+}
+
+QWidget#playlists_container,
+QWidget#stacks_container,
+QWidget#tags_container,
+QWidget#search_container,
+QStackedWidget#media_content_stack,
+QWidget#empty_state_widget,
+QWidget#media_views_widget,
+QStackedWidget#media_view_stack {
+    background-color: #181818;
+    border: 1px solid #4b5563;
+}
+
+QLabel#nav_title,
+QLabel#section_header {
+    background-color: #181818;
+    color: #cccccc;
+    border-bottom: 1px solid #4b5563;
+}
+
+QListWidget#playlists_list,
+QTreeWidget#stacks_tree,
+QListWidget#tags_list,
+QListView#gallery_view,
+QTableWidget#media_table_view,
+QLineEdit#media_search_box {
+    border: 1px solid #4b5563;
+}
+
+QLineEdit#media_search_box {
+    background-color: #111111;
+    border-radius: 0;
+}
+
+QLineEdit#media_search_box:focus {
+    border: 1px solid #6b7280;
+    border-bottom: 2px solid #71d7cd;
+}

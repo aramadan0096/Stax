@@ -707,7 +707,12 @@ class StaXPanel(QtWidgets.QWidget):
                     nuke.message("Element '{}' inserted into node graph".format(element['name']))
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", "Failed to insert element: {}".format(str(e)))
-    
+
+    def on_advanced_search_result(self, element_id):
+        """Insert an advanced-search result, same path as a gallery double-click.
+        (Fixes audit issue M4 for the embedded StaXPanel.)"""
+        self.on_element_double_clicked(element_id)
+
     def on_selection_changed(self):
         """Handle element selection change - update preview pane."""
         if not self.video_player_pane:
@@ -871,6 +876,7 @@ class StaXPanel(QtWidgets.QWidget):
         """Show advanced search dialog."""
         if not hasattr(self, 'advanced_search_dialog') or self.advanced_search_dialog is None:
             self.advanced_search_dialog = AdvancedSearchDialog(self.db, self)
+            self.advanced_search_dialog.result_activated.connect(self.on_advanced_search_result)
         self.advanced_search_dialog.show()
         self.advanced_search_dialog.raise_()
 

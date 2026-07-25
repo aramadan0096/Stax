@@ -22,11 +22,13 @@ building blocks where they replace bespoke code.
 | SP3 | FFmpeg/media hardening & cross-platform | ☑ | ☑ | ☑ | H4, M8, M9, M10 — all fixed |
 | SP4 | Security hardening | ☑ | ☑ | ☑ | C2, C3, H2, H6, M2, L9 |
 | SP5 | Nuke integration & embedded-mode | ☑ | ☑ | ☑ | H5, H8, L1, L3, L7 |
-| SP6 | UI correctness & memory | ☑ | ☑ | ☐ | M3, M4, M5, M6, M7, M13, L2 |
-| SP7 | Build, packaging & deployment | ☑ | ☑ | ☐ | M11, M14 |
-| SP8 | Code quality & consistency | ☑ | ☑ | ☐ | L4, L10 |
+| SP6 | UI correctness & memory | ☑ | ☑ | ☑ | M3, M4, M5, M6, M7, M13, L2 |
+| SP7 | Build, packaging & deployment | ☑ | ☑ | ☑ | M11, M14 |
+| SP8 | Code quality & consistency | ☑ | ☑ | ☑ | L4, L10 |
 
-**All specs and plans are written** (`docs/superpowers/specs/` and `plans/`). Execution has not started. See "Cross-SP reconciliation notes" at the bottom before executing.
+**SP0–SP8 are complete.** The audit-remediation program has landed; the
+Enhancement Program (EP1–EP9) below is the remaining work. See "Cross-SP
+reconciliation notes" at the bottom — all eight are now resolved.
 
 ---
 
@@ -84,8 +86,8 @@ Spec: [`specs/…-sp4-security-hardening-design.md`](specs/2026-07-22-sp4-securi
 
 - [x] **C2** — Restrict processor `exec()` to an admin-owned trusted dir; validate paths (realpath containment); drop "safe" claim. (Not sandboxed — path-restricted, per locked decision.)
 - [x] **C3** — Pin + checksum ffmpeg download; sanitize archive extraction (Zip-Slip). *(SHA-256 values deferred: empty placeholders fail closed; need a human-approved one-time download to populate.)*
-- [x] **H2** — Salted PBKDF2 (stdlib); eliminate default `admin/admin`; random seed + `must_change_password`. (Forced-reset dialog deferred to SP6.)
-- [x] **H6** — GeometryViewer: allow-list served files; reject paths outside previews root; server shutdown hook. (`closeEvent` wiring deferred to SP6.)
+- [x] **H2** — Salted PBKDF2 (stdlib); eliminate default `admin/admin`; random seed + `must_change_password`. (Forced-reset dialog delivered in SP6.)
+- [x] **H6** — GeometryViewer: allow-list served files; reject paths outside previews root; server shutdown hook. (`closeEvent` wiring delivered in SP6.)
 - [x] **M2** — API: `hmac.compare_digest` token check (both backends); ingest-path allowlist.
 - [x] **L9** — CLI: support HTTPS; prefer `STAX_API_TOKEN` env over `--token` in argv.
 
@@ -105,44 +107,51 @@ Spec: [`specs/…-sp5-nuke-integration-design.md`](specs/2026-07-22-sp5-nuke-int
 ## SP6 — UI correctness & memory
 Spec: [`specs/…-sp6-ui-correctness-design.md`](specs/2026-07-22-sp6-ui-correctness-design.md) · Plan: [`plans/…-sp6-ui-correctness.md`](plans/2026-07-22-sp6-ui-correctness.md)
 
-- [ ] **M3** — Admin bulk actions: read `is_admin` from `main_window`, not the splitter parent.
-- [ ] **M4** — Add `on_advanced_search_result` to `MainWindow` (or emit a signal).
-- [ ] **M5** — Bound/clear `gif_movies` and the icon cache; disconnect `frameChanged`.
-- [ ] **M6** — Video player config: use `Config.get/set`, not `isinstance(dict)`.
-- [ ] **M7** — MediaInfoPopup: detect video/sequence by extension, not a nonexistent `type`.
-- [ ] **M13** — SettingsPanel reset: delete old layout before rebuilding.
-- [ ] **L2** — Wire `BatchEditDialog` into the bulk menu (depends on SP1's DB methods).
+- [x] **M3** — Admin bulk actions: read `is_admin` from `main_window`, not the splitter parent.
+- [x] **M4** — Add `on_advanced_search_result` to `MainWindow` (or emit a signal).
+- [x] **M5** — Bound/clear `gif_movies` and the icon cache; disconnect `frameChanged`.
+- [x] **M6** — Video player config: use `Config.get/set`, not `isinstance(dict)`.
+- [x] **M7** — MediaInfoPopup: detect video/sequence by extension, not a nonexistent `type`.
+- [x] **M13** — SettingsPanel reset: delete old layout before rebuilding.
+- [x] **L2** — Wire `BatchEditDialog` into the bulk menu (depends on SP1's DB methods).
+- [x] **SP4 handoff** — Forced login reset flow for `must_change_password` + GeometryViewer `closeEvent` shutdown wiring.
 
 ---
 
 ## SP7 — Build, packaging & deployment
 Spec: [`specs/…-sp7-packaging-design.md`](specs/2026-07-22-sp7-packaging-design.md) · Plan: [`plans/…-sp7-packaging.md`](plans/2026-07-22-sp7-packaging.md)
 
-- [ ] **M11** — Converge on one packager; remove absolute paths; declare build tool; `.ico` icon; single version source.
-- [ ] **M14** — Write logs/config to a per-user writable location; add rotation; init once.
-- [ ] Linux packaging path (Win+Linux build).
+- [x] **M11** — Converge on one packager; remove absolute paths; declare build tool; `.ico` icon; single version source.
+- [x] **M14** — Write logs/config to a per-user writable location; add rotation; init once. _(resolver now `src/utils/appdirs.py`, see reconciliation note 5)_
+- [x] Linux packaging path (Win+Linux build). _(`tools/build.sh`, `tools/run_standalone.sh`)_
+- [x] Slow/manual cx_Freeze build smoke test (`tests/manual/test_freeze_smoke.py`) — **verified green on a real build**.
+- [x] **Build fix (out of plan):** `packages=["PySide2"]` made cx_Freeze walk `PySide2.QtQml`, whose hook asks `QLibraryInfo` for the Qt6-only `QmlImportsPath` and aborted the whole build with `KeyError` (reproduced on cx_Freeze 7.2.7 and 8.4.1). StaX imports no QML, so `PySide2.QtQml/QtQuick/QtQuickWidgets` are excluded in `setup_freeze.py`.
+- [x] Removed the stale PyInstaller `StaX.spec` from the working tree — it is matched by `.gitignore`'s `*.spec`, so Task 3's `git rm` had silently no-oped and the hygiene test still failed locally.
 
 ---
 
 ## SP8 — Code quality & consistency
 Spec: [`specs/…-sp8-code-quality-design.md`](specs/2026-07-22-sp8-code-quality-design.md) · Plan: [`plans/…-sp8-code-quality.md`](plans/2026-07-22-sp8-code-quality.md)
 
-- [ ] **L4** — Replace bare/blanket excepts and `print` with narrowed exceptions + `logging`.
-- [ ] **L10** — Extract shared utils (`_resolve_path`, size-format, dark palette); split god modules.
+- [x] **L4** — Replace bare/blanket excepts and `print` with narrowed exceptions + `logging`. _(bounded set: all 15 `print`s in `config.py`, both bare `except:` in `db_manager.get_connection`, `ingest_file`'s outer handler + Blender idle-timeout, `main.py` analytics swallow, `video_player_widget` getsize → `OSError`)_
+- [x] **L10** — Extract shared utils (`_resolve_path` ×4 → `src/utils/paths.py`, size-format ×4 → `src/utils/formatting.py`, dark palette → `src/dark_palette.py` only, one bulk-menu builder). **God-module split stays deferred** per design §4.6.
+- [x] **Entry-point fix (out of plan):** `main.py` and `nuke_launcher.py` had been unimportable since `0767192` (SP2) — `from src.ui import (...)` re-entered `src/ui/__init__.py` through `drag_gallery_view`'s flat `ui` import and raised `ImportError: cannot import name 'DragGalleryView'`. The in-process suite masked it (an earlier test imports `ui` flatly, which fixes the order for the rest of the process), so `tests/unit/test_entrypoints_importable.py` now imports each entry point in a **fresh interpreter**.
+
+> **`human_size` sub-MB behavior (reconciliation note 7):** accepted. Output ≥ 1 MB is byte-identical to before; below 1 MB it now reads KB/B (512 KB → `512.0 KB`, was `0.5 MB`).
 
 ---
 
-## Cross-SP reconciliation notes (resolve during execution)
+## Cross-SP reconciliation notes (all resolved)
 
-The plans were drafted in parallel; these known touch-point overlaps must be handled when sequencing execution. None require re-planning — they are ordering/merge concerns.
+The plans were drafted in parallel; these known touch-point overlaps had to be handled when sequencing execution. All eight were resolved during SP0–SP8 execution — note 5's decision and note 7's veto call are recorded inline below.
 
 1. **Execution order = SP0 → SP1 → SP2 → SP3 → SP4 → SP5 → SP6 → SP7 → SP8.** SP1 must land before SP2/SP6 (they consume its new DB methods `update_element_phash`, `get_elements_with_phash`, `update_element_metadata`, verified to match). SP2 & SP6 mark those consumer tests `xfail(strict)` until SP1 lands — flip them when executing on top of SP1.
 2. **`file_lock.py`** is edited by both SP1 (H1 lock-on-release + journal_mode) and SP5 (L7 `TimeoutError` polyfill removal). Do SP1 first; SP5's change is a small header/shim edit that rebases cleanly.
 3. **`stax_cli.py`** is edited by SP4 (L9 HTTPS + env token) and SP5 (L7 `urllib2` removal). Coordinate — ideally fold both into whichever runs second.
 4. **`nuke_bridge.py`** frame-range parse is touched by SP2 (L8 fileseq hardening) and SP5 (L7 `unicode` shim). Independent lines; SP2 first, SP5 rebases.
-5. **`paths` module naming:** SP7 creates `src/paths.py` (per-user app-data/log dirs) and SP8 creates `src/utils/paths.py` (`resolve_path`). Different purpose, but the names are confusable — **decision at execution:** put SP7's under `src/utils/appdirs.py` (recommended) or otherwise disambiguate so there is one obvious "paths" util.
+5. **`paths` module naming:** SP7 creates `src/paths.py` (per-user app-data/log dirs) and SP8 creates `src/utils/paths.py` (`resolve_path`). Different purpose, but the names are confusable. **Resolved:** SP7's module moved to `src/utils/appdirs.py` (`get_log_dir`/`get_data_dir`/`get_config_dir`), leaving `src/utils/paths.py` as the one obvious "paths" util. Their test files collided too (both wanted `tests/unit/test_paths.py`) — now `tests/unit/test_appdirs.py` and `tests/unit/test_utils_paths.py`.
 6. **SP4→SP6 handoffs:** SP4 sets `must_change_password` and adds `GeometryViewerServer` shutdown/allow-list, but explicitly hands the **forced-reset dialog** and the GeometryViewer **`closeEvent` wiring** to SP6. Ensure SP6 picks these up (SP6's plan already anticipates the dialog seam).
-7. **`human_size` behavior (SP8):** SP8 refines sub-MB formatting to KB/B (≥1 MB output unchanged). Flagged for reviewer veto — confirm acceptable before SP8 execution.
+7. **`human_size` behavior (SP8):** SP8 refines sub-MB formatting to KB/B (≥1 MB output unchanged). Flagged for reviewer veto — **accepted**, not vetoed.
 8. **`pyproject.toml`** is edited by SP0 (dev extra), SP2 (`fileseq` dep), SP7 (build system → hatchling, `cx-freeze` build extra, drop `pyinstaller`). Merge these additively; SP7's build-system change is the most structural — apply carefully and re-run SP0's CI afterward.
 
 ---

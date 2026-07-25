@@ -950,17 +950,13 @@ class SettingsPanel(QtWidgets.QWidget):
         )
         if reply == QtWidgets.QMessageBox.Yes:
             self.config.reset_to_defaults()
-            
-            # Recreate UI to reload defaults
-            # Clear layout
-            while self.layout().count():
-                child = self.layout().takeAt(0)
-                if not child:
-                    continue
-                widget = child.widget()
-                if widget:
-                    widget.deleteLater()
-            
+
+            # Detach existing layout so setup_ui() can install a fresh root
+            # layout without the Qt "already has a layout" warning (M13).
+            old_layout = self.layout()
+            if old_layout is not None:
+                QtWidgets.QWidget().setLayout(old_layout)
+
             # Rebuild UI
             self.setup_ui()
             

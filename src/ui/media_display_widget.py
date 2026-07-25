@@ -8,6 +8,8 @@ from PySide2 import QtWidgets, QtCore, QtGui
 
 from src.icon_loader import get_icon, get_pixmap
 from src.preview_cache import get_preview_cache
+from src.utils.paths import resolve_path
+from src.utils.formatting import human_size
 from src.ui.media_info_popup import MediaInfoPopup
 from src.ui.drag_gallery_view import DragGalleryView
 from src.ui.pagination_widget import PaginationWidget
@@ -42,6 +44,10 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.media_popup.reveal_requested.connect(self.on_popup_reveal)
         self.preview_cache = get_preview_cache()  # Initialize preview cache
         self.gif_movies = {}  # Cache for QMovie objects {element_id: QMovie}
+        self._pending_icon_size = None
+        self._size_debounce = QtCore.QTimer(self)
+        self._size_debounce.setSingleShot(True)
+        self._size_debounce.timeout.connect(lambda: self._apply_pending_size())
         self.current_gif_item = None  # Currently hovering item with GIF
         self.element_items = {}  # Map element_id -> QListWidgetItem
         self.element_flags = {}  # Map element_id -> status flags (favorite/deprecated)
@@ -64,10 +70,12 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         
         # Search bar with tag filtering support
         search_container = QtWidgets.QWidget()
+        search_container.setObjectName("search_container")
         search_layout = QtWidgets.QVBoxLayout(search_container)
         search_layout.setContentsMargins(0, 0, 0, 0)
         
         self.search_box = QtWidgets.QLineEdit()
+        self.search_box.setObjectName("media_search_box")
         self.search_box.setPlaceholderText("Search elements... (use #tag or tag:fire for tag filtering)")
         self.search_box.textChanged.connect(self.on_search)
         search_layout.addWidget(self.search_box)
@@ -118,9 +126,11 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         
         # Main content container - stacks empty state and views
         self.content_stack = QtWidgets.QStackedWidget()
+        self.content_stack.setObjectName("media_content_stack")
         
         # Empty state container with icon and text (index 0)
         self.empty_state_widget = QtWidgets.QWidget()
+        self.empty_state_widget.setObjectName("empty_state_widget")
         empty_state_layout = QtWidgets.QVBoxLayout(self.empty_state_widget)
         empty_state_layout.setAlignment(QtCore.Qt.AlignCenter)
         
@@ -154,14 +164,17 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         
         # Views container (index 1)
         views_widget = QtWidgets.QWidget()
+        views_widget.setObjectName("media_views_widget")
         views_layout = QtWidgets.QVBoxLayout(views_widget)
         views_layout.setContentsMargins(0, 0, 0, 0)
         
         # Stacked widget for different views
         self.view_stack = QtWidgets.QStackedWidget()
+        self.view_stack.setObjectName("media_view_stack")
         
         # Gallery view (grid of thumbnails with drag & drop)
         self.gallery_view = DragGalleryView(self.db, self.config, self.nuke_bridge)
+        self.gallery_view.setObjectName("gallery_view")
         self.gallery_view.setViewMode(QtWidgets.QListView.IconMode)
         self.gallery_view.setResizeMode(QtWidgets.QListView.Adjust)
         self.gallery_view.setIconSize(QtCore.QSize(256, 256))
@@ -175,6 +188,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         
         # List view (table)
         self.table_view = QtWidgets.QTableWidget()
+        self.table_view.setObjectName("media_table_view")
         self.table_view.setColumnCount(6)
         self.table_view.setHorizontalHeaderLabels(['Name', 'Format', 'Frames', 'Type', 'Size', 'Comment'])
         self.table_view.horizontalHeader().setStretchLastSection(True)
@@ -382,10 +396,17 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             self.size_slider.setEnabled(False)
     
     def on_size_changed(self, value):
-        """Handle thumbnail size change - reload elements with new size."""
+        """Handle thumbnail size change with debounced expensive reload."""
         self.gallery_view.setIconSize(QtCore.QSize(value, value))
-        
-        # Reload visible items to rescale images
+
+        if not self.current_elements:
+            return
+
+        self._pending_icon_size = value
+        self._size_debounce.start(150)
+
+    def _apply_pending_size(self):
+        """Reload current content once after size slider settles."""
         if not self.current_elements:
             return
         if self.config.get('pagination_enabled', True) and self.current_list_id:
@@ -542,6 +563,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
     def _update_views_with_elements(self, elements):
         """Update gallery and table views with given elements."""
         self.stop_current_gif()
+        self._clear_gif_movies()
         self.current_gif_item = None
         self.gallery_view.clear()
         icon_size = self.gallery_view.iconSize()
@@ -637,13 +659,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             self.table_view.setItem(row, 2, QtWidgets.QTableWidgetItem(frame_display))
             self.table_view.setItem(row, 3, QtWidgets.QTableWidgetItem(element.get('type') or ''))
 
-            size_str = ''
-            if element.get('file_size'):
-                size_mb = element['file_size'] / (1024.0 * 1024.0)
-                if size_mb < 1024:
-                    size_str = "{:.1f} MB".format(size_mb)
-                else:
-                    size_str = "{:.2f} GB".format(size_mb / 1024.0)
+            size_str = human_size(element['file_size']) if element.get('file_size') else ''
             self.table_view.setItem(row, 4, QtWidgets.QTableWidgetItem(size_str))
 
             comment_text = element.get('comment') or ''
@@ -978,6 +994,16 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 movie.jumpToFrame(0)
                 # Update icon to show first frame
                 self._update_gif_frame(element_id)
+
+    def _clear_gif_movies(self):
+        """Stop, disconnect, and clear cached QMovie instances."""
+        for movie in self.gif_movies.values():
+            try:
+                movie.stop()
+                movie.frameChanged.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+        self.gif_movies.clear()
     
     def keyPressEvent(self, event):
         """Handle key press events."""
@@ -1048,14 +1074,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
 
     def _resolve_path(self, path):
         """Convert stored relative paths to absolute paths rooted at the project."""
-        if not path:
-            return None
-        path = path.strip()
-        if not path:
-            return None
-        if os.path.isabs(path):
-            return os.path.normpath(path)
-        return os.path.normpath(os.path.join(self._project_root, path))
+        return resolve_path(path, project_root=self._project_root)
 
     def _prepare_element_for_popup(self, element_data):
         """Return a copy of element data with absolute filesystem paths."""
@@ -1067,63 +1086,36 @@ class MediaDisplayWidget(QtWidgets.QWidget):
                 element_copy[key] = resolved
         return element_copy
     
+    def _is_admin_user(self):
+        """Return True if the owning MainWindow reports an admin session.
+
+        The widget's Qt parent is the central QSplitter (main.py), which has no
+        'is_admin' attribute; permission state lives on MainWindow, injected as
+        self.main_window at construction. (Fixes audit issue M3.)
+        """
+        return bool(getattr(self.main_window, 'is_admin', False))
+
     def show_context_menu(self, position, element_id):
         """
         Show context menu for element(s).
         Supports both single and bulk operations.
-        
+
         Args:
             position (QPoint): Position to show menu
             element_id (int): Element ID (for single selection)
         """
         # Get all selected element IDs
         selected_ids = self.get_selected_element_ids()
-        
+
         menu = QtWidgets.QMenu(self)
-        parent_widget = self.parent()
-        is_admin = bool(getattr(parent_widget, 'is_admin', False)) if parent_widget else False
+        is_admin = self._is_admin_user()
         
         # If multiple items selected, show bulk operations menu
         if len(selected_ids) > 1:
-            # Bulk operations header
-            header_label = QtWidgets.QLabel("  {} items selected  ".format(len(selected_ids)))
-            header_label.setStyleSheet("font-weight: bold; color: #16c6b0; padding: 5px;")
-            header_action = QtWidgets.QWidgetAction(self)
-            header_action.setDefaultWidget(header_label)
-            menu.addAction(header_action)
-            
-            menu.addSeparator()
-            
-            # Bulk add to favorites
-            bulk_fav_action = menu.addAction(get_icon('favorite', size=16), "Add All to Favorites")
-            
-            # Bulk add to playlist
-            bulk_playlist_action = menu.addAction(get_icon('playlist', size=16), "Add All to Playlist...")
-            
-            menu.addSeparator()
-            
-            # Bulk mark as deprecated (admin only)
-            bulk_deprecate_action = menu.addAction(get_icon('deprecated', size=16), "Mark All as Deprecated")
-            if not is_admin:
-                bulk_deprecate_action.setEnabled(False)
-            
-            # Bulk delete (admin only)
-            bulk_delete_action = menu.addAction(get_icon('delete', size=16), "Delete All Selected")
-            if not is_admin:
-                bulk_delete_action.setEnabled(False)
-            
-            # Execute menu
+            actions = self._populate_bulk_menu(menu, selected_ids, is_admin, with_header=True)
             action = menu.exec_(position)
-            
-            if action == bulk_fav_action:
-                self.bulk_add_to_favorites(selected_ids)
-            elif action == bulk_playlist_action:
-                self.bulk_add_to_playlist(selected_ids)
-            elif action == bulk_deprecate_action:
-                self.bulk_mark_deprecated(selected_ids)
-            elif action == bulk_delete_action:
-                self.bulk_delete(selected_ids)
-        
+            self._dispatch_bulk_action(action, actions, selected_ids)
+
         else:
             # Single item context menu (existing behavior)
             # Check if already favorited
@@ -1289,43 +1281,84 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "Error", "Failed to delete element: {}".format(str(e)))
     
+    def _populate_bulk_menu(self, menu, selected_ids, is_admin, with_header):
+        """Add the shared bulk-operation actions to `menu`; return {name: QAction}."""
+        if with_header:
+            header_label = QtWidgets.QLabel("  {} items selected  ".format(len(selected_ids)))
+            header_label.setStyleSheet("font-weight: bold; color: #16c6b0; padding: 5px;")
+            header_action = QtWidgets.QWidgetAction(self)
+            header_action.setDefaultWidget(header_label)
+            menu.addAction(header_action)
+            menu.addSeparator()
+
+        actions = {}
+        actions['fav'] = menu.addAction(get_icon('favorite', size=16), "Add All to Favorites")
+        actions['playlist'] = menu.addAction(get_icon('playlist', size=16), "Add All to Playlist...")
+        actions['edit'] = menu.addAction(get_icon('edit', size=16), "Batch Edit Metadata...")
+
+        menu.addSeparator()
+
+        actions['deprecate'] = menu.addAction(get_icon('deprecated', size=16), "Mark All as Deprecated")
+        actions['delete'] = menu.addAction(get_icon('delete', size=16), "Delete All Selected")
+        if not is_admin:
+            actions['deprecate'].setEnabled(False)
+            actions['delete'].setEnabled(False)
+        return actions
+
+    def _dispatch_bulk_action(self, action, actions, selected_ids):
+        """Route a chosen bulk QAction to its handler."""
+        if action == actions['fav']:
+            self.bulk_add_to_favorites(selected_ids)
+        elif action == actions['playlist']:
+            self.bulk_add_to_playlist(selected_ids)
+        elif action == actions['edit']:
+            self.open_batch_edit(selected_ids)
+        elif action == actions['deprecate']:
+            self.bulk_mark_deprecated(selected_ids)
+        elif action == actions['delete']:
+            self.bulk_delete(selected_ids)
+
     def show_bulk_menu(self):
         """Show bulk operations menu."""
         # Get selected elements
         selected_ids = self.get_selected_element_ids()
-        
+
         if not selected_ids:
             QtWidgets.QMessageBox.information(self, "No Selection", "Please select one or more elements.\n\nTip: Hold Ctrl/Cmd to select multiple items.")
             return
-        
+
         # Create menu
         menu = QtWidgets.QMenu(self)
-        
-        # Bulk add to favorites
-        bulk_fav_action = menu.addAction(get_icon('favorite', size=16), "Add All to Favorites")
-        
-        # Bulk add to playlist
-        bulk_playlist_action = menu.addAction(get_icon('playlist', size=16), "Add All to Playlist...")
-        
-        menu.addSeparator()
-        
-        # Bulk mark as deprecated
-        bulk_deprecate_action = menu.addAction(get_icon('deprecated', size=16), "Mark All as Deprecated")
-        
-        # Bulk delete
-        bulk_delete_action = menu.addAction(get_icon('delete', size=16), "Delete All Selected")
-        
-        # Execute menu
+        # is_admin=True reproduces this menu's prior behavior: unlike the context
+        # menu, it never disabled the destructive actions.
+        actions = self._populate_bulk_menu(menu, selected_ids, is_admin=True, with_header=False)
         action = menu.exec_(QtGui.QCursor.pos())
-        
-        if action == bulk_fav_action:
-            self.bulk_add_to_favorites(selected_ids)
-        elif action == bulk_playlist_action:
-            self.bulk_add_to_playlist(selected_ids)
-        elif action == bulk_deprecate_action:
-            self.bulk_mark_deprecated(selected_ids)
-        elif action == bulk_delete_action:
-            self.bulk_delete(selected_ids)
+        self._dispatch_bulk_action(action, actions, selected_ids)
+
+    def open_batch_edit(self, element_ids=None):
+        """Open batch metadata editor for selected elements."""
+        if element_ids is None:
+            element_ids = self.get_selected_element_ids()
+
+        if len(element_ids) < 2:
+            QtWidgets.QMessageBox.information(
+                self,
+                "No Selection",
+                "Please select at least two elements for batch edit."
+            )
+            return
+
+        try:
+            from src.ui.batch_edit_dialog import BatchEditDialog
+
+            dialog = BatchEditDialog(element_ids, self.db, self)
+            if dialog.exec_() == QtWidgets.QDialog.Accepted:
+                if self.current_list_id:
+                    self.load_elements(self.current_list_id)
+                elif self.current_elements is not None:
+                    self._update_views_with_elements(self.current_elements)
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, "Error", "Failed to open batch edit dialog: {}".format(str(e)))
     
     def get_selected_element_ids(self):
         """Get list of selected element IDs from current view."""

@@ -1,6 +1,10 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "StaX"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Open-source advanced solution for mass production stock footage management"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -12,13 +16,16 @@ dependencies = [
     "numpy>=2.0.2",
     "opencv-python>=4.13.0.92",
     "pillow>=11.3.0",
-    "pyinstaller>=6.19.0",
     "pyside2>=5.15.2.1",
     "pytest>=8.4.2",
     "pytest-mock>=3.15.1",
 ]
 
 [project.optional-dependencies]
+build = [
+    "cx-freeze>=7.2",
+]
+
 dev = [
     "pytest>=7",
     # pytest-qt 4.3+ dropped PySide2; StaX is PySide2 (Qt5), so pin to the
@@ -28,3 +35,9 @@ dev = [
     "pytest-cov",
     "flask",
 ]
+
+[tool.hatch.version]
+path = "src/version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]

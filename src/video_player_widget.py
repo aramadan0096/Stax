@@ -7,6 +7,7 @@ Python 3.9+
 
 import os
 import sys
+import logging
 
 try:
     import dependency_bootstrap
@@ -20,9 +21,13 @@ dependency_bootstrap.bootstrap()
 
 from PySide2 import QtWidgets, QtCore, QtGui
 import subprocess
-import json
 from src.icon_loader import get_pixmap
+from src.utils.paths import resolve_path
+from src.utils.formatting import human_size
 from src.geometry_viewer import GeometryViewerWidget
+
+
+log = logging.getLogger(__name__)
 
 _FFPY_IMPORT_ERROR = None
 
@@ -623,14 +628,7 @@ class VideoPlayerWidget(QtWidgets.QWidget):
 
     def _resolve_path(self, path):
         """Resolve stored relative paths against the project root."""
-        if not path:
-            return None
-        path = path.strip()
-        if not path:
-            return None
-        if os.path.isabs(path):
-            return os.path.normpath(path)
-        return os.path.normpath(os.path.join(self._project_root, path))
+        return resolve_path(path, project_root=self._project_root)
 
     def _is_sequence_element(self, element):
         """Return True if the element represents an image sequence."""
@@ -677,17 +675,17 @@ class VideoPlayerWidget(QtWidgets.QWidget):
             display_name = os.path.basename(geometry_path)
             try:
                 size_bytes = os.path.getsize(geometry_path)
-            except Exception:
+            except OSError:
+                log.debug("Could not stat %s", geometry_path, exc_info=True)
                 size_bytes = 0
-            size_mb = size_bytes / (1024.0 * 1024.0) if size_bytes else 0.0
             ok, load_message = self.geometry_viewer.load_geometry(geometry_path)
             if not ok:
                 status = load_message or "Unable to load GLB preview."
                 self.geometry_status_label.setText(status)
             else:
                 status = "GLB preview ready: {}".format(display_name)
-                if size_mb:
-                    status += " ({:.2f} MB)".format(size_mb)
+                if size_bytes:
+                    status += " ({})".format(human_size(size_bytes))
                 self.geometry_status_label.setText(status)
         else:
             self.geometry_viewer.clear_geometry()
@@ -723,15 +721,18 @@ class VideoPlayerWidget(QtWidgets.QWidget):
             self.current_element = None
 
     def _get_config_player(self):
-        """Retrieve configured external player path from the provided config or prompt the user."""
+        """Retrieve configured external player path, prompting and persisting if missing.
+
+        Uses Config.get/Config.set when available (audit issue M6).
+        """
+        player = None
         try:
-            cfg_path = None
-            if hasattr(self, 'config') and isinstance(self.config, dict):
+            if hasattr(self, 'config') and hasattr(self.config, 'get'):
                 player = self.config.get('external_player')
-                if player:
-                    return player
         except Exception:
-            pass
+            log.exception("Failed to read external_player from config")
+        if player:
+            return player
 
         # Ask user to pick an executable
         dlg = QtWidgets.QFileDialog(self, 'Select external player executable')
@@ -740,27 +741,14 @@ class VideoPlayerWidget(QtWidgets.QWidget):
             files = dlg.selectedFiles()
             if files:
                 player_path = files[0]
-                # store (best-effort) back to config if possible
+
                 try:
-                    if hasattr(self, 'config') and isinstance(self.config, dict):
+                    if hasattr(self, 'config') and hasattr(self.config, 'set'):
+                        self.config.set('external_player', player_path)
+                    elif isinstance(self.config, dict):
                         self.config['external_player'] = player_path
-                        # try to write to disk to the project's config if present
-                        cfg_file = getattr(self, '_config_file_path', None)
-                        if not cfg_file:
-                            # look for common project config location
-                            possible = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..', 'config', 'config.json'))
-                            if os.path.exists(os.path.dirname(possible)):
-                                cfg_file = possible
-                        if cfg_file:
-                            try:
-                                with open(cfg_file, 'w') as f:
-                                    json.dump(self.config, f, indent=2)
-                                # remember where we stored it
-                                self._config_file_path = cfg_file
-                            except Exception:
-                                pass
                 except Exception:
-                    pass
+                    log.exception("Failed to persist external_player to config")
                 return player_path
         return None
 
@@ -926,8 +914,7 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         # File size
         file_size = self.current_element.get('file_size', 0)
         if file_size:
-            size_mb = file_size / (1024.0 * 1024.0)
-            metadata_lines.append("<b>File Size:</b> {:.2f} MB".format(size_mb))
+            metadata_lines.append("<b>File Size:</b> {}".format(human_size(file_size)))
         
         # File path
         filepath = self.current_element.get('filepath_hard') or self.current_element.get('filepath_soft')

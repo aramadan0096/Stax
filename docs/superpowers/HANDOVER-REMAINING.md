@@ -1,29 +1,96 @@
-# Handover — Remaining Execution Batches (SP2–SP8, EP1–EP4, EP6–EP9)
+# Handover — Remaining Execution Batches (EP1–EP4, EP6–EP9)
 
 > Follows `HANDOVER-SP0-SP1.md` (Batch 1). Execute batches **in order**; each
 > batch is one Claude Code session. To run a batch, paste its block into a fresh
-> session opened at `d:\Scripts\modern-stock-browser`. Every block says to read
+> session opened at `e:\Scripts\Stax`. Every block says to read
 > **§Common Execution Rules** below first — start there.
+>
+> **Remediation (Batches 1–4 / SP0–SP8) is COMPLETE and merged to `main`.**
+> Batch 5 is the next thing to run. Read **§State on `main`** before starting it.
 
 ## Batching overview
 
-| Batch | Sub-projects | Why grouped | Approx. tasks |
-|---|---|---|---|
-| 1 (done handover) | SP0 + SP1 | test harness → DB consolidation | ~9 + ~9 |
-| 2 | SP2 + SP3 | async pipeline + ffmpeg/cross-platform (media core) | ~large |
-| 3 | SP4 + SP5 | security hardening + Nuke integration | ~6 + ~5 |
-| 4 | SP6 + SP7 + SP8 | UI fixes + packaging + code-quality (finalize remediation) | ~7 + ~small |
-| 5 | EP1 + EP2 | curation primitives + search/discovery (enhancement foundation) | 9 + 13 |
-| 6 | EP3 | browse productivity shell (solo — large) | 11 |
-| 7 | EP4 | metadata schema & automation (solo — largest) | 15 |
-| 8 | EP6 | ingestion automation & job queue (solo — large) | 14 |
-| 9 | EP7 | AI discovery, local-only (solo — adds a dependency) | large |
-| 10 | EP8 | team collaboration (solo — large) | large |
-| 11 | EP9 | analytics dashboards (small) | small |
+| Batch | Sub-projects | Why grouped | Approx. tasks | Status |
+|---|---|---|---|---|
+| 1 | SP0 + SP1 | test harness → DB consolidation | ~9 + ~9 | ☑ done |
+| 2 | SP2 + SP3 | async pipeline + ffmpeg/cross-platform (media core) | ~large | ☑ done |
+| 3 | SP4 + SP5 | security hardening + Nuke integration | ~6 + ~5 | ☑ done |
+| 4 | SP6 + SP7 + SP8 | UI fixes + packaging + code-quality (finalize remediation) | ~7 + ~small | ☑ done |
+| 5 | EP1 + EP2 | curation primitives + search/discovery (enhancement foundation) | 9 + 13 | **← next** |
+| 6 | EP3 | browse productivity shell (solo — large) | 11 | ☐ |
+| 7 | EP4 | metadata schema & automation (solo — largest) | 15 | ☐ |
+| 8 | EP6 | ingestion automation & job queue (solo — large) | 14 | ☐ |
+| 9 | EP7 | AI discovery, local-only (solo — adds a dependency) | large | ☐ |
+| 10 | EP8 | team collaboration (solo — large) | large | ☐ |
+| 11 | EP9 | analytics dashboards (small) | small | ☐ |
 
 Canonical order and all cross-project reconciliation items live in
-`docs/superpowers/CROSS_PLAN_REVIEW.md` (§6 order, §7 checklist). Enhancement
-batches (5–11) assume the remediation batches (2–4) have landed.
+`docs/superpowers/CROSS_PLAN_REVIEW.md` (§6 order, §7 checklist). Live task
+status is `docs/superpowers/IMPLEMENTATION_PROGRESS.md`.
+
+---
+
+## §State on `main` (as of Batch 4 completion)
+
+Everything below is **already true** — don't redo it, but do rely on it.
+
+**Suite:** `186 passed, 0 failed, 0 xfailed` on the default gate. Every `xfail`
+placed by SP0/SP2/SP6 for a not-yet-delivered dependency has been flipped to a
+real pass. **A new xfail or a drop below 186 passed is a regression.**
+
+**Test environment — read this first or you will waste a session.** Neither the
+system Python nor the repo's `.venv` has `pytest-qt`/`flask`; `.venv` is the app
+runtime env and must not be re-synced (`uv sync` would prune `trimesh`,
+`pygltflib`, `pyrender`, `PyOpenGL`, which the GLB pipeline needs). Batch 4
+created a separate dev env. Use it:
+
+```powershell
+# already exists; recreate only if missing
+uv venv --python 3.9 .venv-dev
+uv pip install --python .venv-dev\Scripts\python.exe -e ".[dev,build]"
+
+# the command to run for every verification step
+.venv-dev\Scripts\python.exe -m pytest -m "not manual and not slow" -q
+```
+
+**Import-order landmine (still present, now guarded).** `src/ui/__init__.py`
+eagerly imports `src.ui.drag_gallery_view`, which imports the flat `ui` package.
+Whichever of `ui` / `src.ui` loads first decides whether that resolves. Rules:
+
+- **In tests, import widgets flat** — `from ui.media_display_widget import ...`,
+  not `from src.ui...`. Flat is what the existing gui tier does; `src.ui.*` in a
+  test that runs standalone raises `ImportError: cannot import name
+  'DragGalleryView'`.
+- `tests/unit/test_entrypoints_importable.py` imports `main` and
+  `nuke_launcher` in a **fresh interpreter**. If it goes red, an entry point is
+  broken for real users even though the rest of the suite is green.
+
+**Landed in Batch 4 beyond the plans** (all committed, don't re-litigate):
+
+- `src/utils/appdirs.py` — SP7's per-user dir resolver (was `src/paths.py`);
+  `src/utils/paths.py` is SP8's `resolve_path`. Tests: `test_appdirs.py`,
+  `test_utils_paths.py`. Resolves CROSS_PLAN_REVIEW §4.3.
+- `src/utils/formatting.py::human_size` — canonical size formatter (§4.2). The
+  sub-MB refinement (512 KB → `512.0 KB`, was `0.5 MB`) was **accepted**; ≥1 MB
+  output is byte-identical to before.
+- `setup_freeze.py` excludes `PySide2.QtQml/QtQuick/QtQuickWidgets`. Without it
+  cx_Freeze's qtqml hook asks `QLibraryInfo` for the Qt6-only `QmlImportsPath`
+  and aborts the entire build with `KeyError` (reproduced on cx_Freeze 7.2.7 and
+  8.4.1). **Do not remove.** `tests/manual/test_freeze_smoke.py` verifies a real
+  build and passes.
+- `main.py` / `nuke_launcher.py` circular-import fix (see landmine above) — they
+  had been unimportable since SP2's `0767192`.
+- `MediaDisplayWidget._populate_bulk_menu` / `_dispatch_bulk_action` — one bulk
+  menu builder. **Add new bulk actions there**, not in `show_context_menu` /
+  `show_bulk_menu`.
+- The god-module split remains **deferred** (SP8 design §4.6). Keep it that way.
+
+**Git state.** `main` contains all of SP0–SP8. It has **diverged from
+`origin/main`: ahead 107, behind 1** — the 1 is merge commit `4aad404`, whose
+content is already present (both parents are in history); only the merge node is
+missing. A plain `git push` will be rejected until someone reconciles
+(`git merge origin/main`). **That reconciliation and any push are the human's
+call — do not do either unprompted.**
 
 ---
 
@@ -32,11 +99,13 @@ batches (5–11) assume the remediation batches (2–4) have landed.
 Read these before any batch, then follow the batch block.
 
 - **Method:** Invoke `superpowers:subagent-driven-development` — one fresh subagent per plan task, two-stage review between tasks, strict TDD, tasks in written order.
-- **Read first each session:** `CLAUDE.md` (stack, flat imports, tiers, landmines), the specs+plans named in the batch, and `CROSS_PLAN_REVIEW.md` §6–§7.
-- **Branch:** create a working branch off `uv` named for the batch, e.g. `git checkout -b exec/<batch>` (`exec/sp2-sp3`, `exec/ep1-ep2`, …). Confirm the previous batch's work is present on `uv` first.
+- **Read first each session:** `CLAUDE.md` (stack, flat imports, tiers, landmines), **§State on `main`** above, the specs+plans named in the batch, and `CROSS_PLAN_REVIEW.md` §6–§7.
+- **Branch:** create a working branch off **`main`** named for the batch — `git checkout -b exec/<batch>` (`exec/ep1-ep2`, `exec/ep3`, …). Confirm the previous batch is present on `main` first. (Batches 1–4 used `uv` as the base; that is historical — `main` is now the trunk.)
 - **TDD, verbatim:** failing test → confirm fail → implement → confirm pass → commit (conventional-commit messages). **Never weaken/delete a test to pass**; where a step says `xfail(strict)`, do that with the stated reason; otherwise fix the root cause.
 - **Headless:** GUI tests run with `QT_QPA_PLATFORM=offscreen`; Nuke is mocked. Python 3.9, `uv`, Windows/Linux.
-- **After each task:** `pytest -m "not manual"` green (expected xfails OK, 0 real failures). **After each sub-project:** full suite; report pass/xfail counts.
+- **Test command:** `.venv-dev\Scripts\python.exe -m pytest -m "not manual and not slow" -q` (see §State — the other envs lack `pytest-qt`).
+- **After each task:** suite green. **After each sub-project:** full suite; report pass/xfail counts. Baseline entering Batch 5 is **186 passed, 0 failed, 0 xfailed** — going below that, or introducing an unplanned xfail, is a regression to fix, not to accept.
+- **Test imports are flat** (`from ui.x import Y`, `from utils.paths import ...`) — see the import-order landmine in §State.
 - **Adapt names, don't guess:** if a plan references a local method/name that differs from the real code, read the file and adapt (plans flag these). Report anything you can't reconcile.
 - **Tracker:** tick each task box in `docs/superpowers/IMPLEMENTATION_PROGRESS.md`; set the sub-project's `Impl` to ☑ when complete.
 - **Outward-facing actions need explicit human approval:** never `git push`, open a PR, change branch protection, add a new pip dependency that downloads large artifacts, or delete/merge onto `main` without asking. Commit locally and pause.
@@ -44,62 +113,30 @@ Read these before any batch, then follow the batch block.
 
 ---
 
-## Batch 2 — SP2 + SP3 (media core)
+## Batches 2–4 — SP2…SP8 (COMPLETE)
 
-Apply §Common Execution Rules. Branch: `exec/sp2-sp3`. Confirm SP0+SP1 are landed on `uv` first (SP2 needs the consolidated DB + migration runner + `phash` column + insertion-log path).
+Landed and merged to `main`. Kept for provenance only; details in
+`IMPLEMENTATION_PROGRESS.md` and the per-SP plans.
 
-Execute in order:
-1. `docs/superpowers/plans/2026-07-22-sp2-async-pipeline.md`
-2. `docs/superpowers/plans/2026-07-22-sp3-ffmpeg-cross-platform.md`
-
-Watch-outs:
-- **SP2 rewrites `ingest_file`** (async) and wires `PreviewWorker` + `LazyGalleryView` + duplicate detection; it flips SP0's C4-related expectations. SP2's preview decode routes through `ffmpeg_wrapper` and `fileseq` (added to `pyproject.toml`) — adding `fileseq` is a normal in-plan dep (small, pure-Python); it is fine to add without a special gate.
-- **SP2 ↔ SP3 are coupled on `ffmpeg_wrapper.py`.** SP2 uses it; SP3 makes it cross-platform (H4) + adds timeouts/pipe/palette fixes. Do SP2 first per the plan, then SP3; when SP3 lands, re-run SP2's ffmpeg-touching tests to confirm still green on this platform.
-- SP2's `ingest_file` is later layered by EP4/EP6/EP7 — leave the hook points clean.
-
-Done when: async ingest/preview live and non-blocking, lazy gallery in use, dedup wired; `ffmpeg_wrapper` selects binaries by platform with timeouts and no ffplay pipe deadlock; full suite green.
-
----
-
-## Batch 3 — SP4 + SP5 (security + Nuke)
-
-Apply §Common Execution Rules. Branch: `exec/sp4-sp5`. Confirm SP0–SP3 landed.
-
-Execute in order:
-1. `docs/superpowers/plans/2026-07-22-sp4-security-hardening.md`
-2. `docs/superpowers/plans/2026-07-22-sp5-nuke-integration.md`
-
-Watch-outs:
-- **Both edit `tools/stax_cli.py`:** SP4 (L9: HTTPS + `STAX_API_TOKEN`) and SP5 (L7: remove `urllib2` shim). Do SP4's change first, then SP5's shim removal on top — reconcile in one file, don't clobber.
-- **SP5 also removes Py2 shims in `file_lock.py`/`nuke_bridge.py`** which SP1/SP2 already touched — rebase onto their current state.
-- **SP4 defers two items to SP6 (Batch 4):** the forced-password-reset dialog (`must_change_password`) and the GeometryViewer `closeEvent` wiring. Leave the DB flag/allow-list in place; SP6 adds the UI.
-- SP4 password change is **pbkdf2_hmac (stdlib)** — no new dependency. C2 hooks are **restricted to an admin dir**, not sandboxed/Pyblish. C3 pins+checksums the ffmpeg download.
-
-Done when: pbkdf2 auth + no default admin, restricted processor hooks, checksummed/ sanitized installer download, GeometryViewer allow-list + shutdown, constant-time API token + ingest allow-list, HTTPS CLI; Nuke menu targets the live panel singleton, DebugManager no longer swallows stderr, `init.py` uses absolute paths, `nuke_bridge_patch.py` deleted, Py2 claims/shims gone. Full suite green.
+- **Batch 2 — SP2 + SP3:** async ingest/preview (`IngestWorker`, `PreviewWorker`,
+  `LazyGalleryView`), dedup wired, `fileseq` frame ranges; `ffmpeg_wrapper`
+  platform binary selection + timeouts + no ffplay pipe deadlock.
+- **Batch 3 — SP4 + SP5:** pbkdf2 auth, no default admin, path-restricted
+  processor hooks, checksummed ffmpeg download, GeometryViewer allow-list,
+  constant-time API token, HTTPS CLI; Nuke panel singleton, scoped DebugManager,
+  absolute plugin paths, Py2 shims gone.
+- **Batch 4 — SP6 + SP7 + SP8:** the seven UI-correctness bugs + batch-edit
+  wiring + SP4's deferred forced-reset/`closeEvent` handoff; cx_Freeze-only
+  packaging with per-user rotating logs and a single version source; shared
+  `resolve_path`/`human_size`/palette/bulk-menu extraction and L4 logging. Plus
+  the three out-of-plan fixes recorded in §State (cx_Freeze QML exclusion,
+  entry-point circular import, stale `StaX.spec`).
 
 ---
 
-## Batch 4 — SP6 + SP7 + SP8 (finalize remediation)
+## Batch 5 — EP1 + EP2 (enhancement foundation) ← **NEXT**
 
-Apply §Common Execution Rules. Branch: `exec/sp6-sp7-sp8`. Confirm SP0–SP5 landed.
-
-Execute in order:
-1. `docs/superpowers/plans/2026-07-22-sp6-ui-correctness.md`
-2. `docs/superpowers/plans/2026-07-22-sp7-packaging.md`
-3. `docs/superpowers/plans/2026-07-22-sp8-code-quality.md`
-
-Watch-outs:
-- **SP6 picks up SP4's deferred UI:** wire the forced-password-reset dialog and the GeometryViewer `closeEvent` here if the SP6 plan includes them; if not, add them as small follow-on tasks referencing SP4.
-- **SP7 packaging:** converge on **cx_Freeze**, delete the PyInstaller specs and `tools/build_installer.py`, single-source the version, fix the `.ico`, move logs/config to per-user dirs. **Rename SP7's app-dirs module to `src/utils/appdirs.py`** (not `src/paths.py`) to avoid clashing with SP8's `src/utils/paths.py` (per CROSS_PLAN_REVIEW §4.3). SP7 changes `pyproject.toml`'s build system — merge carefully; re-run SP0's CI locally after.
-- **SP8 code quality:** when creating the shared size formatter, put it at **`src/utils/formatting.py::human_size`** (the canonical home per CROSS_PLAN_REVIEW §4.2); **keep the media_display_widget god-module split DEFERRED** (SP8 already scoped it out) so it doesn't collide with the EP work.
-
-Done when: UI correctness bugs fixed, one packager with per-user writable logs and single version source, shared utils extracted with exceptions→logging. Full suite green. **Remediation complete** — report and wait before starting enhancements.
-
----
-
-## Batch 5 — EP1 + EP2 (enhancement foundation)
-
-Apply §Common Execution Rules. Branch: `exec/ep1-ep2`. Confirm remediation (SP0–SP8, at least SP1+SP6) landed.
+Apply §Common Execution Rules and §State on `main`. Branch: `exec/ep1-ep2`.
 
 Execute in order:
 1. `docs/superpowers/plans/2026-07-23-ep1-curation-primitives.md`
@@ -109,8 +146,11 @@ Watch-outs:
 - Both add tabs to `settings_panel.py` — the real signature is `SettingsPanel(config, db_manager, main_window=None, parent=None)` (already corrected in the plans). Append each tab in `setup_ui`.
 - EP2's query builder + facets **consume EP1's `rating`/`label_fk` columns** — do EP1 first.
 - EP2 adds `recent_searches`; EP9 later adds `search_events` for analytics. Optional convergence noted in CROSS_PLAN_REVIEW §4.4 — fine to leave separate for now.
+- **Schema changes go through SP1's versioned migration runner** in `src/db_manager.py` — add a new numbered migration, never hand-edit `_create_schema` alone, and never target the orphaned capitalized `Stacks`/`Elements` tables.
+- **New bulk/context actions go in `MediaDisplayWidget._populate_bulk_menu` + `_dispatch_bulk_action`** (SP8), not in the two menu methods.
+- Admin gating currently uses the binary `check_admin_permission`; EP8 later replaces it with granular roles behind a shim. Use `check_admin_permission` now.
 
-Done when: team ratings + admin label palette + action tray + empty states live; faceted drawer/chips/count, saved searches, smart collections, synonyms/fuzzy/recent working. Full suite green.
+Done when: team ratings + admin label palette + action tray + empty states live; faceted drawer/chips/count, saved searches, smart collections, synonyms/fuzzy/recent working. Full suite green (≥186 passed, 0 failed, no new xfail).
 
 ---
 
@@ -201,16 +241,86 @@ Execute: `docs/superpowers/plans/2026-07-23-ep9-analytics-dashboards.md`
 
 Watch-outs:
 - EP9 extends the existing `AnalyticsPanel` and reuses its `_BarChart` — **no plotting libraries**.
-- Ships only dashboards whose data exists (top-used, search success, storage hygiene). **No dead panels** — ingest-throughput (needs EP6) and review-cycle (EP5, cancelled) stay deferred.
+- Ships only dashboards whose data exists (top-used, search success, storage hygiene). **No dead panels** — ingest-throughput (needs EP6) and review-cycle (needs EP5, which is unplanned) stay deferred.
 - Optionally converge EP2 `recent_searches` + EP9 `search_events` into one search-log write path (§4.4) — not required.
 
-Done when: top-used, search-success, and storage-hygiene dashboards + CSV export live. Full suite green. **Enhancement program complete** (EP5 was cancelled).
+Done when: top-used, search-success, and storage-hygiene dashboards + CSV export live. Full suite green. **Enhancement program complete** as scoped (EP5 remains unplanned — see "Final state" below).
 
 ---
 
 ## Final state after all batches
 
 Remediation SP0–SP8 and enhancements EP1–EP4, EP6–EP9 implemented, each on its
-`exec/*` branch, merged into `uv` in order (merges gated on human approval).
-EP5 is intentionally not built. Keep `IMPLEMENTATION_PROGRESS.md` current as the
-single source of truth.
+`exec/*` branch, merged into `main` in order (merges gated on human approval).
+Keep `IMPLEMENTATION_PROGRESS.md` current as the single source of truth.
+
+**EP5 (Review, notes & approval) has no spec and no plan.** This document
+previously called it "cancelled" while `IMPLEMENTATION_PROGRESS.md` calls it
+"deferred by request — resume its brainstorm when ready." Treat it as
+**deferred, not cancelled**: it is simply not in any batch, and building it
+would need a brainstorm + spec + plan first. EP9 correspondingly defers the
+review-cycle dashboard (F062).
+
+---
+
+## Ready-to-copy prompt — Batch 5 (EP1 + EP2)
+
+Paste the block below verbatim into a fresh Claude Code session opened at
+`e:\Scripts\Stax`.
+
+````text
+Execute Batch 5 (EP1 + EP2) of the StaX enhancement program.
+
+Read these first, in this order, before doing anything else:
+1. CLAUDE.md
+2. docs/superpowers/HANDOVER-REMAINING.md — especially "§State on main" and
+   "§Common Execution Rules"
+3. docs/superpowers/CROSS_PLAN_REVIEW.md §6-§7
+4. docs/superpowers/specs/2026-07-23-ep1-curation-primitives-design.md
+5. docs/superpowers/plans/2026-07-23-ep1-curation-primitives.md
+6. docs/superpowers/specs/2026-07-23-ep2-search-discovery-design.md
+7. docs/superpowers/plans/2026-07-23-ep2-search-discovery.md
+
+Method: use the superpowers:subagent-driven-development skill — one fresh
+subagent per plan task, strict TDD (failing test -> confirm red -> implement ->
+confirm green -> conventional commit), tasks in written order. Never weaken or
+delete a test to make it pass.
+
+Setup:
+- Branch off main: git checkout -b exec/ep1-ep2
+- Test command (the repo's .venv does NOT have pytest-qt; do not `uv sync` it):
+      .venv-dev\Scripts\python.exe -m pytest -m "not manual and not slow" -q
+  If .venv-dev is missing, create it:
+      uv venv --python 3.9 .venv-dev
+      uv pip install --python .venv-dev\Scripts\python.exe -e ".[dev,build]"
+- Baseline is 186 passed, 0 failed, 0 xfailed. Anything below that, or any new
+  unplanned xfail, is a regression to fix — not to accept.
+
+Order: EP1 fully (9 tasks), then EP2 (13 tasks). EP2's query builder and facets
+consume EP1's rating/label_fk columns, so EP1 must land first.
+
+Repo-specific rules that override habit:
+- Tests import flat: `from ui.media_display_widget import MediaDisplayWidget`,
+  `from utils.paths import resolve_path`. Importing `src.ui.*` in a test that
+  runs standalone raises a circular-import ImportError.
+- Schema changes go through the versioned migration runner in src/db_manager.py
+  as a new numbered migration. Never target the orphaned capitalized
+  Stacks/Elements/InsertionLog tables — the live schema is lowercase.
+- New bulk/context menu actions go in MediaDisplayWidget._populate_bulk_menu and
+  _dispatch_bulk_action, not in show_context_menu / show_bulk_menu.
+- SettingsPanel(config, db_manager, main_window=None, parent=None) — append new
+  tabs inside setup_ui.
+- Admin gating uses check_admin_permission for now (EP8 later swaps in granular
+  roles behind a shim).
+- Use logging, never print. Keep the media_display_widget god-module split
+  deferred.
+- Do not remove the PySide2.QtQml/QtQuick excludes in setup_freeze.py — they are
+  what keeps the cx_Freeze build from aborting.
+
+Tracker: tick each task box in docs/superpowers/IMPLEMENTATION_PROGRESS.md and
+set the EP's Impl to done when it is complete.
+
+Stop and ask before: git push, opening a PR, merging to main, adding any new pip
+dependency, or deviating from a plan step. Commit locally and pause with a
+summary between EP1 and EP2, and again at the end of the batch.
+````
