@@ -1412,6 +1412,18 @@ class MainWindow(QtWidgets.QMainWindow):
 # Entry point
 # =============================================================================
 
+def _read_stylesheet(path):
+    """Read a QSS file as UTF-8.
+
+    resources/style.qss contains UTF-8 box-drawing characters in its section
+    comments; the platform-default codec (cp1252 on Windows) can't decode them
+    ('charmap' codec can't decode byte 0x90), which silently drops the whole
+    stylesheet and leaves the app unstyled. Always decode as UTF-8.
+    """
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+
 def main():
     try:
         QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling)
@@ -1437,8 +1449,7 @@ def main():
     stylesheet_path = os.path.join(os.path.dirname(__file__), "resources", "style.qss")
     if os.path.exists(stylesheet_path):
         try:
-            with open(stylesheet_path, "r") as f:
-                stylesheet = f.read()
+            stylesheet = _read_stylesheet(stylesheet_path)
             resources_dir = os.path.join(os.path.dirname(__file__), "resources", "icons")
             unchecked_path = os.path.join(resources_dir, "unchecked.svg").replace("\\", "/")
             checked_path   = os.path.join(resources_dir, "checked.svg").replace("\\", "/")
