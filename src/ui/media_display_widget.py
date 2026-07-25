@@ -149,6 +149,17 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.ai_search_toggle.setEnabled(False)
         toolbar.addWidget(self.ai_search_toggle)
 
+        # EP7 Task 8 (F004): color-palette picker -- opens a QColorDialog and
+        # runs a dominant-color search via run_color_search. Non-AI (pure
+        # PIL/numpy, see ai/color_index.py) so this button is always enabled,
+        # unlike ai_search_toggle above which is gated on ai_enabled().
+        self.color_search_btn = QtWidgets.QPushButton("\U0001F3A8")  # palette emoji
+        self.color_search_btn.setToolTip("Search by color")
+        self.color_search_btn.setObjectName('small')
+        self.color_search_btn.setProperty('class', 'small')
+        self.color_search_btn.clicked.connect(self._on_color_search_clicked)
+        toolbar.addWidget(self.color_search_btn)
+
         # Save current search/filter as a personal saved search (EP2 Task 9).
         self.save_search_btn = QtWidgets.QPushButton("Save search…")
         self.save_search_btn.setToolTip("Save the current search/filter for quick access later")
@@ -752,6 +763,24 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             element_id, filter_spec=getattr(self, "current_filter", None))
         return self.show_ai_results(rows, "similar assets")
 
+    def run_color_search(self, rgb):
+        """EP7 Task 8 (F004): rank elements by dominant-color similarity to
+        an RGB query. Pure PIL/numpy (ai/color_index.py) -- deliberately does
+        NOT gate on ai_enabled()/self.ai_service, so it works even with no
+        embedder installed. Rendered via the same show_ai_results surface as
+        the other AI-adjacent result sets.
+        """
+        from ai.color_index import color_search
+        ranked = color_search(self.db, rgb)
+        rows = []
+        for eid, score in ranked:
+            row = self.db.get_element_by_id(eid)
+            if row:
+                row = dict(row)
+                row["score"] = score
+                rows.append(row)
+        return self.show_ai_results(rows, "color match")
+
     def run_text_search(self, text):
         """EP2 Task 12: cross-list, synonym-expanded text search.
 
@@ -882,6 +911,20 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         # into it directly, just announce that a search was saved and let
         # MainWindow wire this signal to stacks_panel.refresh_saved_searches.
         self.saved_search_created.emit()
+
+    def _on_color_search_clicked(self):
+        """EP7 Task 8 (F004): open a color picker and run a dominant-color
+        search for the chosen color.
+
+        Only runs from an explicit button click, so the modal QColorDialog
+        here is fine per the repo's modal-placement rule (see
+        _on_save_search_clicked above). Deliberately does not check
+        ai_enabled() -- color search is non-AI and always available.
+        """
+        color = QtWidgets.QColorDialog.getColor(parent=self)
+        if not color.isValid():
+            return
+        self.run_color_search((color.red(), color.green(), color.blue()))
 
     def show_empty_state(self, message=None, hint=None):
         """Clear views and display placeholder message.
