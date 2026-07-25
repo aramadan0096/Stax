@@ -3,6 +3,7 @@
 Settings Panel Widget
 """
 
+import logging
 import os
 import sys
 from PySide2 import QtWidgets, QtCore, QtGui
@@ -11,6 +12,8 @@ from src.icon_loader import get_icon, get_pixmap
 from src.preview_cache import get_preview_cache
 from src.debug_manager import DebugManager
 from src.ui.accessibility import apply_accessibility
+
+logger = logging.getLogger(__name__)
 
 
 class SettingsPanel(QtWidgets.QWidget):
@@ -86,6 +89,9 @@ class SettingsPanel(QtWidgets.QWidget):
         # profiles / action chains) — distinct name/label from the EP4
         # Automation tab above; do not merge or rename either.
         self.tab_widget.addTab(self._build_ingest_automation_tab(), "Ingest Automation")
+
+        # Tab 13: AI (EP7 local CLIP embedder status / download / reindex)
+        self.tab_widget.addTab(self._build_ai_tab(), "AI")
 
         layout.addWidget(self.tab_widget)
         
@@ -1403,6 +1409,94 @@ class SettingsPanel(QtWidgets.QWidget):
             self.db.delete_ingest_recipe(recipes[row]["recipe_id"])
             self._reload_ingest_automation()
             self.settings_changed.emit()
+
+    def _build_ai_tab(self):
+        """Build the AI tab (EP7): local CLIP embedder status, a "Download
+        model" helper (points at tools/download_clip_model.py -- no network
+        call happens from inside the GUI process), and "Reindex library"
+        which enqueues elements missing an embedding onto AiIndexWorker when
+        one is running. Every control degrades gracefully when no embedder
+        is available (no model downloaded / onnxruntime not installed) --
+        AI features are additive, color search keeps working regardless.
+        """
+        from ai.embedder import get_embedder
+        tab = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(tab)
+
+        self._ai_embedder = get_embedder(self.config)
+        self.ai_status_label = QtWidgets.QLabel()
+        self.ai_status_label.setWordWrap(True)
+        self._refresh_ai_status()
+        layout.addWidget(self.ai_status_label)
+
+        self.download_model_button = QtWidgets.QPushButton("Download model…")
+        self.download_model_button.clicked.connect(self._on_download_model)
+        layout.addWidget(self.download_model_button)
+
+        self.reindex_button = QtWidgets.QPushButton("Reindex library")
+        self.reindex_button.clicked.connect(self._on_reindex_library)
+        layout.addWidget(self.reindex_button)
+
+        layout.addStretch(1)
+        return tab
+
+    def _refresh_ai_status(self):
+        """Update ai_status_label from the current embedder + missing-embedding
+        count. Never raises -- db lookups are best-effort so a schema/DB
+        hiccup degrades to "0 pending" rather than blocking Settings.
+        """
+        emb = getattr(self, "_ai_embedder", None)
+        if emb is None:
+            self.ai_status_label.setText(
+                "AI model: <b>not installed</b> — semantic/visual/similar/auto-tag disabled. "
+                "Color search still works. Click Download model to enable AI.")
+            return
+        try:
+            missing = len(self.db.get_elements_missing_embedding(emb.id))
+        except Exception:
+            logger.exception("Failed to query elements missing embedding")
+            missing = 0
+        self.ai_status_label.setText(
+            "AI model: <b>available</b> ({}). {} asset(s) awaiting indexing.".format(
+                emb.id, missing))
+
+    def _on_download_model(self):
+        """The downloader is a CLI helper (tools/download_clip_model.py), not
+        something the GUI process runs inline -- it fetches large model
+        files over the network, which does not belong on the GUI thread.
+        This just confirms the helper is importable and tells the user how
+        to run it.
+        """
+        try:
+            import tools.download_clip_model as dl  # noqa: F401
+            QtWidgets.QMessageBox.information(
+                self, "Download model",
+                "Run: python -m tools.download_clip_model\n"
+                "Then reopen Settings → AI.")
+        except Exception:
+            logger.exception("Model downloader helper unavailable")
+            QtWidgets.QMessageBox.warning(self, "Download model",
+                                           "Downloader unavailable.")
+
+    def _on_reindex_library(self):
+        """Enqueue every element missing an embedding for the current model
+        onto the running AiIndexWorker, if any. Safe to call with no
+        embedder (no-op: nothing to enqueue) and safe to call with no worker
+        wired up (main_window creates/owns AiIndexWorker; Settings may be
+        opened standalone/in tests without one).
+        """
+        from ai.embedder import get_embedder
+        emb = get_embedder(self.config)
+        model_id = emb.id if emb else "none"
+        try:
+            ids = self.db.get_elements_missing_embedding(model_id) if emb else []
+        except Exception:
+            logger.exception("Failed to query elements missing embedding")
+            ids = []
+        worker = getattr(self, "ai_index_worker", None)
+        if worker is not None and ids:
+            worker.enqueue_many(ids)
+        self._refresh_ai_status()
 
     def browse_database_path(self):
         """Browse for database file."""
