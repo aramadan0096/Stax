@@ -1451,6 +1451,34 @@ def _read_stylesheet(path):
         return f.read()
 
 
+def _hard_exit(code):
+    """Terminate the process with ``code``, bypassing interpreter finalization.
+
+    PySide2 5.15 + QtWebEngine on Windows intermittently crash during CPython's
+    Py_FinalizeEx (the app runs and closes fine, then the shutdown itself
+    faults), surfacing as a native shutdown crash / exit code 120 even though
+    nothing went wrong. All real teardown — background threads, the REST API
+    server, the preview worker — already ran in MainWindow.closeEvent before the
+    event loop returned, so there is nothing left to finalize gracefully. Flush
+    the std streams and logging, then skip finalization on Windows (the same
+    guard tests/conftest.py and the app-launch smoke already use). Off Windows
+    there is no such crash, so exit normally and let atexit/cleanup run.
+    """
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:
+        pass
+    try:
+        logging.shutdown()
+    except Exception:
+        pass
+    if sys.platform.startswith("win"):
+        os._exit(code if isinstance(code, int) else 0)
+    else:
+        sys.exit(code)
+
+
 def main():
     try:
         QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling)
@@ -1501,7 +1529,7 @@ def main():
     # STEP 4 — Create window (palette and QSS are already in effect)
     window = MainWindow(config=config)
     window.show()
-    sys.exit(app.exec_())
+    _hard_exit(app.exec_())
 
 
 if __name__ == "__main__":
