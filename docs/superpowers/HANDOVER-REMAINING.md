@@ -375,6 +375,105 @@ Watch-outs:
 
 Done when: watch folders, recipes, queue dashboard + retry/cancel, proxy profiles, dup policies, preflight, notifications, action chains — all live. Full suite green.
 
+> **Migration numbering (all post-EP4 batches):** the runner is
+> `src/db_migrations.py` — a `_MIGRATIONS` list where index N upgrades schema
+> `N-1 → N`, gated by `CURRENT_SCHEMA_VERSION`. New tables **append** to that list
+> and bump the constant. **Read the current `CURRENT_SCHEMA_VERSION` first and
+> continue from it** — never hardcode a number from the plan. If EP6/EP7/EP8/EP9
+> are ever run in **parallel worktrees**, pre-assign disjoint version ranges per
+> branch (e.g. EP6=next 6, EP7=+2, EP8=+3, EP9=+1) so two branches never define
+> the same version, and merge them serially; two migrations at the same index is
+> a broken runner, not just a git conflict.
+
+### Ready-to-copy prompt — Batch 8 (EP6)
+
+Paste verbatim into a fresh Claude Code session opened at `e:\Scripts\Stax`.
+**Only run this after Batch 7 (EP4) has landed on `main`.**
+
+````text
+Execute Batch 8 (EP6 — ingestion automation & job queue) of the StaX enhancement
+program. One plan, 13 tasks, solo.
+
+First, confirm the prerequisites are in place:
+- EP4 must already be merged to main (EP6's ingest recipes layer on EP4's
+  ingest_file hook; its proxy profiles overlay SP2's PreviewWorker). SP2 and SP3
+  are also required and already landed. Check
+  docs/superpowers/IMPLEMENTATION_PROGRESS.md shows EP4 Impl = done. If EP4 is
+  NOT landed, STOP and tell me — do not start EP6 on top of a missing dependency.
+
+Read these first, in this order, before doing anything else:
+1. CLAUDE.md
+2. docs/superpowers/HANDOVER-REMAINING.md — especially "§State on main" and
+   "§Common Execution Rules"
+3. docs/superpowers/CROSS_PLAN_REVIEW.md §6-§7
+4. docs/superpowers/specs/2026-07-23-ep6-ingestion-automation-design.md
+5. docs/superpowers/plans/2026-07-23-ep6-ingestion-automation.md
+
+Method: use the superpowers:subagent-driven-development skill — one fresh
+subagent per plan task, strict TDD (failing test -> confirm red -> implement ->
+confirm green -> conventional commit), tasks in written order. Never weaken or
+delete a test to make it pass. 13 tasks; the plan groups them 6A queue/retry/
+notify / 6B watch/recipes/dup-policy/preflight / 6C proxy/action-chains — pause
+with a short summary at each cluster boundary.
+
+Setup:
+- Branch off main: git checkout -b exec/ep6
+- Test command (the repo's .venv does NOT have pytest-qt; do not `uv sync` it):
+      .venv-dev\Scripts\python.exe -m pytest -m "not manual and not slow" -q
+  If .venv-dev is missing, create it:
+      uv venv --python 3.9 .venv-dev
+      uv pip install --python .venv-dev\Scripts\python.exe -e ".[dev,build]"
+- Record the pass count before Task 1 and never let it drop. Any new unplanned
+  xfail is a regression to fix, not to accept.
+
+EP6-specific watch-outs:
+- NO new pip dependency. Watch folders use a STDLIB polling scanner (os.scandir
+  on a QTimer/thread) — do NOT add `watchdog`. If a task seems to want it, use
+  the polling approach the spec describes and tell me.
+- Do NOT build a second job queue. The queue dashboard WRAPS and surfaces SP2's
+  existing IngestWorker / PreviewWorker; the ingest_jobs table is a durable
+  ledger over them, not a replacement engine.
+- Ingest recipes layer on the CURRENT ingest_file, which SP2 rewrote (async) and
+  EP4 already hooked (auto-tag/fields). Read ingest_file before editing; keep the
+  recipe/proxy options additive on top — order is SP2 -> EP4 -> EP6 (§4.5).
+- Proxy/transcode profiles overlay PreviewWorker keys and run through SP3's
+  cross-platform ffmpeg_wrapper (binary-by-platform + timeouts) — reuse it, do
+  not shell out to ffmpeg directly.
+- ACTION CHAINS USE A WHITELISTED HANDLER REGISTRY, NEVER exec()/eval(). This is
+  the C2 RCE class SP4 closed — do not reopen it. Handlers are named functions
+  looked up in a dict; unknown names are rejected.
+
+Migrations (six new tables: ingest_jobs, ingest_recipes, watch_folders,
+proxy_profiles, notifications, action_chains):
+- They go through src/db_migrations.py. Read the current CURRENT_SCHEMA_VERSION,
+  append new entries to _MIGRATIONS continuing from it, and bump the constant.
+  Do NOT hardcode a version number from the plan text — it may be stale.
+- Never target the orphaned capitalized Stacks/Elements tables; live schema is
+  lowercase.
+
+Repo-specific rules that override habit:
+- Tests import flat: `from ui.media_display_widget import MediaDisplayWidget`.
+  Importing `src.ui.*` in a standalone test raises a circular-import ImportError.
+- New settings tab: SettingsPanel(config, db_manager, main_window=None,
+  parent=None) — append addTab in setup_ui with its own _build_*_tab method.
+- New docks/shortcuts append to main.py __init__/setup_menus.
+- New bulk/context actions go in MediaDisplayWidget._populate_bulk_menu /
+  _dispatch_bulk_action.
+- Admin gating uses check_admin_permission for now (EP8 later adds the granular
+  shim).
+- Use logging, never print. Keep the media_display_widget god-module split
+  deferred. Do not remove the PySide2.QtQml/QtQuick excludes in setup_freeze.py.
+
+Tracker: tick each task box in docs/superpowers/IMPLEMENTATION_PROGRESS.md and
+set EP6 Impl = done when complete.
+
+Stop and ask before: git push, opening a PR, merging to main, adding any new pip
+dependency, or deviating from a plan step. Commit locally and pause with a
+summary at each cluster boundary and at the end of the batch.
+(If you want the end-of-batch local merge pre-authorized like Batch 7 was, say
+so and I'll add the same merge-when-green block — it is NOT pre-authorized here.)
+````
+
 ---
 
 ## Batch 9 — EP7 (AI discovery, local-only, solo — adds a dependency)
