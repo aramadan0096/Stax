@@ -2822,3 +2822,68 @@ class DatabaseManager(object):
             conn.cursor().execute(
                 "DELETE FROM element_relationships WHERE rel_id = ?", (rel_id,))
 
+    # ======================
+    # INGEST JOB LEDGER (EP6)
+    # ======================
+
+    _FINISHED_JOB_STATES = ("done", "skipped", "cancelled")
+
+    def create_job(self, kind, source_path, target_list_id=None, recipe_id=None,
+                   payload=None, status="pending"):
+        import json
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO ingest_jobs (kind, source_path, target_list_id, recipe_id, "
+                "status, payload_json) VALUES (?, ?, ?, ?, ?, ?)",
+                (kind, source_path, target_list_id, recipe_id, status,
+                 json.dumps(payload) if payload is not None else None))
+            return cur.lastrowid
+
+    def _row_to_job(self, row):
+        import json
+        d = dict(row)
+        d["payload"] = json.loads(d["payload_json"]) if d.get("payload_json") else None
+        return d
+
+    def get_job(self, job_id):
+        with self.get_connection(write=False) as conn:
+            row = conn.execute("SELECT * FROM ingest_jobs WHERE job_id = ?", (job_id,)).fetchone()
+            return self._row_to_job(row) if row else None
+
+    def get_jobs(self, status=None, limit=200):
+        with self.get_connection(write=False) as conn:
+            if status:
+                rows = conn.execute(
+                    "SELECT * FROM ingest_jobs WHERE status = ? ORDER BY job_id LIMIT ?",
+                    (status, limit)).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM ingest_jobs ORDER BY job_id LIMIT ?", (limit,)).fetchall()
+            return [self._row_to_job(r) for r in rows]
+
+    def update_job_status(self, job_id, status, message=None):
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "UPDATE ingest_jobs SET status = ?, message = ?, "
+                "updated_at = CURRENT_TIMESTAMP WHERE job_id = ?",
+                (status, message, job_id))
+
+    def bump_job_attempt(self, job_id):
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "UPDATE ingest_jobs SET attempts = attempts + 1, status = 'running', "
+                "updated_at = CURRENT_TIMESTAMP WHERE job_id = ?", (job_id,))
+
+    def count_jobs_by_status(self):
+        with self.get_connection(write=False) as conn:
+            return {r[0]: r[1] for r in conn.execute(
+                "SELECT status, COUNT(*) FROM ingest_jobs GROUP BY status").fetchall()}
+
+    def clear_finished_jobs(self):
+        placeholders = ",".join("?" for _ in self._FINISHED_JOB_STATES)
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "DELETE FROM ingest_jobs WHERE status IN ({})".format(placeholders),
+                list(self._FINISHED_JOB_STATES))
+

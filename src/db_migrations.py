@@ -16,7 +16,7 @@ import logging
 log = logging.getLogger(__name__)
 
 # Bump this every time a new _migrate_vN is appended below.
-CURRENT_SCHEMA_VERSION = 12
+CURRENT_SCHEMA_VERSION = 13
 
 # Default color-label palette (EP1). Seed order defines labels.sort_order.
 DEFAULT_LABELS = [
@@ -317,6 +317,30 @@ def _migrate_v12(conn):
     conn.commit()
 
 
+def _migrate_v13(conn):
+    """v12 -> v13: create ingest_jobs table for the durable ingestion-automation
+    job ledger (EP6)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ingest_jobs (
+            job_id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind           TEXT NOT NULL DEFAULT 'ingest',
+            source_path    TEXT,
+            target_list_id INTEGER,
+            recipe_id      INTEGER,
+            status         TEXT NOT NULL DEFAULT 'pending',
+            message        TEXT,
+            attempts       INTEGER NOT NULL DEFAULT 0,
+            payload_json   TEXT,
+            created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    log.info("Migration v13: created ingest_jobs table")
+    conn.commit()
+
+
 # Index N upgrades schema version N-1 -> N.
 _MIGRATIONS = [
     None,          # index 0 — unused placeholder
@@ -332,6 +356,7 @@ _MIGRATIONS = [
     _migrate_v10,  # 9 -> 10
     _migrate_v11,  # 10 -> 11
     _migrate_v12,  # 11 -> 12
+    _migrate_v13,  # 12 -> 13
 ]
 
 
