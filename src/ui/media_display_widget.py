@@ -70,10 +70,12 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         
         # Search bar with tag filtering support
         search_container = QtWidgets.QWidget()
+        search_container.setObjectName("search_container")
         search_layout = QtWidgets.QVBoxLayout(search_container)
         search_layout.setContentsMargins(0, 0, 0, 0)
         
         self.search_box = QtWidgets.QLineEdit()
+        self.search_box.setObjectName("media_search_box")
         self.search_box.setPlaceholderText("Search elements... (use #tag or tag:fire for tag filtering)")
         self.search_box.textChanged.connect(self.on_search)
         search_layout.addWidget(self.search_box)
@@ -124,9 +126,11 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         
         # Main content container - stacks empty state and views
         self.content_stack = QtWidgets.QStackedWidget()
+        self.content_stack.setObjectName("media_content_stack")
         
         # Empty state container with icon and text (index 0)
         self.empty_state_widget = QtWidgets.QWidget()
+        self.empty_state_widget.setObjectName("empty_state_widget")
         empty_state_layout = QtWidgets.QVBoxLayout(self.empty_state_widget)
         empty_state_layout.setAlignment(QtCore.Qt.AlignCenter)
         
@@ -160,14 +164,17 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         
         # Views container (index 1)
         views_widget = QtWidgets.QWidget()
+        views_widget.setObjectName("media_views_widget")
         views_layout = QtWidgets.QVBoxLayout(views_widget)
         views_layout.setContentsMargins(0, 0, 0, 0)
         
         # Stacked widget for different views
         self.view_stack = QtWidgets.QStackedWidget()
+        self.view_stack.setObjectName("media_view_stack")
         
         # Gallery view (grid of thumbnails with drag & drop)
         self.gallery_view = DragGalleryView(self.db, self.config, self.nuke_bridge)
+        self.gallery_view.setObjectName("gallery_view")
         self.gallery_view.setViewMode(QtWidgets.QListView.IconMode)
         self.gallery_view.setResizeMode(QtWidgets.QListView.Adjust)
         self.gallery_view.setIconSize(QtCore.QSize(256, 256))
@@ -181,6 +188,7 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         
         # List view (table)
         self.table_view = QtWidgets.QTableWidget()
+        self.table_view.setObjectName("media_table_view")
         self.table_view.setColumnCount(6)
         self.table_view.setHorizontalHeaderLabels(['Name', 'Format', 'Frames', 'Type', 'Size', 'Comment'])
         self.table_view.horizontalHeader().setStretchLastSection(True)

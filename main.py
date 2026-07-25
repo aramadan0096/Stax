@@ -36,6 +36,7 @@ from src.nuke_bridge import NukeBridge, NukeIntegration
 from src.extensibility_hooks import ProcessorManager
 from src.icon_loader import get_icon
 from src.dark_palette import apply_dark_palette
+from src.window_chrome import set_windows_title_bar_color
 from src.video_player_widget import VideoPlayerWidget
 
 try:
@@ -110,6 +111,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._suspend_tag_restore = False
         self.current_user = None
         self.is_admin = False
+        self._title_bar_color_applied = False
 
         self.setWindowTitle("Stax")
         self.resize(1400, 800)
@@ -203,6 +205,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def setup_ui(self):
         central = QtWidgets.QWidget()
+        central.setObjectName("app_root")
         self.setCentralWidget(central)
         layout = QtWidgets.QHBoxLayout(central)
         layout.setContentsMargins(5, 5, 5, 5)
@@ -210,6 +213,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setup_toolbar()
 
         self.main_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        self.main_splitter.setObjectName("main_splitter")
         self.main_splitter.setChildrenCollapsible(False)
         self.main_splitter.setHandleWidth(6)
 
@@ -805,6 +809,12 @@ class MainWindow(QtWidgets.QMainWindow):
         if _API_SERVER_AVAILABLE:
             shutdown_api_server()
         super(MainWindow, self).closeEvent(event)
+
+    def showEvent(self, event):
+        super(MainWindow, self).showEvent(event)
+        if not self._title_bar_color_applied:
+            set_windows_title_bar_color(self, "#000000", "#ffffff")
+            self._title_bar_color_applied = True
 
 
 # =============================================================================
