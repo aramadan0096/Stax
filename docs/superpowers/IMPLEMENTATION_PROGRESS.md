@@ -170,7 +170,7 @@ Feature-expansion program derived from [`STAX_FEATURE_ENHANCEMENT_REPORT.md`](..
 | EP6 | Ingestion automation & job queue | ☑ | ☑ | ☑ | F031–F040 |
 | EP7 | AI discovery (local-only) | ☑ | ☑ | ☑ | F001–F004 (+auto-tag) |
 | EP8 | Team collaboration (sync first) | ☑ | ☑ | ☑ | F041–F043 |
-| EP9 | Analytics & ops dashboards | ☑ | ☑ | ☐ | F059, F060, F063 |
+| EP9 | Analytics & ops dashboards | ☑ | ☑ | ☑ | F059, F060, F063 |
 
 > **EP5 (Review, notes & approval) is the only remaining unplanned EP** — deferred by request; resume its brainstorm when ready. EP6–EP9 were batch-drafted with locked decisions (EP6 polling watch-folders + wraps SP2 workers; EP7 local-only AI; EP8 metadata-sync-first, bridges deferred; EP9 available-data dashboards).
 
@@ -391,6 +391,34 @@ working. **Local merge NOT yet performed — pending human decision** (not pre-a
 
 ### EP9 — Analytics & ops dashboards
 Spec: [`specs/…-ep9-analytics-dashboards-design.md`](specs/2026-07-23-ep9-analytics-dashboards-design.md) · Plan: [`plans/…-ep9-analytics-dashboards.md`](plans/2026-07-23-ep9-analytics-dashboards.md) · **Depends on SP1 (+EP2/EP4).** Extends `AnalyticsPanel` (reuses `_BarChart`, no plotting libs) with Search + Storage tabs (`search_events` table, `get_storage_stats`/`get_duplicate_stats`). F061 (ingest throughput→EP6) / F062 (review cycle→EP5) / F064 (underused) deferred.
+
+- [x] Task 1 — `search_events` table (migration **v25**) + `log_search_event`/`get_search_success_stats`/`get_zero_result_queries`
+- [x] Task 2 — `MediaDisplayWidget._log_search` + wire into `run_text_search` (before the zero-result early-return; uses `_current_user_name()`)
+- [x] Task 3 — Search analytics tab (`_search_summary`/`_zero_table`) + `_export_search_csv`
+- [x] Task 4 — `get_storage_stats` + `get_duplicate_stats` (exact-phash clustering, reclaimable bytes)
+- [x] Task 5 — Storage hygiene tab + static `_fmt_bytes` + `_export_storage_csv`
+- [x] Task 6 — F059 top-used-assets headless render test (verifies SP1 `insertion_log` renders end-to-end; no production change needed)
+
+**EP9 complete** (Batch 11, branch `exec/ep9`): 6/6 tasks, each strict-TDD + reviewed, plus a whole-branch
+review (READY TO MERGE — Yes, no Critical/Important findings). Suite **562 passed / 0 failed / 0 xfailed**
+(branch point 551). One new migration **v25** (`CURRENT_SCHEMA_VERSION` 24→25) via `src/db_migrations.py` —
+**no new pip dependency, no plotting library**; reused the existing `_BarChart` + `QTableWidget`. All stat
+computation lives on `DatabaseManager` (Qt-free, unit-tested); `AnalyticsPanel` stays a thin view; both new
+dashboards `try/except`-guard their loaders and export CSV via the panel's existing pattern. Search logging is
+guarded so analytics can never break the search path. **Local merge NOT yet performed — pending human decision**
+(not pre-authorized for this batch; `main` also remains ahead 107 / behind 1 vs `origin/main`).
+
+> **EP9 = last EP. The enhancement program (EP1–EP9) is complete as scoped.** EP5 (Review, notes & approval)
+> was never planned — deferred by request; its review-cycle dashboard (F062) stays deferred with it. Also
+> deferred (no source data yet): F061 ingest-throughput (needs EP6 job-queue timing events) and F064 underused-
+> asset recommendations. No placeholder/dead panels were shipped.
+
+> **Known EP9 follow-ups** (deliberate, non-blocking): the "Top N assets" spinner also caps the zero-result-query
+> list length (shared control, cosmetic); `get_duplicate_stats` clusters in Python over all `(phash, file_size)`
+> rows (fine at beta scale; a `GROUP BY phash HAVING COUNT(*)>1` aggregation is the sub-quadratic follow-on);
+> exact-phash clustering only (near-dup Hamming clustering is a follow-on, per spec §2); `search_events` has no
+> prune/cap yet (mirrors `recent_searches` if needed). EP2's `recent_searches` ↔ EP9's `search_events`
+> convergence (§4.4) intentionally left separate — result-count analytics needs its own table.
 
 > **Cross-note (EP7 dependency):** EP7 adds `onnxruntime` — the **only new heavy pip dependency** in the whole enhancement program — plus a first-run model download. Every AI path guards for a missing embedder and degrades gracefully, so the rest of StaX is unaffected if it's not installed.
 > **Cross-note (EP8 ↔ admin gating):** EP8's granular `has_permission`/`check_permission` supersede the binary `check_admin_permission` used by EP1/EP2/EP4/EP6 admin-gated surfaces. When EP8 lands, migrate those surfaces to the granular gate (a `check_admin_permission` shim mapping to `can_manage_*` keeps them working in the interim).
