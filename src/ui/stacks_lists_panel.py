@@ -41,6 +41,7 @@ class StacksListsPanel(QtWidgets.QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         # Optional lock/banner area (hidden by default) - will be shown if access restricted
         self.lock_banner = QtWidgets.QWidget()
+        self.lock_banner.setObjectName("lock_banner")
         self.lock_banner.setVisible(False)
         lb_layout = QtWidgets.QHBoxLayout(self.lock_banner)
         lb_layout.setContentsMargins(8, 6, 8, 6)
@@ -56,39 +57,46 @@ class StacksListsPanel(QtWidgets.QWidget):
         
         # Title
         title = QtWidgets.QLabel("Navigation")
+        title.setObjectName("nav_title")
         title.setStyleSheet("font-weight: bold; font-size: 14px; padding: 5px;")
         title.setProperty("class", "title")
         layout.addWidget(title)
         
         # Separator between navigation title and playlists
         separator = QtWidgets.QFrame()
+        separator.setObjectName("nav_separator")
         separator.setFrameShape(QtWidgets.QFrame.HLine)
         separator.setFrameShadow(QtWidgets.QFrame.Sunken)
         layout.addWidget(separator)
         
         # Main splitter between playlists/stacks and tags
         self.main_splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
+        self.main_splitter.setObjectName("nav_main_splitter")
         self.main_splitter.setChildrenCollapsible(False)
         layout.addWidget(self.main_splitter)
         
         # Top container with playlists and stacks (using nested splitter)
         top_container = QtWidgets.QWidget()
+        top_container.setObjectName("nav_top_container")
         top_layout = QtWidgets.QVBoxLayout(top_container)
         top_layout.setContentsMargins(0, 0, 0, 0)
         
         # Splitter between playlists and stacks tree
         self.nav_splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
+        self.nav_splitter.setObjectName("nav_section_splitter")
         self.nav_splitter.setChildrenCollapsible(False)
         top_layout.addWidget(self.nav_splitter)
         
         # --- Playlists container ---
         playlists_container = QtWidgets.QWidget()
+        playlists_container.setObjectName("playlists_container")
         playlists_layout = QtWidgets.QVBoxLayout(playlists_container)
         playlists_layout.setContentsMargins(0, 0, 0, 0)
         playlists_layout.setSpacing(6)
         
         playlists_header = QtWidgets.QHBoxLayout()
         playlists_label = QtWidgets.QLabel("Playlists")
+        playlists_label.setObjectName("section_header")
         playlists_label.setStyleSheet("font-weight: bold; padding: 5px;")
         playlists_header.addWidget(playlists_label)
         
@@ -102,6 +110,7 @@ class StacksListsPanel(QtWidgets.QWidget):
         playlists_layout.addLayout(playlists_header)
         
         self.playlists_list = QtWidgets.QListWidget()
+        self.playlists_list.setObjectName("playlists_list")
         self.playlists_list.setMaximumHeight(200)
         self.playlists_list.itemClicked.connect(self.on_playlist_clicked)
         playlists_layout.addWidget(self.playlists_list)
@@ -110,20 +119,24 @@ class StacksListsPanel(QtWidgets.QWidget):
         
         # --- Stacks container ---
         stacks_container = QtWidgets.QWidget()
+        stacks_container.setObjectName("stacks_container")
         stacks_layout = QtWidgets.QVBoxLayout(stacks_container)
         stacks_layout.setContentsMargins(0, 0, 0, 0)
         stacks_layout.setSpacing(6)
         
         separator2 = QtWidgets.QFrame()
+        separator2.setObjectName("stacks_separator")
         separator2.setFrameShape(QtWidgets.QFrame.HLine)
         separator2.setFrameShadow(QtWidgets.QFrame.Sunken)
         stacks_layout.addWidget(separator2)
         
         stacks_label = QtWidgets.QLabel("Stacks & Lists")
+        stacks_label.setObjectName("section_header")
         stacks_label.setStyleSheet("font-weight: bold; padding: 5px;")
         stacks_layout.addWidget(stacks_label)
         
         self.tree = QtWidgets.QTreeWidget()
+        self.tree.setObjectName("stacks_tree")
         self.tree.setHeaderHidden(True)
         self.tree.setColumnCount(1)
         self.tree.itemClicked.connect(self.on_item_clicked)
@@ -159,20 +172,24 @@ class StacksListsPanel(QtWidgets.QWidget):
 
         # Tags filter section (in its own container)
         tags_container = QtWidgets.QWidget()
+        tags_container.setObjectName("tags_container")
         tags_layout = QtWidgets.QVBoxLayout(tags_container)
         tags_layout.setContentsMargins(0, 0, 0, 0)
         tags_layout.setSpacing(6)
         
         separator3 = QtWidgets.QFrame()
+        separator3.setObjectName("tags_separator")
         separator3.setFrameShape(QtWidgets.QFrame.HLine)
         separator3.setFrameShadow(QtWidgets.QFrame.Sunken)
         tags_layout.addWidget(separator3)
         
         tags_label = QtWidgets.QLabel("Tags Filter")
+        tags_label.setObjectName("section_header")
         tags_label.setStyleSheet("font-weight: bold; padding: 5px;")
         tags_layout.addWidget(tags_label)
 
         self.tags_list = QtWidgets.QListWidget()
+        self.tags_list.setObjectName("tags_list")
         self.tags_list.setSelectionMode(QtWidgets.QAbstractItemView.MultiSelection)
         self.tags_list.itemSelectionChanged.connect(self.on_tags_selection_changed)
         tags_layout.addWidget(self.tags_list)
