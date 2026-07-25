@@ -18,6 +18,33 @@ import os
 import sys
 import logging
 
+
+def _import_pyside2_quietly():
+    """Import PySide2 with the harmless C-level NumPy ABI notice suppressed.
+
+    PySide2 5.15's shiboken2 binding was built against NumPy 1.x; with NumPy 2
+    installed it writes "A module that was compiled using NumPy 1.x ..." straight
+    to stderr on first import. It is not a Python warning (warnings filters can't
+    catch it) and is unavoidable here (NumPy-2-built opencv needs NumPy 2, so no
+    single version satisfies both). The app runs correctly regardless, so silence
+    that one C-level write at the fd level, then let every later `from PySide2
+    import ...` reuse the cached, already-imported module.
+    """
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    saved_stderr_fd = os.dup(2)
+    try:
+        sys.stderr.flush()
+        os.dup2(devnull, 2)
+        import PySide2.QtCore  # noqa: F401  — triggers the one-time notice
+    finally:
+        sys.stderr.flush()
+        os.dup2(saved_stderr_fd, 2)
+        os.close(devnull)
+        os.close(saved_stderr_fd)
+
+
+_import_pyside2_quietly()
+
 import dependency_bootstrap
 dependency_bootstrap.bootstrap()
 
