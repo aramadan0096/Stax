@@ -30,6 +30,7 @@ except ImportError:                       # graceful degradation
 
 from src.preview_worker import get_preview_queue, PreviewJob
 from src.duplicate_detection import compute_phash, find_duplicates
+from src.ingest_automation import resolve_duplicate_action, run_action_chain
 
 
 def parse_frame_range(range_str):
@@ -802,23 +803,30 @@ class IngestionCore(object):
                     self.preview_dir, "{}_{}.mp4".format(target_list_id, element_hash)))
 
             # ---- Duplicate detection (before DB insert) ----
+            pending_version_of = None
             phash = None
             if self.config.get('dedup_enabled', True):
                 phash = compute_phash(filepath_soft or source_path)
-                # Only run the O(n) duplicate scan when its result will
-                # actually be used (i.e. skip-duplicates is enabled).
-                # phash is still computed/stored unconditionally below.
-                if phash and self.config.get('dedup_skip_duplicates', False):
-                    dupes = find_duplicates(
-                        self.db, phash,
-                        threshold=int(self.config.get('dedup_threshold', 8)))
-                    if dupes:
-                        self.db.log_ingestion(
-                            action='ingest', source_path=source_path,
-                            target_list=target_list['name'], status='skipped',
-                            message='Duplicate of element {}'.format(dupes[0].get('element_id')))
-                        return {'success': False, 'reason': 'duplicate_skipped',
-                                'message': 'Skipped — duplicate of existing asset.'}
+                if phash:
+                    policy = self.config.get('duplicate_policy')
+                    if policy is None:
+                        # Preserve legacy behavior when no EP6 policy is set.
+                        policy = 'skip' if self.config.get('dedup_skip_duplicates', False) else 'allow'
+                    if policy in ('skip', 'ask', 'version'):
+                        dupes = find_duplicates(
+                            self.db, phash,
+                            threshold=int(self.config.get('dedup_threshold', 8)))
+                        action = resolve_duplicate_action(policy, dupes)
+                        if action in ('skip', 'ask'):    # unattended 'ask' == skip
+                            self.db.log_ingestion(
+                                action='ingest', source_path=source_path,
+                                target_list=target_list['name'], status='skipped',
+                                message='Duplicate of element {}'.format(
+                                    dupes[0].get('element_id') if dupes else '?'))
+                            return {'success': False, 'reason': 'duplicate_skipped',
+                                    'message': 'Skipped — duplicate of existing asset.'}
+                        if action == 'version' and dupes:
+                            pending_version_of = dupes[0].get('element_id')
 
             element_id = self.db.create_element(
                 list_id=target_list_id,
@@ -893,7 +901,20 @@ class IngestionCore(object):
                     'filepath_soft': filepath_soft,
                     'filepath_hard': filepath_hard
                 })
-            
+
+            # ---- Action chain (F040): whitelisted post-ingest steps ----
+            steps = self.config.get('action_chain_steps')
+            if steps:
+                run_action_chain(steps, context={
+                    'db': self.db, 'element_id': element_id, 'config': self.config})
+
+            # ---- Version-link to the duplicate original (EP4 relationships) ----
+            if pending_version_of and hasattr(self.db, 'add_relationship'):
+                try:
+                    self.db.add_relationship(element_id, pending_version_of, 'variant_of')
+                except Exception as exc:
+                    log.debug("version relationship failed: %s", exc)
+
             return {
                 'success': True,
                 'element_id': element_id,
