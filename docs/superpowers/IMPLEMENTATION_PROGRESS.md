@@ -169,7 +169,7 @@ Feature-expansion program derived from [`STAX_FEATURE_ENHANCEMENT_REPORT.md`](..
 | EP5 | Review, notes & approval | ☐ | ☐ | ☐ | F023–F030 |
 | EP6 | Ingestion automation & job queue | ☑ | ☑ | ☑ | F031–F040 |
 | EP7 | AI discovery (local-only) | ☑ | ☑ | ☑ | F001–F004 (+auto-tag) |
-| EP8 | Team collaboration (sync first) | ☑ | ☑ | ☐ | F041–F043 |
+| EP8 | Team collaboration (sync first) | ☑ | ☑ | ☑ | F041–F043 |
 | EP9 | Analytics & ops dashboards | ☑ | ☑ | ☐ | F059, F060, F063 |
 
 > **EP5 (Review, notes & approval) is the only remaining unplanned EP** — deferred by request; resume its brainstorm when ready. EP6–EP9 were batch-drafted with locked decisions (EP6 polling watch-folders + wraps SP2 workers; EP7 local-only AI; EP8 metadata-sync-first, bridges deferred; EP9 available-data dashboards).
@@ -347,6 +347,47 @@ Spec: [`specs/…-ep7-ai-discovery-design.md`](specs/2026-07-23-ep7-ai-discovery
 
 ### EP8 — Team collaboration (metadata sync first)
 Spec: [`specs/…-ep8-team-collaboration-design.md`](specs/2026-07-23-ep8-team-collaboration-design.md) · Plan: [`plans/…-ep8-team-collaboration.md`](plans/2026-07-23-ep8-team-collaboration.md) · **Depends on SP1 + SP4 + EP4.** Clusters: 8A granular roles · 8B activity feed · 8C `.staxbundle` metadata/preview export-import (newest-wins). `CollaborationConnector` ABC seam; Kitsu/Ftrack/Flow/DCC (F044–F048) deferred behind it.
+
+- [x] Task 1 — `permissions.py` contract (PERMISSIONS + BUILTIN_ROLES + validators)
+- [x] Task 2 — `roles`/`role_permissions` tables + CRUD + `has_permission` (migration **v21**)
+- [x] Task 3 — `MainWindow.check_permission` granular gate (admin short-circuits)
+- [x] Task 4 — admin Roles matrix settings tab
+- [x] Task 5 — `activity_log` table + `log_activity`/`get_activity` (migration **v23**)
+- [x] Task 6 — audit hooks in `delete_element`/`update_element`/`log_ingestion` (optional actor)
+- [x] Task 7 — `ActivityPanel` dock (Ctrl+7) + main.py wiring
+- [x] Task 8 — `elements.updated_at` (migration **v24**) + UTC stamp on create/update
+- [x] Task 9 — `sync/metadata_bundle.export_list_bundle` + `read_manifest`
+- [x] Task 10 — `import_bundle` newest-`updated_at`-wins merge ({added,updated,skipped})
+- [x] Task 11 — `CollaborationConnector` ABC + registry + `LocalBundleConnector`
+- [x] Task 12 — admin Sync tab (export/import + connectors list)
+
+**EP8 complete** (Batch 10, branch `exec/ep8`): 12/12 tasks, each strict-TDD + reviewed, plus a
+whole-branch review (READY TO MERGE, no blocking findings). Suite **551 passed / 0 failed / 0 xfailed**
+(branch point 520). Four new migrations **v21–v24** (`CURRENT_SCHEMA_VERSION` 20→24). Pure Qt/DB-free
+`src/permissions.py`; new stdlib-only `src/sync/` package (`metadata_bundle.py` export/import,
+`connector.py` seam) — **no new pip dependency, no external SDK**. `has_permission` short-circuits
+`admin`→True so `check_admin_permission` (retained + intact) and every earlier EP's admin gate keep
+working. **Local merge NOT yet performed — pending human decision** (not pre-authorized for this batch;
+`main` also remains ahead 107 / behind 1 vs `origin/main`).
+
+> **EP8 human-authorized decision:** migration **v22** relaxes the `users.role CHECK(role IN ('admin','user'))`
+> constraint via a guarded, FK-safe table rebuild (DROP-then-rename-into + `PRAGMA foreign_key_check`), so
+> non-admin/user roles (reviewer/ingestor/viewer) are actually assignable. This overrides design §3.2 (which
+> deferred CHECK-widening to a future SP4 migration); escalated and approved. A first attempt corrupted
+> `user_sessions`'s FK (RENAME-away rewrote it to the dropped table) — caught in review, fixed, and locked by
+> `test_v22_users_rebuild_preserves_user_sessions_fk`.
+
+> **Known EP8 follow-ups** (deliberate, non-blocking — the running app is correct, these extend coverage):
+> the optional `actor` audit params on `delete_element`/`update_element`/`log_ingestion` are **not yet threaded
+> from production call sites** (they live in `src/ui/*` panels + `ingestion_core`/`nuke_bridge`), so the live
+> Activity feed currently records only `role_change`/`export`/`import`, not `ingest`/`delete`/`metadata_edit`
+> (design §3.2/§4.3 anticipated this lag; params default None → nothing breaks). Same category: `check_permission`
+> exists + tested but its ingest/delete/metadata-edit call sites (also in `src/ui/*` panels) are not yet switched
+> from `check_admin_permission`. `LocalBundleConnector.push/pull` and the public `seed_builtin_roles()` method are
+> unwired (intentional seam / API completeness). Sync tab export/import use raw list-ID dialogs, not a stack/list
+> tree picker. Minor: `metadata_bundle` export has a preview `os.path.exists`→`zf.write` TOCTOU (graceful skip);
+> import re-extracts previews even for skipped elements; bundle payload drops element fields outside the fixed
+> tuple (`updated_at` IS carried, so newest-wins stays correct).
 
 ### EP9 — Analytics & ops dashboards
 Spec: [`specs/…-ep9-analytics-dashboards-design.md`](specs/2026-07-23-ep9-analytics-dashboards-design.md) · Plan: [`plans/…-ep9-analytics-dashboards.md`](plans/2026-07-23-ep9-analytics-dashboards.md) · **Depends on SP1 (+EP2/EP4).** Extends `AnalyticsPanel` (reuses `_BarChart`, no plotting libs) with Search + Storage tabs (`search_events` table, `get_storage_stats`/`get_duplicate_stats`). F061 (ingest throughput→EP6) / F062 (review cycle→EP5) / F064 (underused) deferred.
