@@ -490,6 +490,13 @@ class MainWindow(QtWidgets.QMainWindow):
         view_menu.addAction(health_view_action)
         self.health_view_action = health_view_action
 
+        jobqueue_view_action = QtWidgets.QAction("Job Queue", self)
+        jobqueue_view_action.setShortcut("Ctrl+6")
+        jobqueue_view_action.setCheckable(True)
+        jobqueue_view_action.triggered.connect(self.toggle_job_queue)
+        view_menu.addAction(jobqueue_view_action)
+        self.jobqueue_view_action = jobqueue_view_action
+
         layout_menu = view_menu.addMenu("Layout")
         for preset_name in preset_names():
             act = QtWidgets.QAction(preset_name, self)
@@ -617,6 +624,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.health_view_action.setChecked(visible)
         if visible and self._current_list_id is not None:
             self.health_panel.load_list(self._current_list_id)
+
+    def toggle_job_queue(self, visible):
+        self.job_queue_dock.setVisible(visible)
+        self.jobqueue_view_action.setChecked(visible)
+        self.job_dashboard.refresh()
 
     def toggle_settings(self):
         if not self.current_user:
@@ -1141,7 +1153,14 @@ class MainWindow(QtWidgets.QMainWindow):
         interval = min((r["interval_sec"] for r in rows), default=30)
         self._watch_scanner = WatchFolderScanner(rows, interval_sec=interval)
         self._watch_scanner.files_detected.connect(self._on_watched_files)
+        self._watch_scanner.scan_error.connect(self._on_watch_scan_error)
         self._watch_scanner.start()
+
+    def _on_watch_scan_error(self, watch_id, message):
+        try:
+            self.db.add_notification("Watch folder error", message, level="error")
+        except Exception:
+            log.exception("failed to record watch scan error")
 
     def _stop_watch_scanner(self):
         """Stop the watch scanner thread (if running) and drop the reference."""
@@ -1239,6 +1258,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.stacks_panel.refresh_saved_searches()
             except Exception:
                 log.exception("Failed to refresh nav panel after settings change")
+
+        # EP6: pick up watch-folder changes made in the Settings tab
+        try:
+            self._stop_watch_scanner()
+            self._start_watch_scanner()
+        except Exception:
+            log.exception("watch scanner restart failed")
 
     def show_advanced_search(self):
         if not hasattr(self, "advanced_search_dialog") or self.advanced_search_dialog is None:
