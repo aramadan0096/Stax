@@ -2960,3 +2960,45 @@ class DatabaseManager(object):
                 "UPDATE watch_folders SET last_scan = CURRENT_TIMESTAMP WHERE watch_id = ?",
                 (watch_id,))
 
+    # ======================
+    # INGEST RECIPES (EP6)
+    # ======================
+
+    _RECIPE_FIELDS = {"name", "values_json", "sort_order"}
+
+    def create_ingest_recipe(self, name, values, sort_order=0):
+        with self.get_connection(write=True) as conn:
+            cur = conn.cursor()
+            cur.execute(
+                "INSERT INTO ingest_recipes (name, values_json, sort_order) VALUES (?, ?, ?)",
+                (name, json.dumps(values), sort_order))
+            return cur.lastrowid
+
+    def get_ingest_recipes(self):
+        with self.get_connection(write=False) as conn:
+            rows = conn.execute(
+                "SELECT * FROM ingest_recipes ORDER BY sort_order, name").fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                d["values"] = json.loads(d["values_json"])
+                out.append(d)
+            return out
+
+    def update_ingest_recipe(self, recipe_id, **fields):
+        if "values" in fields:
+            fields["values_json"] = json.dumps(fields.pop("values"))
+        updates = {k: v for k, v in fields.items() if k in self._RECIPE_FIELDS}
+        if not updates:
+            return
+        set_clause = ", ".join("{} = ?".format(k) for k in updates)
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "UPDATE ingest_recipes SET {} WHERE recipe_id = ?".format(set_clause),
+                list(updates.values()) + [recipe_id])
+
+    def delete_ingest_recipe(self, recipe_id):
+        with self.get_connection(write=True) as conn:
+            conn.cursor().execute(
+                "DELETE FROM ingest_recipes WHERE recipe_id = ?", (recipe_id,))
+

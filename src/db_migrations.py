@@ -16,7 +16,7 @@ import logging
 log = logging.getLogger(__name__)
 
 # Bump this every time a new _migrate_vN is appended below.
-CURRENT_SCHEMA_VERSION = 15
+CURRENT_SCHEMA_VERSION = 16
 
 # Default color-label palette (EP1). Seed order defines labels.sort_order.
 DEFAULT_LABELS = [
@@ -380,6 +380,23 @@ def _migrate_v15(conn):
     conn.commit()
 
 
+def _migrate_v16(conn):
+    """v15 -> v16: create ingest_recipes table for saved ingest-option
+    presets (EP6)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS ingest_recipes (
+            recipe_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT UNIQUE NOT NULL,
+            values_json TEXT NOT NULL,
+            sort_order  INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    log.info("Migration v16: created ingest_recipes table")
+    conn.commit()
+
+
 # Index N upgrades schema version N-1 -> N.
 _MIGRATIONS = [
     None,          # index 0 — unused placeholder
@@ -398,6 +415,7 @@ _MIGRATIONS = [
     _migrate_v13,  # 12 -> 13
     _migrate_v14,  # 13 -> 14
     _migrate_v15,  # 14 -> 15
+    _migrate_v16,  # 15 -> 16
 ]
 
 
