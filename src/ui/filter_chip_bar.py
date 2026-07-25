@@ -3,6 +3,8 @@
 
 from PySide2 import QtWidgets, QtCore
 
+from src.icon_loader import get_icon
+
 # clause list-keys rendered as chips: (spec_key, label_prefix)
 _CHIP_LISTS = [
     ("types", "type"), ("formats", "format"), ("formats_exclude", "not format"),
@@ -69,7 +71,11 @@ class FilterChipBar(QtWidgets.QWidget):
         self._row.addWidget(self.clear_button)
 
     def _add_chip(self, key, value, text):
-        btn = QtWidgets.QPushButton(u"{}  ✕".format(text))
+        # Icon (SVG) sits after the label: RightToLeft puts the close glyph on
+        # the trailing edge, matching the old "text  ✕" affordance.
+        btn = QtWidgets.QPushButton(text)
+        btn.setIcon(get_icon('close', size=12))
+        btn.setLayoutDirection(QtCore.Qt.RightToLeft)
         btn.clicked.connect(lambda: self.chip_removed.emit(key, value))
         self._row.addWidget(btn)
         self._chips.append(btn)

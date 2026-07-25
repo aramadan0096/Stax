@@ -155,7 +155,8 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         # runs a dominant-color search via run_color_search. Non-AI (pure
         # PIL/numpy, see ai/color_index.py) so this button is always enabled,
         # unlike ai_search_toggle above which is gated on ai_enabled().
-        self.color_search_btn = QtWidgets.QPushButton("\U0001F3A8")  # palette emoji
+        self.color_search_btn = QtWidgets.QPushButton()
+        self.color_search_btn.setIcon(get_icon('palette', size=16))
         self.color_search_btn.setToolTip("Search by color")
         self.color_search_btn.setObjectName('small')
         self.color_search_btn.setProperty('class', 'small')
