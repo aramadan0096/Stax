@@ -96,6 +96,9 @@ class SettingsPanel(QtWidgets.QWidget):
         # Tab 14: Roles (EP8 granular role -> permission matrix, admin-gated)
         self.tab_widget.addTab(self._build_roles_tab(), "Roles")
 
+        # Tab 15: Sync (EP8 metadata bundle export/import + connectors, admin-gated)
+        self.tab_widget.addTab(self._build_sync_tab(), "Sync")
+
         layout.addWidget(self.tab_widget)
         
         # Bottom buttons
@@ -1572,6 +1575,85 @@ class SettingsPanel(QtWidgets.QWidget):
             return
         self.db.create_role(name.strip())
         self._reload_roles()
+
+    def _build_sync_tab(self):
+        """Build the Sync tab (EP8): metadata bundle export/import + the
+        CollaborationConnector registry list. Export/import controls are
+        admin-gated.
+        """
+        from PySide2 import QtWidgets
+        tab = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(tab)
+        # State query only -- must NOT call check_admin_permission() here, which
+        # prompts interactively (login/denied dialogs); every other tab in this
+        # file (Labels, Search, Fields, Automation, Ingest Automation, Roles)
+        # follows this same contract for tab construction.
+        is_admin = getattr(self.main_window, "is_admin", False) if self.main_window else False
+
+        layout.addWidget(QtWidgets.QLabel("Metadata bundle export / import"))
+        btn_row = QtWidgets.QHBoxLayout()
+        self.export_bundle_button = QtWidgets.QPushButton("Export list to bundle…")
+        self.import_bundle_button = QtWidgets.QPushButton("Import bundle…")
+        self.export_bundle_button.clicked.connect(self._on_export_clicked)
+        self.import_bundle_button.clicked.connect(self._on_import_clicked)
+        for b in (self.export_bundle_button, self.import_bundle_button):
+            b.setEnabled(is_admin)
+            btn_row.addWidget(b)
+        btn_row.addStretch(1)
+        layout.addLayout(btn_row)
+
+        layout.addWidget(QtWidgets.QLabel("Connectors"))
+        self.connectors_table = QtWidgets.QTableWidget(0, 3)
+        self.connectors_table.setHorizontalHeaderLabels(["Connector", "Available", "Capabilities"])
+        layout.addWidget(self.connectors_table)
+        self._reload_connectors()
+        layout.addStretch()
+        return tab
+
+    def _reload_connectors(self):
+        from PySide2 import QtWidgets
+        from sync.connector import get_connectors
+        conns = get_connectors()
+        self.connectors_table.setRowCount(len(conns))
+        for row, c in enumerate(conns):
+            self.connectors_table.setItem(row, 0, QtWidgets.QTableWidgetItem(c.label))
+            self.connectors_table.setItem(row, 1, QtWidgets.QTableWidgetItem(
+                "yes" if c.is_available() else "no"))
+            self.connectors_table.setItem(row, 2, QtWidgets.QTableWidgetItem(
+                ", ".join(sorted(c.capabilities())) or "-"))
+
+    def _do_export(self, list_id, out_path):
+        from sync.metadata_bundle import export_list_bundle
+        site = (self.main_window.current_user or {}).get("username", "") if self.main_window else ""
+        return export_list_bundle(self.db, list_id, out_path, source_site=site)
+
+    def _do_import(self, bundle_path, target_list_id):
+        from sync.metadata_bundle import import_bundle
+        return import_bundle(self.db, bundle_path, target_list_id)
+
+    def _on_export_clicked(self):
+        from PySide2 import QtWidgets
+        list_id, ok = QtWidgets.QInputDialog.getInt(self, "Export", "List ID:")
+        if not ok:
+            return
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Export bundle", "list.staxbundle", "StaX bundle (*.staxbundle)")
+        if path:
+            self._do_export(list_id, path)
+
+    def _on_import_clicked(self):
+        from PySide2 import QtWidgets
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self, "Import bundle", "", "StaX bundle (*.staxbundle)")
+        if not path:
+            return
+        target, ok = QtWidgets.QInputDialog.getInt(self, "Import", "Target list ID:")
+        if not ok:
+            return
+        summary = self._do_import(path, target)
+        QtWidgets.QMessageBox.information(
+            self, "Import complete",
+            "Added {added}, updated {updated}, skipped {skipped}.".format(**summary))
 
     def browse_database_path(self):
         """Browse for database file."""
