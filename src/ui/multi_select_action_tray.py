@@ -46,6 +46,18 @@ class MultiSelectActionTray(QtWidgets.QWidget):
         self.delete_button   = self._add_button(row, "Delete", self.delete_requested.emit)
         self.edit_button     = self._add_button(row, "Edit…", self.edit_requested.emit)
 
+        # Reserve the tray's row *height* even while hidden, so the media view
+        # doesn't jump up/down each time the selection count crosses the
+        # 2-item threshold that toggles this bar. The horizontal policy is set
+        # to Ignored so the 8-button row's wide size hint is NOT folded into
+        # the media pane's -- and thus the window's -- minimum width (that
+        # would permanently widen the app). Height-only reservation (UI-scaling
+        # fix).
+        sp = self.sizePolicy()
+        sp.setRetainSizeWhenHidden(True)
+        sp.setHorizontalPolicy(QtWidgets.QSizePolicy.Ignored)
+        self.setSizePolicy(sp)
+
         self.hide()
 
     def _add_button(self, row, text, slot):

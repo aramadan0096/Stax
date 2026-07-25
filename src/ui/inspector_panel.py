@@ -47,11 +47,31 @@ class InspectorPanel(QtWidgets.QWidget):
         self.db = db
         self._element_id = None
 
-        form = QtWidgets.QFormLayout(self)
+        # The inspector holds many rows (Type/Format/Frames/Size + editable
+        # fields + Custom Fields group + Related list). Placed bare in the
+        # right column's vertical splitter, its content-driven minimum height
+        # (~500px) was folded into the whole window's minimum the instant a
+        # selection made the preview pane visible -- so selecting an element
+        # grew the main window. Hosting the form in a QScrollArea caps the
+        # inspector's minimum height to a small floor and lets long content
+        # scroll instead of enlarging the window (EP3/UI-scaling fix).
+        outer = QtWidgets.QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+        content = QtWidgets.QWidget()
+        form = QtWidgets.QFormLayout(content)
+        # Long values wrap within the field column instead of widening the
+        # whole inspector (and, through it, the right splitter column).
+        form.setFieldGrowthPolicy(QtWidgets.QFormLayout.AllNonFixedFieldsGrow)
+        form.setRowWrapPolicy(QtWidgets.QFormLayout.DontWrapRows)
 
         self.readonly_labels = {}
         for label in _READONLY_LABELS:
             w = QtWidgets.QLabel("")
+            w.setWordWrap(True)
             self.readonly_labels[label] = w
             form.addRow(label + ":", w)
 
@@ -99,6 +119,9 @@ class InspectorPanel(QtWidgets.QWidget):
         self.link_related_btn.clicked.connect(self._link_selected)
         related_layout.addWidget(self.link_related_btn)
         form.addRow(related_group)
+
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
 
         # Constructed last, once every widget referenced below exists.
         self.clear()

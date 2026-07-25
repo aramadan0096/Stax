@@ -777,6 +777,18 @@ class MainWindow(QtWidgets.QMainWindow):
             preview_width = max(240, available - 420)
         if preview_width < 200:
             preview_width = max(0, available - 400)
+        # The preview pane's true content minimum (minimumSizeHint) can exceed
+        # the width computed from the magic numbers above. With both splitters
+        # non-collapsible, assigning a narrower column makes Qt enlarge the
+        # whole window to satisfy that minimum the instant the pane is shown
+        # (the "selecting an element grows the window" bug). Derive the floor
+        # from the widget itself -- mirroring _right_column_collapsed_width's
+        # use of the inspector's own hint -- and steal the difference from the
+        # center pane rather than from the window's outer size.
+        if preview_width > 0:
+            pane_min_w = self.video_player_pane.minimumSizeHint().width()
+            if preview_width < pane_min_w:
+                preview_width = pane_min_w
         center_width = max(400, available - preview_width)
         if preview_width <= 0:
             preview_width = 0

@@ -27,6 +27,11 @@ class QuickLookOverlay(QtWidgets.QWidget):
         layout.addWidget(self.title_label)
         layout.addWidget(self.image_label, 1)
         self._movie = None
+        # Source pixmap kept at full resolution so the preview can be
+        # re-scaled to the label's current size whenever the overlay is
+        # resized -- otherwise the image stayed at its first-shown size while
+        # the window grew around it (UI-scaling fix).
+        self._source_pixmap = None
 
     def show_element(self, element, preview_path, preview_kind='image'):
         """Show the large preview for `element`.
@@ -49,6 +54,7 @@ class QuickLookOverlay(QtWidgets.QWidget):
             self.image_label.setMovie(None)
             self._movie.deleteLater()
             self._movie = None
+        self._source_pixmap = None
         self.image_label.clear()
 
         if preview_path and os.path.exists(preview_path):
@@ -63,13 +69,25 @@ class QuickLookOverlay(QtWidgets.QWidget):
             else:
                 pix = QtGui.QPixmap(preview_path)
                 if not pix.isNull():
-                    self.image_label.setPixmap(pix.scaled(
-                        self.image_label.size(), QtCore.Qt.KeepAspectRatio,
-                        QtCore.Qt.SmoothTransformation))
+                    self._source_pixmap = pix
+                    self._rescale_pixmap()
                 # else: corrupt/unreadable image -- stays cleared, no crash.
 
         self.show()
         self.setFocus()
+
+    def _rescale_pixmap(self):
+        """Scale the cached source pixmap to the label's current size."""
+        if self._source_pixmap is None or self._source_pixmap.isNull():
+            return
+        self.image_label.setPixmap(self._source_pixmap.scaled(
+            self.image_label.size(), QtCore.Qt.KeepAspectRatio,
+            QtCore.Qt.SmoothTransformation))
+
+    def resizeEvent(self, event):
+        super(QuickLookOverlay, self).resizeEvent(event)
+        # Re-fit the static preview to the new size (QMovie scales itself).
+        self._rescale_pixmap()
 
     def keyPressEvent(self, event):
         key = event.key()

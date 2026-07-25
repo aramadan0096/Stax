@@ -166,6 +166,10 @@ class StacksListsPanel(QtWidgets.QWidget):
         
         self.nav_splitter.addWidget(stacks_container)
         self.nav_splitter.setSizes([180, 320])
+        # Vertical resize slack goes to the Stacks tree (index 1), not the
+        # fixed-ish playlists list above it (UI-scaling fix).
+        self.nav_splitter.setStretchFactor(0, 0)
+        self.nav_splitter.setStretchFactor(1, 1)
         
         # Add top container to main splitter
         self.main_splitter.addWidget(top_container)
@@ -245,6 +249,12 @@ class StacksListsPanel(QtWidgets.QWidget):
         # smart collections: 110px) -- re-tuned from the original [500, 180]
         # two-child split so none of the four sections collapses to zero.
         self.main_splitter.setSizes([420, 150, 110, 110])
+        # The top section (nav tree, index 0) absorbs extra vertical space on
+        # resize; the tags / saved-searches / smart-collections lists below
+        # keep their sizes rather than each growing proportionally.
+        self.main_splitter.setStretchFactor(0, 1)
+        for _i in range(1, self.main_splitter.count()):
+            self.main_splitter.setStretchFactor(_i, 0)
 
     def on_favorites_clicked(self):
         """Handle favorites button click."""
