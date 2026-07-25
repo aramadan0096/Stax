@@ -272,6 +272,19 @@ if _QT_AVAILABLE:
             tls.addWidget(export_search_btn)
             tabs.addTab(tab_search, "Search")
 
+            # Tab 6 — storage hygiene (EP9 F063)
+            tab_storage = QtWidgets.QWidget()
+            tlst = QtWidgets.QVBoxLayout(tab_storage)
+            self._storage_summary = QtWidgets.QLabel("No storage data yet.")
+            self._storage_summary.setTextFormat(QtCore.Qt.RichText)
+            self._storage_summary.setWordWrap(True)
+            self._storage_summary.setAlignment(QtCore.Qt.AlignTop)
+            tlst.addWidget(self._storage_summary, 1)
+            export_storage_btn = QtWidgets.QPushButton("Export CSV…")
+            export_storage_btn.clicked.connect(self._export_storage_csv)
+            tlst.addWidget(export_storage_btn)
+            tabs.addTab(tab_storage, "Storage")
+
             self._total_label = QtWidgets.QLabel("")
             root.addWidget(self._total_label)
 
@@ -286,6 +299,7 @@ if _QT_AVAILABLE:
             self._load_over_time()
             self._load_by_user()
             self._load_search()
+            self._load_storage()
             self._load_total()
 
         def showEvent(self, event):
@@ -358,6 +372,38 @@ if _QT_AVAILABLE:
                 self._zero_table.setItem(i, 1, cnt)
             self._zero_table.resizeColumnsToContents()
 
+        def _load_storage(self):
+            try:
+                s = self.db.get_storage_stats()
+                d = self.db.get_duplicate_stats()
+            except Exception as exc:
+                log.warning("Analytics storage: %s", exc)
+                s, d = {}, {}
+            fb = self._fmt_bytes
+            self._storage_summary.setText(
+                "<b>Repository</b><br>"
+                "Elements: <b>{ec}</b> &nbsp;·&nbsp; Total size: <b>{tb}</b><br>"
+                "Hard copies: <b>{hc}</b> ({hb}) &nbsp;·&nbsp; Soft copies: <b>{sc}</b><br>"
+                "Deprecated: <b>{dc}</b> ({db} reclaimable by purge)<br><br>"
+                "<b>Duplicate savings</b> (exact perceptual-hash match)<br>"
+                "Clusters: <b>{cc}</b> &nbsp;·&nbsp; Redundant copies: <b>{du}</b><br>"
+                "Reclaimable: <b>{rb}</b>".format(
+                    ec=s.get("element_count", 0), tb=fb(s.get("total_bytes", 0)),
+                    hc=s.get("hard_copy_count", 0), hb=fb(s.get("hard_copy_bytes", 0)),
+                    sc=s.get("soft_copy_count", 0),
+                    dc=s.get("deprecated_count", 0), db=fb(s.get("deprecated_bytes", 0)),
+                    cc=d.get("cluster_count", 0), du=d.get("duplicate_count", 0),
+                    rb=fb(d.get("reclaimable_bytes", 0))))
+
+        @staticmethod
+        def _fmt_bytes(n):
+            n = float(n or 0)
+            for unit in ("B", "KB", "MB", "GB", "TB"):
+                if n < 1024.0 or unit == "TB":
+                    return ("{:.0f} {}".format(n, unit) if unit == "B"
+                            else "{:.1f} {}".format(n, unit))
+                n /= 1024.0
+
         def _load_total(self):
             try:
                 total = self.db.get_total_insertions()
@@ -427,6 +473,30 @@ if _QT_AVAILABLE:
                         writer.writerow([row.get("query_text", ""), row.get("count", 0)])
                 QtWidgets.QMessageBox.information(
                     self, "Exported", "Search analytics exported to:\n{}".format(path))
+            except Exception as exc:
+                QtWidgets.QMessageBox.critical(
+                    self, "Export Failed", "Could not write CSV:\n{}".format(exc))
+
+        def _export_storage_csv(self):
+            path, _ = QtWidgets.QFileDialog.getSaveFileName(
+                self, "Export Storage Analytics CSV", "stax_storage_analytics.csv",
+                "CSV files (*.csv)")
+            if not path:
+                return
+            try:
+                s = self.db.get_storage_stats()
+                d = self.db.get_duplicate_stats()
+                with open(path, "w", newline="") as fh:
+                    writer = csv.writer(fh)
+                    writer.writerow(["metric", "value"])
+                    for k in ("element_count", "total_bytes", "hard_copy_bytes",
+                              "hard_copy_count", "soft_copy_count",
+                              "deprecated_count", "deprecated_bytes"):
+                        writer.writerow([k, s.get(k, 0)])
+                    for k in ("cluster_count", "duplicate_count", "reclaimable_bytes"):
+                        writer.writerow([k, d.get(k, 0)])
+                QtWidgets.QMessageBox.information(
+                    self, "Exported", "Storage analytics exported to:\n{}".format(path))
             except Exception as exc:
                 QtWidgets.QMessageBox.critical(
                     self, "Export Failed", "Could not write CSV:\n{}".format(exc))
