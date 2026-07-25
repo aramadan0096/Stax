@@ -93,6 +93,9 @@ class SettingsPanel(QtWidgets.QWidget):
         # Tab 13: AI (EP7 local CLIP embedder status / download / reindex)
         self.tab_widget.addTab(self._build_ai_tab(), "AI")
 
+        # Tab 14: Roles (EP8 granular role -> permission matrix, admin-gated)
+        self.tab_widget.addTab(self._build_roles_tab(), "Roles")
+
         layout.addWidget(self.tab_widget)
         
         # Bottom buttons
@@ -1497,6 +1500,78 @@ class SettingsPanel(QtWidgets.QWidget):
         if worker is not None and ids:
             worker.enqueue_many(ids)
         self._refresh_ai_status()
+
+    def _build_roles_tab(self):
+        """Build the Roles tab (EP8): a roles x permissions matrix backed by
+        db.get_roles()/get_role_permissions()/set_role_permissions(). Toggling
+        a checkbox persists immediately via _toggle_role_permission. Add/edit
+        controls are gated on main_window.check_admin_permission().
+        """
+        from permissions import PERMISSIONS
+        tab = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(tab)
+        # State query only -- must NOT call check_admin_permission() here, which
+        # prompts interactively (login/denied dialogs); every other tab in this
+        # file (Labels, Search, Fields, Automation, Ingest Automation) follows
+        # this same contract for tab construction.
+        is_admin = bool(getattr(self.main_window, 'is_admin', False)) if self.main_window else False
+
+        layout.addWidget(QtWidgets.QLabel("Roles → Permissions"))
+        self.roles_table = QtWidgets.QTableWidget(0, 1 + len(PERMISSIONS))
+        self.roles_table.setHorizontalHeaderLabels(["Role"] + list(PERMISSIONS))
+        layout.addWidget(self.roles_table)
+
+        self.add_role_button = QtWidgets.QPushButton("Add role…")
+        self.add_role_button.clicked.connect(self._on_add_role)
+        self.add_role_button.setEnabled(is_admin)
+        layout.addWidget(self.add_role_button)
+
+        self._roles_admin = is_admin
+        self._reload_roles()
+        return tab
+
+    def _reload_roles(self):
+        from permissions import PERMISSIONS
+        roles = self.db.get_roles()
+        self.roles_table.setRowCount(len(roles))
+        for row, role in enumerate(roles):
+            name_item = QtWidgets.QTableWidgetItem(role["name"])
+            name_item.setFlags(QtCore.Qt.ItemIsEnabled)
+            self.roles_table.setItem(row, 0, name_item)
+            for col, perm in enumerate(PERMISSIONS, start=1):
+                cb = QtWidgets.QCheckBox()
+                cb.setChecked(perm in role["permissions"])
+                cb.setEnabled(getattr(self, "_roles_admin", False))
+                cb.toggled.connect(
+                    lambda on, r=role["name"], p=perm: self._toggle_role_permission(r, p, on))
+                holder = QtWidgets.QWidget()
+                h = QtWidgets.QHBoxLayout(holder)
+                h.setContentsMargins(0, 0, 0, 0)
+                h.setAlignment(QtCore.Qt.AlignCenter)
+                h.addWidget(cb)
+                self.roles_table.setCellWidget(row, col, holder)
+
+    def _toggle_role_permission(self, role_name, permission, on):
+        perms = self.db.get_role_permissions(role_name)
+        if on:
+            perms.add(permission)
+        else:
+            perms.discard(permission)
+        self.db.set_role_permissions(role_name, perms)
+        rid = next((r["role_id"] for r in self.db.get_roles() if r["name"] == role_name), None)
+        actor = (self.main_window.current_user or {}).get("username") if self.main_window else None
+        # log_activity lands in EP8 Task 5; guard so this tab works standalone
+        # until that audit trail is wired up.
+        if actor and hasattr(self.db, "log_activity"):
+            self.db.log_activity(actor, "role_change", "role", rid,
+                                 "{} {} {}".format("granted" if on else "revoked", permission, role_name))
+
+    def _on_add_role(self):
+        name, ok = QtWidgets.QInputDialog.getText(self, "New role", "Role name:")
+        if not ok or not name:
+            return
+        self.db.create_role(name.strip())
+        self._reload_roles()
 
     def browse_database_path(self):
         """Browse for database file."""
