@@ -167,7 +167,7 @@ Feature-expansion program derived from [`STAX_FEATURE_ENHANCEMENT_REPORT.md`](..
 | EP3 | Browse productivity shell | ☑ | ☑ | ☑ | F049–F058 |
 | EP4 | Metadata schema & automation | ☑ | ☑ | ☑ | F015, F016, F018–F022 |
 | EP5 | Review, notes & approval | ☐ | ☐ | ☐ | F023–F030 |
-| EP6 | Ingestion automation & job queue | ☑ | ☑ | ☐ | F031–F040 |
+| EP6 | Ingestion automation & job queue | ☑ | ☑ | ☑ | F031–F040 |
 | EP7 | AI discovery (local-only) | ☑ | ☑ | ☐ | F001–F004 (+auto-tag) |
 | EP8 | Team collaboration (sync first) | ☑ | ☑ | ☐ | F041–F043 |
 | EP9 | Analytics & ops dashboards | ☑ | ☑ | ☐ | F059, F060, F063 |
@@ -286,7 +286,45 @@ Health dock had no View toggle (unreachable) → Ctrl+5 + lazy load.
 > **Cross-note (EP4 ↔ SP2):** EP4 Task 9 adds an additive auto-tag hook to `ingestion_core.ingest_file`, which SP2 (C4) also rewrites (async ingest). Apply EP4's hook on top of SP2's rewritten `ingest_file`, not the pre-SP2 version. `ON CONFLICT … DO UPDATE` upserts require SQLite ≥ 3.24 (bundled with Python 3.9 on Win/Linux); fall back to SELECT-then-write on older SQLite.
 
 ### EP6 — Ingestion automation & job queue
-Spec: [`specs/…-ep6-ingestion-automation-design.md`](specs/2026-07-23-ep6-ingestion-automation-design.md) · Plan: [`plans/…-ep6-ingestion-automation.md`](plans/2026-07-23-ep6-ingestion-automation.md) · **Depends on SP2 + SP3 + EP4.** Clusters: 6A queue/retry/notify · 6B watch/recipes/dup-policy/preflight · 6C proxy profiles/action-chains (trimmable). 14 tasks. Polling watch-folders (no watchdog); durable `ingest_jobs` ledger wraps SP2's `IngestWorker`/`PreviewWorker`; action chains use whitelisted handlers (never `exec()`).
+Spec: [`specs/…-ep6-ingestion-automation-design.md`](specs/2026-07-23-ep6-ingestion-automation-design.md) · Plan: [`plans/…-ep6-ingestion-automation.md`](plans/2026-07-23-ep6-ingestion-automation.md) · **Depends on SP2 + SP3 + EP4.** Clusters: 6A queue/retry/notify · 6B watch/recipes/dup-policy/preflight · 6C proxy profiles/action-chains (trimmable). 13 tasks. Polling watch-folders (no watchdog); durable `ingest_jobs` ledger wraps SP2's `IngestWorker`/`PreviewWorker`; action chains use whitelisted handlers (never `exec()`).
+
+- [x] Task 1 — `ingest_jobs` ledger table + CRUD (migration v13)
+- [x] Task 2 — `notifications` center + CRUD (v14)
+- [x] Task 3 — `JobQueueDashboard` widget (retry/cancel/clear)
+- [x] Task 4 — Job dashboard dock + `IngestWorker` ledger/notification wiring
+- [x] Task 5 — `watch_folders` table + CRUD (v15)
+- [x] Task 6 — Pure automation helpers (`scan_folder`/`apply_recipe_to_config`/`resolve_duplicate_action`/`run_preflight`)
+- [x] Task 7 — `ingest_recipes` table + CRUD (v16)
+- [x] Task 8 — Polling `WatchFolderScanner(QThread)` + `PreflightDialog`
+- [x] Task 9 — `proxy_profiles` (seeded Low/Med/High, v17) + `profile_to_config_overlay`
+- [x] Task 10 — `action_chains` store + whitelisted `run_action_chain` (no `exec`)
+- [x] Task 11 — Admin "Ingest Automation" settings tab (watch/recipes/profiles/chains)
+- [x] Task 12 — `ingest_file` honors duplicate policy + runs action chain (backward-compatible)
+- [x] Task 13 — Watch-scanner lifecycle + recipe picker wiring
+
+**EP6 complete** (Batch 8, branch `exec/ep6`, merged to `main` @ `70a9f43`): 13/13 tasks + a whole-branch
+review pass + a human-authorized reachability fix wave. Six new tables via numbered migrations **v13–v18**
+(`src/db_migrations.py`, `CURRENT_SCHEMA_VERSION=18`); pure Qt/DB-free `src/ingest_automation.py`
+(scan/recipe/dup-policy/preflight/proxy-overlay/action-chain); durable `ingest_jobs` ledger + notifications
+that mirror SP2's `IngestWorker` (no second queue); `JobQueueDashboard` dock (Ctrl+6) with retry/cancel;
+stdlib polling `WatchFolderScanner` (no watchdog); recipes + proxy profiles + whitelisted action chains;
+duplicate-policy resolver layered additively onto SP2/EP4's `ingest_file` (legacy default preserved).
+Suite **495 passed / 0 failed / 0 xfailed** (branch point 445). Two per-task fix rounds: Task 4 (ledger
+never updated — `file_done` lacked `source_path`; retry dropped `ingest_failed`) and Task 13 (watch-worker
+premature-QThread-GC). The final whole-branch review found the plan wired 5 features to the DB/widget layer
+but not the user; all fixed in an authorized wave: the Job Queue dock had no View-menu toggle (added Ctrl+6);
+`run_preflight`/`PreflightDialog` were never invoked (gated into `perform_ingestion`); `profile_to_config_overlay`
+was test-only (recipes now resolve `proxy_profile_id`→config keys via `DatabaseManager.resolve_recipe_config`);
+action chains had no trigger (recipes now resolve `action_chain_id`→`action_chain_steps`); and the watch-folder
+UI created folders with no target list (now prompts for one, else every watched file failed "Target list not
+found") + the scanner now restarts on settings change. Packaging freeze smoke green.
+
+> **Known EP6 deferrals** (deliberate, not defects): the `version` duplicate-policy → `add_relationship('variant_of')`
+> path is implemented + guarded but has no dedicated test (only `skip`/`allow` + action-chain tested);
+> `resolve_recipe_config` silently no-ops on a stale/deleted `proxy_profile_id`/`action_chain_id` (no warning log);
+> `_cancel_job` cancels only the batch worker, not per-job retry/watch workers; `ask` duplicate-policy is treated
+> as `skip` in the unattended worker path (interactive `DuplicateDialog` deferred to SP6's GUI path). Standalone-only
+> surfaces (no Nuke `StaXPanel` menu): Job Queue dock toggle, Automation settings tab, preflight gate — each fails safe.
 
 ### EP7 — AI discovery (local-only)
 Spec: [`specs/…-ep7-ai-discovery-design.md`](specs/2026-07-23-ep7-ai-discovery-design.md) · Plan: [`plans/…-ep7-ai-discovery.md`](plans/2026-07-23-ep7-ai-discovery.md) · **Depends on SP1 + SP2 + EP1/EP2.** `Embedder` abstraction (local CLIP ViT-B/32 via **onnxruntime CPU**, ~120–170 MB first-run download) + `FakeEmbedder` for tests; SQLite embeddings + brute-force numpy cosine; semantic/visual/similar + color search + human-in-the-loop auto-tag. F005 (transcript) / F006 (scene descriptors) deferred.
