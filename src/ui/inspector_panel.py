@@ -37,6 +37,11 @@ class InspectorPanel(QtWidgets.QWidget):
     # or table cell is just as much a visible desync as a stale badge.
     element_updated = QtCore.Signal(int)
 
+    # Emitted with the *other* element_id when a Related-list entry is
+    # activated (double-click / Enter), so the main window can route it
+    # through its normal element-select path (EP4 Task 15).
+    related_activated = QtCore.Signal(int)
+
     def __init__(self, db, parent=None):
         super(InspectorPanel, self).__init__(parent)
         self.db = db
@@ -81,6 +86,20 @@ class InspectorPanel(QtWidgets.QWidget):
         custom_fields_layout.addWidget(self.custom_fields_widget)
         form.addRow(custom_fields_group)
 
+        # Related elements (EP4 Task 14/15) -- shows both directions of
+        # element_relationships for the current element (this element as
+        # either the "from" or the "to" side), added the same additive way
+        # as the Custom Fields group above so both coexist.
+        related_group = QtWidgets.QGroupBox("Related")
+        related_layout = QtWidgets.QVBoxLayout(related_group)
+        self.related_list = QtWidgets.QListWidget()
+        self.related_list.itemActivated.connect(self._on_related_activated)
+        related_layout.addWidget(self.related_list)
+        self.link_related_btn = QtWidgets.QPushButton("Link selected…")
+        self.link_related_btn.clicked.connect(self._link_selected)
+        related_layout.addWidget(self.link_related_btn)
+        form.addRow(related_group)
+
         # Constructed last, once every widget referenced below exists.
         self.clear()
 
@@ -122,6 +141,7 @@ class InspectorPanel(QtWidgets.QWidget):
         self.label_combo.setCurrentIndex(0)
         self.label_combo.blockSignals(False)
         self.custom_fields_widget.load(stack_fk=None, element_id=None)
+        self.related_list.clear()
         self.setEnabled(False)
 
     def show_element(self, element_id):
@@ -165,6 +185,7 @@ class InspectorPanel(QtWidgets.QWidget):
         self.label_combo.blockSignals(False)
 
         self._load_custom_fields(el, element_id)
+        self._load_related(element_id)
 
         self._element_id = element_id
 
@@ -188,6 +209,69 @@ class InspectorPanel(QtWidgets.QWidget):
                 element_id,
             )
             self.custom_fields_widget.load(stack_fk=None, element_id=None)
+
+    def _load_related(self, element_id):
+        """Populate the Related list for *element_id* from both directions
+        of ``element_relationships`` (EP4 Task 14: a relationship row can
+        have *element_id* on either the "from" or the "to" side).
+
+        Never raises: same defensive shape as ``_load_custom_fields`` --
+        a lookup failure just leaves the section empty.
+        """
+        self.related_list.clear()
+        try:
+            for rel in self.db.get_relationships(element_id):
+                other_id = (
+                    rel["to_element_fk"]
+                    if rel["from_element_fk"] == element_id
+                    else rel["from_element_fk"]
+                )
+                other = self.db.get_element_by_id(other_id)
+                if other:
+                    item = QtWidgets.QListWidgetItem(
+                        "{} ({})".format(other["name"], rel["rel_type"]))
+                    item.setData(QtCore.Qt.UserRole, other_id)
+                    self.related_list.addItem(item)
+        except Exception:
+            logger.exception(
+                "InspectorPanel: failed to load relationships for element %s",
+                element_id,
+            )
+            self.related_list.clear()
+
+    def _on_related_activated(self, item):
+        other_id = item.data(QtCore.Qt.UserRole)
+        if other_id is not None:
+            self.related_activated.emit(other_id)
+
+    def _link_selected(self):
+        """Prompt for a target element id and relationship type, then link
+        the currently-inspected element to it via ``add_relationship``.
+
+        A lightweight two-prompt flow (element id + free-text rel type)
+        rather than a full picker dialog -- there is no gallery-selection
+        channel wired into InspectorPanel yet, so the "selected" element is
+        whatever id the user enters here.
+        """
+        if self._element_id is None:
+            return
+        other_id, ok = QtWidgets.QInputDialog.getInt(
+            self, "Link selected…", "Other element id:", minValue=1)
+        if not ok:
+            return
+        rel_type, ok = QtWidgets.QInputDialog.getText(
+            self, "Link selected…", "Relationship type:", text="related_to")
+        if not ok or not rel_type:
+            return
+        try:
+            self.db.add_relationship(self._element_id, other_id, rel_type)
+        except Exception:
+            logger.exception(
+                "InspectorPanel: failed to add relationship %s -> %s (%s)",
+                self._element_id, other_id, rel_type,
+            )
+            return
+        self._load_related(self._element_id)
 
     # -------------------------------------------------------------------
     # Commit-on-edit handlers
