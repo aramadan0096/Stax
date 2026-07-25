@@ -854,10 +854,18 @@ class DatabaseManager(object):
                           'preview_path', 'gif_preview_path', 'video_preview_path', 'geometry_preview_path', 'is_deprecated', 'file_size']:
                     fields.append(key)
                     values.append(value)
-            
+
+            # EP8: always stamp updated_at on insert so every element has a
+            # non-null value from creation, regardless of whether the v24
+            # migration's plain ADD COLUMN (no DEFAULT, upgraded-DB) or
+            # DEFAULT CURRENT_TIMESTAMP (fresh-DB) branch ran -- required for
+            # the sync newest-wins merge to compare it safely.
+            fields.append('updated_at')
+            values.append(self._now_iso())
+
             placeholders = ','.join(['?'] * len(values))
             field_names = ','.join(fields)
-            
+
             cursor.execute(
                 "INSERT INTO elements ({}) VALUES ({})".format(field_names, placeholders),
                 values
@@ -991,7 +999,7 @@ class DatabaseManager(object):
     @staticmethod
     def _now_iso():
         import datetime
-        return datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        return datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
 
     def delete_element(self, element_id, actor=None):
         """Delete element.
