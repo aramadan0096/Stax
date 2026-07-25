@@ -83,6 +83,7 @@ from src.ui import (
     SettingsPanel,
 )
 from src.ui.job_queue_dashboard import JobQueueDashboard
+from src.ui.activity_panel import ActivityPanel
 
 log = logging.getLogger(__name__)
 
@@ -381,6 +382,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self.health_dock.setVisible(False)
         self.addDockWidget(QtCore.Qt.BottomDockWidgetArea, self.health_dock)
 
+        # Activity dock (EP8 audit feed)
+        self.activity_dock = ActivityPanel(self.db, self)
+        self.activity_dock.setVisible(False)
+        self.addDockWidget(QtCore.Qt.BottomDockWidgetArea, self.activity_dock)
+
         # Settings dock
         self.settings_dock = QtWidgets.QDockWidget("Settings", self)
         self.settings_panel = SettingsPanel(self.config, self.db, main_window=self)
@@ -517,6 +523,13 @@ class MainWindow(QtWidgets.QMainWindow):
         view_menu.addAction(jobqueue_view_action)
         self.jobqueue_view_action = jobqueue_view_action
 
+        activity_view_action = QtWidgets.QAction("Activity Panel", self)
+        activity_view_action.setShortcut("Ctrl+7")
+        activity_view_action.setCheckable(True)
+        activity_view_action.triggered.connect(self.toggle_activity)
+        view_menu.addAction(activity_view_action)
+        self.activity_view_action = activity_view_action
+
         layout_menu = view_menu.addMenu("Layout")
         for preset_name in preset_names():
             act = QtWidgets.QAction(preset_name, self)
@@ -649,6 +662,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.job_queue_dock.setVisible(visible)
         self.jobqueue_view_action.setChecked(visible)
         self.job_dashboard.refresh()
+
+    def toggle_activity(self, visible):
+        self.activity_dock.setVisible(visible)
+        self.activity_view_action.setChecked(visible)
+        if visible:
+            self.activity_dock.refresh()
 
     def toggle_settings(self):
         if not self.current_user:
