@@ -16,7 +16,7 @@ import logging
 log = logging.getLogger(__name__)
 
 # Bump this every time a new _migrate_vN is appended below.
-CURRENT_SCHEMA_VERSION = 20
+CURRENT_SCHEMA_VERSION = 22
 
 # Default color-label palette (EP1). Seed order defines labels.sort_order.
 DEFAULT_LABELS = [
@@ -481,6 +481,91 @@ def _migrate_v20(conn):
     conn.commit()
 
 
+def _seed_builtin_roles(conn):
+    """Insert any missing built-in roles + their default permissions. Idempotent."""
+    from permissions import BUILTIN_ROLES
+
+    cur = conn.cursor()
+    for name, perms in BUILTIN_ROLES.items():
+        cur.execute("SELECT role_id FROM roles WHERE name = ?", (name,))
+        row = cur.fetchone()
+        if row:
+            continue
+        cur.execute(
+            "INSERT INTO roles (name, label, is_builtin) VALUES (?, ?, 1)",
+            (name, name.capitalize()))
+        role_id = cur.lastrowid
+        for p in perms:
+            cur.execute(
+                "INSERT OR IGNORE INTO role_permissions (role_fk, permission) "
+                "VALUES (?, ?)", (role_id, p))
+
+
+def _migrate_v21(conn):
+    """v20 -> v21: roles + role_permissions tables + seed built-in roles (EP8)."""
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS roles (
+            role_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT UNIQUE NOT NULL,
+            label      TEXT,
+            is_builtin INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS role_permissions (
+            role_fk    INTEGER NOT NULL,
+            permission TEXT NOT NULL,
+            PRIMARY KEY (role_fk, permission),
+            FOREIGN KEY (role_fk) REFERENCES roles(role_id) ON DELETE CASCADE
+        )
+        """
+    )
+    _seed_builtin_roles(conn)
+    log.info("Migration v21: created roles/role_permissions tables + seeded built-in roles")
+    conn.commit()
+
+
+def _migrate_v22(conn):
+    """v21 -> v22: relax users.role CHECK constraint (was hard-limited to
+    'admin'/'user') so EP8 custom/built-in role names (reviewer, ingestor,
+    viewer, ...) can be assigned to a user. SQLite has no ALTER TABLE ...
+    DROP CONSTRAINT, so this rebuilds the table (idempotent: only runs the
+    rebuild if the old CHECK is still present)."""
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='users'"
+    ).fetchone()
+    if row and row[0] and "CHECK(role IN ('admin', 'user'))" in row[0]:
+        conn.execute("ALTER TABLE users RENAME TO users_v22_old")
+        conn.execute(
+            """
+            CREATE TABLE users (
+                user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT UNIQUE NOT NULL,
+                password_hash TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'user',
+                email TEXT,
+                is_active BOOLEAN DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_login TIMESTAMP,
+                must_change_password INTEGER DEFAULT 0
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO users (user_id, username, password_hash, role, email, "
+            "is_active, created_at, last_login, must_change_password) "
+            "SELECT user_id, username, password_hash, role, email, is_active, "
+            "created_at, last_login, must_change_password FROM users_v22_old"
+        )
+        conn.execute("DROP TABLE users_v22_old")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
+        log.info("Migration v22: relaxed users.role CHECK constraint for EP8 custom roles")
+    conn.commit()
+
+
 # Index N upgrades schema version N-1 -> N.
 _MIGRATIONS = [
     None,          # index 0 — unused placeholder
@@ -504,6 +589,8 @@ _MIGRATIONS = [
     _migrate_v18,  # 17 -> 18
     _migrate_v19,  # 18 -> 19
     _migrate_v20,  # 19 -> 20
+    _migrate_v21,  # 20 -> 21
+    _migrate_v22,  # 21 -> 22
 ]
 
 

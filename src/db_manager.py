@@ -17,6 +17,7 @@ from contextlib import contextmanager
 from file_lock import FileLockManager
 from filter_spec import normalize
 from metadata_rules import validate_field_type
+from permissions import PERMISSIONS, BUILTIN_ROLES, is_valid_permission
 
 logger = logging.getLogger(__name__)
 
@@ -3150,4 +3151,88 @@ class DatabaseManager(object):
         if not hists:
             return [], np.zeros((0, 0), dtype=np.float32)
         return ids, np.vstack(hists)
+
+    # ======================
+    # ROLES / PERMISSIONS (EP8 — granular team-collaboration roles)
+    # ======================
+
+    def seed_builtin_roles(self):
+        """Insert any missing built-in roles + their default permissions. Idempotent.
+
+        Seeding is also guaranteed by the v21 schema migration on fresh/upgraded
+        DBs (see db_migrations._seed_builtin_roles); this method exists for
+        public-API completeness / re-seeding on demand.
+        """
+        with self.get_connection() as conn:
+            from db_migrations import _seed_builtin_roles
+            _seed_builtin_roles(conn)
+            conn.commit()
+
+    def create_role(self, name, label=None, permissions=None):
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            cur.execute("INSERT INTO roles (name, label, is_builtin) VALUES (?, ?, 0)",
+                        (name, label or name.capitalize()))
+            role_id = cur.lastrowid
+            for p in (permissions or set()):
+                if is_valid_permission(p):
+                    cur.execute("INSERT OR IGNORE INTO role_permissions (role_fk, permission) "
+                                "VALUES (?, ?)", (role_id, p))
+            conn.commit()
+            return role_id
+
+    def get_roles(self):
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            roles = [dict(r) for r in cur.execute(
+                "SELECT * FROM roles ORDER BY is_builtin DESC, name").fetchall()]
+            for r in roles:
+                r["permissions"] = [row[0] for row in cur.execute(
+                    "SELECT permission FROM role_permissions WHERE role_fk = ?",
+                    (r["role_id"],)).fetchall()]
+            return roles
+
+    def get_role_permissions(self, role_name):
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            row = cur.execute("SELECT role_id FROM roles WHERE name = ?", (role_name,)).fetchone()
+            if not row:
+                return set()
+            return {r[0] for r in cur.execute(
+                "SELECT permission FROM role_permissions WHERE role_fk = ?", (row[0],)).fetchall()}
+
+    def set_role_permissions(self, role_name, permissions):
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            row = cur.execute("SELECT role_id FROM roles WHERE name = ?", (role_name,)).fetchone()
+            if not row:
+                return
+            role_id = row[0]
+            cur.execute("DELETE FROM role_permissions WHERE role_fk = ?", (role_id,))
+            for p in permissions:
+                if is_valid_permission(p):
+                    cur.execute("INSERT INTO role_permissions (role_fk, permission) VALUES (?, ?)",
+                                (role_id, p))
+            conn.commit()
+
+    def delete_role(self, role_name):
+        with self.get_connection() as conn:
+            cur = conn.cursor()
+            row = cur.execute("SELECT role_id, is_builtin FROM roles WHERE name = ?",
+                              (role_name,)).fetchone()
+            if not row:
+                return
+            if row[1]:
+                raise ValueError("Cannot delete built-in role: {}".format(role_name))
+            cur.execute("DELETE FROM roles WHERE role_id = ?", (row[0],))
+            conn.commit()
+
+    def has_permission(self, username, permission):
+        user = self.get_user_by_username(username)
+        if not user:
+            return False
+        role = user.get("role")
+        if role == "admin":
+            return True
+        return permission in self.get_role_permissions(role)
 
