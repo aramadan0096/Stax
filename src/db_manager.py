@@ -951,14 +951,16 @@ class DatabaseManager(object):
             ).fetchall()
             return [dict(r) for r in rows]
 
-    def update_element(self, element_id, **kwargs):
+    def update_element(self, element_id, _actor=None, **kwargs):
         """
         Update element fields.
-        
+
         Args:
             element_id (int): Element ID
+            _actor (str): Optional actor name; when given, records an
+                EP8 activity_log "metadata_edit" entry on success.
             **kwargs: Fields to update
-            
+
         Returns:
             bool: True if updated
         """
@@ -973,19 +975,34 @@ class DatabaseManager(object):
 
             set_clause = ', '.join(["{} = ?".format(k) for k in updates.keys()])
             values = list(updates.values()) + [element_id]
-            
+
             cursor.execute(
                 "UPDATE elements SET {} WHERE element_id = ?".format(set_clause),
                 values
             )
-            return cursor.rowcount > 0
-    
-    def delete_element(self, element_id):
-        """Delete element."""
+            updated = cursor.rowcount > 0
+
+        if updated and _actor:
+            self.log_activity(_actor, "metadata_edit", "element", element_id,
+                               ",".join(sorted(updates.keys())))
+        return updated
+
+    def delete_element(self, element_id, actor=None):
+        """Delete element.
+
+        Args:
+            element_id (int): Element ID
+            actor (str): Optional actor name; when given, records an
+                EP8 activity_log "delete" entry on success.
+        """
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM elements WHERE element_id = ?", (element_id,))
-            return cursor.rowcount > 0
+            deleted = cursor.rowcount > 0
+
+        if deleted and actor:
+            self.log_activity(actor, "delete", "element", element_id)
+        return deleted
 
     @staticmethod
     def _validate_rating(rating):
@@ -1249,10 +1266,11 @@ class DatabaseManager(object):
     # HISTORY OPERATIONS
     # ======================
     
-    def log_ingestion(self, action, source_path, target_list, status, message=None, element_id=None):
+    def log_ingestion(self, action, source_path, target_list, status, message=None,
+                       element_id=None, actor=None):
         """
         Log an ingestion event.
-        
+
         Args:
             action (str): Action performed
             source_path (str): Source file path
@@ -1260,19 +1278,25 @@ class DatabaseManager(object):
             status (str): 'success' or 'error'
             message (str): Optional message
             element_id (int): Optional element ID if created
-            
+            actor (str): Optional actor name; when given and status is
+                "success", records an EP8 activity_log "ingest" entry.
+
         Returns:
             int: history_id
         """
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(
-                """INSERT INTO ingestion_history 
+                """INSERT INTO ingestion_history
                    (element_fk, action, source_path, target_list, status, message)
                    VALUES (?, ?, ?, ?, ?, ?)""",
                 (element_id, action, source_path, target_list, status, message)
             )
-            return cursor.lastrowid
+            history_id = cursor.lastrowid
+
+        if status == "success" and actor:
+            self.log_activity(actor, "ingest", "element", element_id, source_path)
+        return history_id
     
     def get_ingestion_history(self, limit=100):
         """
