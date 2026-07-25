@@ -19,32 +19,15 @@ import sys
 import logging
 
 
-def _import_pyside2_quietly():
-    """Import PySide2 with the harmless C-level NumPy ABI notice suppressed.
-
-    PySide2 5.15's shiboken2 binding was built against NumPy 1.x; with NumPy 2
-    installed it writes "A module that was compiled using NumPy 1.x ..." straight
-    to stderr on first import. It is not a Python warning (warnings filters can't
-    catch it) and is unavoidable here (NumPy-2-built opencv needs NumPy 2, so no
-    single version satisfies both). The app runs correctly regardless, so silence
-    that one C-level write at the fd level, then let every later `from PySide2
-    import ...` reuse the cached, already-imported module.
-    """
-    devnull = os.open(os.devnull, os.O_WRONLY)
-    saved_stderr_fd = os.dup(2)
-    try:
-        sys.stderr.flush()
-        os.dup2(devnull, 2)
-        import PySide2.QtCore  # noqa: F401  — triggers the one-time notice
-    finally:
-        sys.stderr.flush()
-        os.dup2(saved_stderr_fd, 2)
-        os.close(devnull)
-        os.close(saved_stderr_fd)
-
-
-_import_pyside2_quietly()
-
+# NOTE: do NOT import PySide2 (directly or via a "silence the NumPy notice"
+# shim) before dependency_bootstrap.bootstrap() runs below. bootstrap() prepends
+# the repo's bundled lib/ to sys.path so PySide2 resolves to the curated Qt that
+# ships with the standalone app; importing PySide2 any earlier binds the process
+# to whatever Qt is first on the path (e.g. a pip-installed PySide2 in a
+# virtualenv), whose Qt runtime can crash the standalone launch during Qt init
+# -- a silent native exit (code 120) with no Python traceback. The one-time
+# "compiled using NumPy 1.x" notice this bundled Qt prints is cosmetic and
+# harmless; leave it rather than reordering the import to hide it.
 import dependency_bootstrap
 dependency_bootstrap.bootstrap()
 
