@@ -27,6 +27,9 @@ dependencies = [
     "pyside2>=5.15.2.1",
     "pytest>=8.4.2",
     "pytest-mock>=3.15.1",
+    # EP7 AI discovery: CLIP's exact BPE token pattern needs \p{L}/\p{N}
+    # unicode classes, which stdlib `re` (Py3.9) lacks. Used by clip_tokenizer.
+    "regex>=2023.0.0",
 ]
 
 [project.optional-dependencies]

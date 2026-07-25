@@ -5,3 +5,7 @@
 *.ttc binary
 *.woff binary
 *.woff2 binary
+
+# Model weights and compressed assets — binary, no conversion.
+*.onnx binary
+*.gz binary

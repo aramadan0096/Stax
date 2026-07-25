@@ -27,11 +27,16 @@ def _l2_normalize(vec):
 
 
 def default_model_dir():
-    """Where downloaded CLIP-ONNX files live (see tools/download_clip_model.py)."""
+    """Where the CLIP-ONNX files live (see tools/download_clip_model.py).
+
+    Defaults to the repo-local ``weights/clip-vit-b32-onnx`` cache so the model
+    travels with the codebase; override with the ``STAX_AI_MODEL_DIR`` env var.
+    """
     base = os.environ.get("STAX_AI_MODEL_DIR")
     if base:
         return base
-    return os.path.join(os.path.expanduser("~"), ".stax", "models", "clip-vit-b32-onnx")
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    return os.path.join(project_root, "weights", "clip-vit-b32-onnx")
 
 
 class Embedder(object):

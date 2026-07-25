@@ -122,27 +122,25 @@ The model used is **CLIP ViT-B/32**, run locally through **onnxruntime (CPU)**.
 > control yet), so there is no user trigger for it right now. Semantic,
 > find-similar, auto-tag, and color search are all reachable from the UI.
 
-### 6.2 Enable AI (one-time model download)
+### 6.2 The model (cached in the repo)
 
-By default the AI model is **not installed**, so semantic / visual / similar /
-auto-tag are disabled and **color search still works**.
+The CLIP model ships **cached in the repo** at
+`weights/clip-vit-b32-onnx/` (uint8-quantized ONNX, ~150 MB total), so AI works
+out of the box — **Settings → AI** should already read *"AI model: available"*.
 
-To enable the full AI feature set:
+If the weights are ever missing (fresh checkout without them, or you cleaned the
+folder), re-fetch them — downloaded once and SHA-256 verified:
 
 ```powershell
-# Fetches the CLIP ONNX model + tokenizer (~120–170 MB) once into
-#   ~/.stax/models/clip-vit-b32-onnx
 python -m tools.download_clip_model
 ```
 
-Then open **Settings → AI**. The status line should change from
-*"AI model: not installed"* to *"AI model: available"*.
-
-- Override the model location with the `STAX_AI_MODEL_DIR` environment variable
-  (or the `ai_model_dir` config key).
+- Files land in `weights/clip-vit-b32-onnx/` by default; override with the
+  `STAX_AI_MODEL_DIR` environment variable.
 - If `onnxruntime` or the model files are missing, StaX **degrades gracefully**:
   every AI action simply returns no results instead of erroring, and color
   search keeps working.
+- Model details and attribution: [`weights/README.md`](../weights/README.md).
 
 ### 6.3 Indexing (how assets become searchable)
 
@@ -214,7 +212,7 @@ plotting libraries — built-in bar charts + tables, all exportable to CSV:
 | Symptom | Explanation / fix |
 |---|---|
 | `A module that was compiled using NumPy 1.x ...` on launch | Cosmetic NumPy notice from the bundled Qt. Harmless — the app runs. |
-| AI search returns nothing | The CLIP model isn't installed. Run `python -m tools.download_clip_model`, then **Settings → AI**. Color search still works without it. |
+| AI search returns nothing | The CLIP weights (`weights/clip-vit-b32-onnx/`) are missing. Re-fetch with `python -m tools.download_clip_model`, then check **Settings → AI**. Color search works regardless. |
 | "Reindex library" seems to do nothing | It only enqueues assets **missing** an embedding for the current model. If the model isn't installed, there's nothing to enqueue. |
 | An action is greyed out or refused | You may lack the permission for it (e.g. `can_ingest`, `can_delete`, `can_edit_metadata`). Ask an admin to grant it in **Settings → Roles**. |
 | App looks unstyled | Ensure you launched via `run_standalone` so the bundled Qt and `resources/style.qss` are used. |
