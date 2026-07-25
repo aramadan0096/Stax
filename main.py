@@ -827,6 +827,26 @@ class MainWindow(QtWidgets.QMainWindow):
             return False
         return True
 
+    def check_permission(self, permission, action_name="this action"):
+        """Granular-permission gate (EP8). Admin always passes."""
+        if not self.current_user:
+            if not self.show_login(required=True):
+                QtWidgets.QMessageBox.information(
+                    self, "Login Required",
+                    "You must login to perform {}.".format(action_name))
+                return False
+        username = self.current_user.get("username") if self.current_user else None
+        if self.is_admin or self.db.has_permission(username, permission):
+            return True
+        QtWidgets.QMessageBox.warning(
+            self, "Permission Denied",
+            "You need the '{}' permission to perform {}.\n\n"
+            "Current user: {} ({})".format(
+                permission, action_name,
+                username or "guest",
+                self.current_user.get("role", "guest") if self.current_user else "guest"))
+        return False
+
     def logout(self):
         if self.current_user and self.current_user.get("user_id"):
             import socket
