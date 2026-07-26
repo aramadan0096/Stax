@@ -46,15 +46,22 @@ class MultiSelectActionTray(QtWidgets.QWidget):
         self.delete_button   = self._add_button(row, "Delete", self.delete_requested.emit)
         self.edit_button     = self._add_button(row, "Edit…", self.edit_requested.emit)
 
-        # Reserve the tray's row *height* even while hidden, so the media view
-        # doesn't jump up/down each time the selection count crosses the
-        # 2-item threshold that toggles this bar. The horizontal policy is set
-        # to Ignored so the 8-button row's wide size hint is NOT folded into
-        # the media pane's -- and thus the window's -- minimum width (that
-        # would permanently widen the app). Height-only reservation (UI-scaling
-        # fix).
+        # The tray collapses to zero height while hidden.
+        #
+        # It previously reserved its row height (retainSizeWhenHidden) so the
+        # media view wouldn't shift when the selection crossed the threshold
+        # that toggles this bar. That reservation is visible: with no selection
+        # -- the normal state -- it left a permanently empty ~35px band between
+        # the pagination row and the bottom of the media frame, so the gallery
+        # never filled its column. A one-off shift when a multi-selection
+        # starts is the lesser cost, and matches how contextual action bars
+        # behave elsewhere.
+        #
+        # The horizontal policy stays Ignored: the 8-button row's wide size
+        # hint must NOT be folded into the media pane's -- and thus the
+        # window's -- minimum width, which would permanently widen the app.
         sp = self.sizePolicy()
-        sp.setRetainSizeWhenHidden(True)
+        sp.setRetainSizeWhenHidden(False)
         sp.setHorizontalPolicy(QtWidgets.QSizePolicy.Ignored)
         self.setSizePolicy(sp)
 
