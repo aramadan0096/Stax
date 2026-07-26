@@ -91,16 +91,20 @@ def test_inspector_readonly_labels_wrap(
 
 
 @pytest.mark.gui
-def test_action_tray_reserves_height_without_widening_window(
+def test_action_tray_collapses_without_widening_window(
     qtbot, mock_nuke, monkeypatch, tmp_path
 ):
-    """The multi-select tray reserves its row height while hidden (so the
-    media view doesn't jump when it appears), but its wide 8-button row must
-    NOT be folded into the window's minimum width -- hence Ignored horizontal
-    policy."""
+    """The multi-select tray must collapse to zero height while hidden -- it
+    used to reserve its row height, which left a permanently empty band under
+    the media frame in the (normal) no-selection state.
+
+    Its wide 8-button row must still NOT be folded into the window's minimum
+    width -- hence the Ignored horizontal policy, which is unrelated to the
+    height reservation and must stay.
+    """
     win = _mainwindow_with_temp_db(qtbot, tmp_path, monkeypatch)
     sp = win.media_display.action_tray.sizePolicy()
-    assert sp.retainSizeWhenHidden() is True
+    assert sp.retainSizeWhenHidden() is False
     assert sp.horizontalPolicy() == QtWidgets.QSizePolicy.Ignored
 
 

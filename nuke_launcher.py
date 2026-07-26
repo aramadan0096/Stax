@@ -995,18 +995,25 @@ def show_stax_panel():
         if os.path.exists(stylesheet_path):
             print("[show_stax_panel]   [OK] Stylesheet file exists")
             try:
-                with open(stylesheet_path, 'r') as f:
-                    stylesheet = f.read()
-                    # Replace icon paths with absolute paths
-                    resources_dir = os.path.join(os.path.dirname(__file__), 'resources', 'icons')
-                    unchecked_path = os.path.join(resources_dir, 'unchecked.svg').replace('\\', '/')
-                    checked_path = os.path.join(resources_dir, 'checked.svg').replace('\\', '/')
-                    stylesheet = stylesheet.replace('url(:/icons/unchecked.svg)', 'url({})'.format(unchecked_path))
-                    stylesheet = stylesheet.replace('url(:/icons/checked.svg)', 'url({})'.format(checked_path))
-                    app.setStyleSheet(stylesheet)
-                    print("[show_stax_panel]   [OK] Stylesheet applied ({} chars)".format(len(stylesheet)))
-                    if logger:
-                        logger.info("Stylesheet applied: {} ({} characters)".format(stylesheet_path, len(stylesheet)))
+                # Shared loader: reads as UTF-8 (style.qss has box-drawing
+                # characters cp1252 can't decode) and rewrites every
+                # url(:/icons/...) to an absolute path, not just the two
+                # checkbox icons this call site used to special-case.
+                try:
+                    from qss_loader import read_stylesheet
+                except ImportError:
+                    from src.qss_loader import read_stylesheet
+                try:
+                    from ui.widget_polish import install_widget_polish
+                except ImportError:
+                    from src.ui.widget_polish import install_widget_polish
+
+                stylesheet = read_stylesheet(stylesheet_path)
+                app.setStyleSheet(stylesheet)
+                install_widget_polish(app)
+                print("[show_stax_panel]   [OK] Stylesheet applied ({} chars)".format(len(stylesheet)))
+                if logger:
+                    logger.info("Stylesheet applied: {} ({} characters)".format(stylesheet_path, len(stylesheet)))
             except Exception as e:
                 print("[show_stax_panel]   [WARN] Failed to load stylesheet: {}".format(e))
                 if logger:

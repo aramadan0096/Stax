@@ -87,14 +87,44 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         # Enable drag & drop
         self.setAcceptDrops(True)
     
+    @staticmethod
+    def _as_tool_button(button, size=28, icon=18):
+        """Turn *button* into a borderless, square, icon-only tool button.
+
+        The search row mixed labelled buttons ("AI", "Save search…") with
+        icon-only ones, each sized from its own content: the row rendered at
+        three different heights with a box drawn around every one of them.
+        Styling lives in style.qss under `QPushButton[class="toolicon"]`; this
+        only fixes the geometry and clears any text.
+
+        Tooltips stay mandatory -- an icon-only control with no accessible
+        name is unusable with a screen reader (and unguessable without one).
+        """
+        button.setText("")
+        button.setObjectName('toolicon')
+        button.setProperty('class', 'toolicon')
+        button.setFixedSize(size, size)
+        button.setIconSize(QtCore.QSize(icon, icon))
+        button.setCursor(QtCore.Qt.PointingHandCursor)
+        button.setFocusPolicy(QtCore.Qt.TabFocus)
+        if button.toolTip():
+            button.setAccessibleName(button.toolTip())
+        return button
+
     def setup_ui(self):
         """Setup UI components."""
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         
-        # Toolbar
+        # Toolbar. Explicit margins/spacing: the default 0-margin, 6-spacing
+        # row put the buttons flush against the panel edge and let each one
+        # take a different height from its own content, which read as ragged.
+        # _as_tool_button() below normalises every button in this row to one
+        # 28x28 borderless icon target.
         toolbar = QtWidgets.QHBoxLayout()
-        
+        toolbar.setContentsMargins(6, 6, 6, 4)
+        toolbar.setSpacing(4)
+
         # Search bar with tag filtering support
         search_container = QtWidgets.QWidget()
         search_container.setObjectName("search_container")
@@ -143,12 +173,12 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         # on_search() routes plain text through run_semantic_search instead
         # of the per-list live filter. Disabled (with a tooltip) whenever
         # ai_enabled() is False (no embedder wired up yet).
-        self.ai_search_toggle = QtWidgets.QPushButton("AI")
+        self.ai_search_toggle = QtWidgets.QPushButton()
+        self.ai_search_toggle.setIcon(get_icon('spark', size=18))
         self.ai_search_toggle.setToolTip("Toggle AI semantic search")
-        self.ai_search_toggle.setObjectName('small')
-        self.ai_search_toggle.setProperty('class', 'small')
         self.ai_search_toggle.setCheckable(True)
         self.ai_search_toggle.setEnabled(False)
+        self._as_tool_button(self.ai_search_toggle)
         toolbar.addWidget(self.ai_search_toggle)
 
         # EP7 Task 8 (F004): color-palette picker -- opens a QColorDialog and
@@ -156,45 +186,46 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         # PIL/numpy, see ai/color_index.py) so this button is always enabled,
         # unlike ai_search_toggle above which is gated on ai_enabled().
         self.color_search_btn = QtWidgets.QPushButton()
-        self.color_search_btn.setIcon(get_icon('palette', size=16))
+        self.color_search_btn.setIcon(get_icon('palette', size=18))
         self.color_search_btn.setToolTip("Search by color")
-        self.color_search_btn.setObjectName('small')
-        self.color_search_btn.setProperty('class', 'small')
         self.color_search_btn.clicked.connect(self._on_color_search_clicked)
+        self._as_tool_button(self.color_search_btn)
         toolbar.addWidget(self.color_search_btn)
 
         # Save current search/filter as a personal saved search (EP2 Task 9).
-        self.save_search_btn = QtWidgets.QPushButton("Save search…")
+        self.save_search_btn = QtWidgets.QPushButton()
+        self.save_search_btn.setIcon(get_icon('save', size=18))
         self.save_search_btn.setToolTip("Save the current search/filter for quick access later")
-        self.save_search_btn.setObjectName('small')
-        self.save_search_btn.setProperty('class', 'small')
         self.save_search_btn.clicked.connect(self._on_save_search_clicked)
+        self._as_tool_button(self.save_search_btn)
         toolbar.addWidget(self.save_search_btn)
+
+        toolbar.addSpacing(6)
 
         # View mode toggle
         self.gallery_btn = QtWidgets.QPushButton()
-        self.gallery_btn.setIcon(get_icon('gallery', size=20))
+        self.gallery_btn.setIcon(get_icon('gallery', size=18))
         self.gallery_btn.setToolTip("Gallery View")
-        self.gallery_btn.setObjectName('icon')
-        self.gallery_btn.setProperty('class', 'small')
         self.gallery_btn.setCheckable(True)
         self.gallery_btn.setChecked(True)
         self.gallery_btn.clicked.connect(lambda: self.set_view_mode('gallery'))
+        self._as_tool_button(self.gallery_btn)
         toolbar.addWidget(self.gallery_btn)
-        
+
         self.list_btn = QtWidgets.QPushButton()
-        self.list_btn.setIcon(get_icon('list', size=20))
+        self.list_btn.setIcon(get_icon('list', size=18))
         self.list_btn.setToolTip("List View")
-        self.list_btn.setObjectName('icon')
-        self.list_btn.setProperty('class', 'small')
         self.list_btn.setCheckable(True)
         self.list_btn.clicked.connect(lambda: self.set_view_mode('list'))
+        self._as_tool_button(self.list_btn)
         toolbar.addWidget(self.list_btn)
-        
+
+        toolbar.addSpacing(6)
+
         # Element size slider
         self.size_label = QtWidgets.QLabel("Size:")
         toolbar.addWidget(self.size_label)
-        
+
         self.size_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
         self.size_slider.setMinimum(64)
         self.size_slider.setMaximum(512)
@@ -310,21 +341,21 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         self.table_view.installEventFilter(self)
         self.view_stack.addWidget(self.table_view)
         
-        views_layout.addWidget(self.view_stack)
-        
+        views_layout.addWidget(self.view_stack, 1)
+
         # Pagination widget
         self.pagination = PaginationWidget()
         self.pagination.page_changed.connect(self.on_page_changed)
         self.pagination.setVisible(self.config.get('pagination_enabled', True))
         views_layout.addWidget(self.pagination)
-        
+
         self.content_stack.addWidget(views_widget)  # Index 1
         
         # Show empty state by default
         self.content_stack.setCurrentIndex(0)
         
-        layout.addWidget(self.content_stack)
-        
+        layout.addWidget(self.content_stack, 1)
+
         # Focus mode button (floating in bottom-right corner)
         self.focus_mode_button = None
         self.focus_mode_enabled = False
@@ -334,9 +365,16 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         # (main_window is already assigned at construction, before
         # setup_ui() runs) and fed by both views' selection-changed
         # signals via _on_selection_changed_ep1.
+        #
+        # It lives INSIDE views_widget (below the pagination row) rather than
+        # as a sibling of content_stack: the tray reserves its row height even
+        # while hidden (so the grid doesn't jump when a selection appears), and
+        # as a sibling that reserved strip sat *outside* the bordered media
+        # frame -- leaving a permanent ~35px dead band under the frame instead
+        # of the frame filling its column.
         from ui.multi_select_action_tray import MultiSelectActionTray
         self.action_tray = MultiSelectActionTray(self.db, self.main_window)
-        layout.addWidget(self.action_tray)
+        views_layout.addWidget(self.action_tray)
 
         self.action_tray.tag_requested.connect(
             lambda: self.bulk_add_tag(self.get_selected_element_ids()))
@@ -382,7 +420,9 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         row_layout.addWidget(self.content_stack, 1)
 
         layout.insertWidget(idx, chip_bar)
-        layout.insertWidget(idx + 1, content_row)
+        # stretch 1: content_row replaces content_stack as the column's only
+        # growing row, otherwise the media frame stops short of the bottom.
+        layout.insertWidget(idx + 1, content_row, 1)
 
         # Design §3.3: "default collapsed until the user filters."
         drawer.setVisible(False)
@@ -414,21 +454,52 @@ class MediaDisplayWidget(QtWidgets.QWidget):
             }
             """
         )
-        self.focus_mode_button.resize(44, 44)
+        # Fixed, not resize(): the button is manually positioned (no layout),
+        # and a bare resize() is undone the first time Qt re-applies the
+        # widget's size hint -- which the 22px border-radius then renders as a
+        # lopsided pill. A fixed size also keeps the circle a circle when the
+        # a11y text-scale changes the app font.
+        self.focus_mode_button.setFixedSize(44, 44)
         self.focus_mode_button.show()
         self.installEventFilter(self)  # Install event filter on self for resize events
+
+        # The anchor rect changes without this panel ever being resized:
+        # switching between the empty page and the views page swaps which
+        # widget is visible, and toggling pagination resizes the view stack
+        # underneath it. Without these two hooks the button keeps a position
+        # computed against whichever rect was current at construction -- which
+        # is how it ended up sitting on top of the pagination row.
+        self.content_stack.currentChanged.connect(
+            lambda _index: self.position_focus_button())
+        self.pagination.installEventFilter(self)
+        self.view_stack.installEventFilter(self)
+
         self.position_focus_button()
     
     def position_focus_button(self):
-        """Position focus button in bottom-right corner above pagination."""
+        """Float the focus button inside the bottom-right of the media view.
+
+        Anchored to the view stack's own rect rather than to this widget's --
+        the old version subtracted the pagination height from the panel rect,
+        which drifted every time anything else was added to the column (chip
+        bar, action tray) and left the button straddling the media frame's
+        border and the pagination row instead of sitting inside the grid.
+        """
         if not self.focus_mode_button:
             return
         margin = 16
-        # Position above pagination widget
-        pagination_height = self.pagination.height() if self.pagination.isVisible() else 0
-        parent_rect = self.rect()
-        x = max(margin, parent_rect.width() - self.focus_mode_button.width() - margin)
-        y = max(margin, parent_rect.height() - self.focus_mode_button.height() - pagination_height - margin - 10)
+        # Deeper bottom inset than side inset: the button is a 44px disc
+        # floating over content that ends at a hard frame edge, so an equal
+        # inset reads as "touching" the pagination row below it.
+        bottom_margin = 30
+        anchor = self.view_stack if self.view_stack.isVisible() else self.content_stack
+        if not anchor.isVisible():
+            anchor = self
+        bottom_right = anchor.mapTo(
+            self, QtCore.QPoint(anchor.width(), anchor.height()))
+        x = max(margin, bottom_right.x() - self.focus_mode_button.width() - margin)
+        y = max(margin,
+                bottom_right.y() - self.focus_mode_button.height() - bottom_margin)
         self.focus_mode_button.move(x, y)
         self.focus_mode_button.raise_()
     
@@ -1763,6 +1834,17 @@ class MediaDisplayWidget(QtWidgets.QWidget):
         """Event filter to handle Alt+Hover and the EP3 Space quicklook trigger."""
         # Check if widgets are initialized
         if not hasattr(self, 'gallery_view') or not hasattr(self, 'table_view'):
+            return super(MediaDisplayWidget, self).eventFilter(watched, event)
+
+        # Re-anchor the floating focus button whenever the rect it hangs off
+        # changes without this panel being resized (pagination shown/hidden,
+        # view stack re-laid out). Never consumes the event.
+        if watched in (self.pagination, self.view_stack):
+            if event.type() in (QtCore.QEvent.Resize,
+                                QtCore.QEvent.Show,
+                                QtCore.QEvent.Hide,
+                                QtCore.QEvent.Move):
+                self.position_focus_button()
             return super(MediaDisplayWidget, self).eventFilter(watched, event)
 
         # EP3 Task 3: Space opens quicklook for the current selection.

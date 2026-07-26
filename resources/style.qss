@@ -1,24 +1,57 @@
 /* ============================================================================
    StaX — style.qss   Cinematic Orchestrator design system
    ============================================================================
-   ROOT CAUSE FIX: QAbstractItemView (QTreeWidget, QListWidget, QTableWidget)
-   paints its background using QPalette::Base, NOT via widget inheritance.
-   On Windows this defaults to white regardless of QWidget { background }.
-   Every item-view and scroll-area viewport MUST be explicitly overridden.
 
-   Surface triptych:
-     #131313  toolbar / menu strip
-     #191a1a  LEFT nav + RIGHT preview  (elevated — slightly brighter)
-     #0e0e0e  CENTER media workbench   (darkest)
-     #1f2020  hover
-     #262626  selected / active / cards
-     #2c2c2c  menus / tooltips / floating overlays
+   CONTENTS
+     1.  Nuclear dark base ............ QWidget / item views / scroll areas
+     2.  Main window & splitter
+     3.  Toolbar, menu bar & menus .... owns ALL QToolButton chrome
+     4.  Status bar
+     5.  LEFT panel ................... StacksListsPanel / #stacks_panel
+     6.  CENTER panel ................. MediaDisplayWidget / #media_display
+     7.  RIGHT panel .................. VideoPlayerWidget / #video_player_pane
+     8.  Dock widgets ................. titles, float/close buttons, contents
+     9.  Global widget fallbacks ...... scrollbars, buttons, inputs, combo/spin
+                                        arrows, checkboxes, tabs, tree branches,
+                                        headers, sliders, dialogs, tooltips
+     10. Edge definition .............. VS-Code-like 1px boundaries + the
+                                        borderless `toolicon` button class
 
-   Panel selectors use BOTH class-name AND objectName variants.
-   Add these three lines to MainWindow.setup_ui() for guaranteed matching:
-     self.stacks_panel.setObjectName("stacks_panel")
-     self.media_display.setObjectName("media_display")
-     self.video_player_pane.setObjectName("video_player_pane")
+   CASCADE — read before editing
+     QSS has no !important; ties are broken by CSS specificity, then by source
+     order. Section 10 is deliberately LAST so its borders win over sections
+     1-9. Two consequences worth remembering:
+       * A property set in section 10 cannot be overridden by adding it to an
+         earlier section unless the selector is more specific.
+       * Attribute selectors (e.g. [class="toolicon"]) outrank plain descendant
+         type selectors (e.g. StacksListsPanel QPushButton).
+
+   SURFACES
+     #131313  toolbar / menu strip                #1f2020  hover
+     #191a1a  LEFT nav + RIGHT preview (elevated) #262626  selected / cards
+     #0e0e0e  CENTER media workbench (darkest)    #2c2c2c  menus / tooltips
+     #71d7cd  accent (teal)                       #acabaa  muted text
+     #e7e5e4  primary text                        #3c3c3c  edge / border
+
+   ICONS
+     Written as Qt-resource-style URLs and rewritten to absolute filesystem
+     paths at load time by src/qss_loader.py — there is no compiled .qrc, the
+     SVGs are plain files. Adding a new icon to this sheet needs no Python
+     change; just drop the SVG into resources/icons/ and reference it the same
+     way the existing rules do.
+
+   PALETTE, NOT JUST QSS
+     QAbstractItemView (QTreeWidget, QListWidget, QTableWidget) paints its
+     background from QPalette::Base, NOT by widget inheritance — on Windows
+     that is white regardless of QWidget { background }. src/dark_palette.py
+     handles it app-wide; every item view and scroll-area viewport here is
+     also overridden explicitly. Do not remove either half.
+
+   PANEL SELECTORS
+     Written twice — as a class name (MediaDisplayWidget) and as an objectName
+     (#media_display) — because the class-name form only matches when the Qt
+     meta-object registers the Python class. main.py sets all three
+     objectNames in setup_ui(); keep them.
    ============================================================================ */
 
 
@@ -278,7 +311,11 @@ QWidget#stacks_panel QAbstractItemView::item:selected {
     border-left: 3px solid #71d7cd;
 }
 
-/* Tree branch chrome */
+/* Tree branch chrome.
+   Styling ::branch at all hands branch painting to the stylesheet engine,
+   which then draws NOTHING unless an image is supplied -- that is why the
+   Stacks & Lists tree had no expand/collapse affordance at all. The images
+   below restore it with the shared chevron set. */
 StacksListsPanel QTreeView::branch,
 QWidget#stacks_panel QTreeView::branch {
     background-color: #191a1a;
@@ -344,18 +381,11 @@ QWidget#stacks_panel QPushButton:checked {
     color: #71d7cd;
 }
 
-/* New Playlist primary CTA */
-StacksListsPanel QPushButton#add_playlist_btn,
-QWidget#stacks_panel QPushButton#add_playlist_btn {
-    background-color: qlineargradient(
-        spread:pad, x1:0, y1:0, x2:1, y2:1,
-        stop:0 #71d7cd, stop:1 #0a8b82
-    );
-    color: #003e39;
-    font-weight: 700;
-    border-radius: 6px;
-    border: none;
-}
+/* The "New playlist" control is now an icon-only "+" (objectName `toolicon`)
+   rather than a labelled CTA -- its chrome comes from the shared
+   QPushButton[class="toolicon"] rule in section 10. The teal-gradient CTA
+   rule that used to live here targeted #add_playlist_btn and is gone with it;
+   don't reintroduce a filled CTA in a 260px nav column. */
 
 /* Inputs in nav */
 StacksListsPanel QLineEdit,
@@ -489,7 +519,6 @@ QWidget#media_display QHeaderView::section {
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.07em;
-    text-transform: uppercase;
 }
 
 MediaDisplayWidget QHeaderView::section:hover,
@@ -811,37 +840,55 @@ QDockWidget {
     color: #e7e5e4;
     font-size: 11px;
     font-weight: 700;
-    letter-spacing: 0.06em;
-    titlebar-close-icon: none;
-    titlebar-normal-icon: none;
+    /* Title-bar button glyphs. These MUST be real images: `none` (the old
+       value) left both buttons blank, so float/close were invisible hit
+       targets. Resolved to absolute paths by src/qss_loader.py. */
+    titlebar-close-icon: url(:/icons/dock_close.svg);
+    titlebar-normal-icon: url(:/icons/dock_float.svg);
 }
 
+/* Right padding reserves the strip the two buttons are absolutely positioned
+   into, so a long dock title can never run underneath them. */
 QDockWidget::title {
     background-color: #131313;
     color: #acabaa;
-    padding: 8px 14px;
+    padding: 8px 62px 8px 14px;
     text-align: left;
     font-size: 10px;
     font-weight: 700;
-    letter-spacing: 0.09em;
-    text-transform: uppercase;
     border: none;
     border-bottom: 1px solid rgba(72, 72, 72, 0.15);
 }
 
 QDockWidget::close-button,
 QDockWidget::float-button {
-    background-color: #131313;
-    border: none;
-    border-radius: 3px;
-    padding: 2px;
-    subcontrol-position: top right;
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    padding: 0px;
+    width: 22px;
+    height: 22px;
+    icon-size: 14px;
     subcontrol-origin: margin;
+    subcontrol-position: top right;
+    top: 5px;
 }
+
+/* Both buttons anchor top-right, so the float button is offset left by its
+   own width + gap; otherwise Qt stacks them on top of each other. */
+QDockWidget::close-button { right: 6px; }
+QDockWidget::float-button { right: 32px; }
 
 QDockWidget::close-button:hover,
 QDockWidget::float-button:hover {
     background-color: #262626;
+    border-color: rgba(72, 72, 72, 0.45);
+}
+
+QDockWidget::close-button:pressed,
+QDockWidget::float-button:pressed {
+    background-color: #1f2020;
+    border-color: #71d7cd;
 }
 
 /* Dock content widgets */
@@ -916,7 +963,6 @@ SettingsPanel QGroupBox {
     font-weight: 700;
     letter-spacing: 0.08em;
     color: #acabaa;
-    text-transform: uppercase;
 }
 
 SettingsPanel QGroupBox::title {
@@ -945,21 +991,26 @@ AnalyticsPanel QTabWidget > QWidget {
     background-color: #191a1a;
 }
 
+/* Panel-scoped tab rules only re-state the surface colour; sizing is
+   inherited from the global QTabBar block (section 9) so tab metrics stay
+   identical everywhere. */
 AnalyticsPanel QTabBar {
     background-color: #131313;
+    font-size: 11px;
+    font-weight: 600;
 }
 
 AnalyticsPanel QTabBar::tab {
     background-color: #131313;
     color: #acabaa;
-    padding: 7px 16px;
-    font-size: 10px;
+    padding: 8px 18px;
+    min-width: 64px;
+    min-height: 18px;
+    font-size: 11px;
     font-weight: 600;
-    letter-spacing: 0.07em;
-    text-transform: uppercase;
     border: none;
     border-bottom: 2px solid rgba(113, 215, 205, 0);
-    margin-right: 2px;
+    margin-right: 3px;
 }
 
 AnalyticsPanel QTabBar::tab:selected {
@@ -985,7 +1036,6 @@ AnalyticsPanel QHeaderView::section {
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.07em;
-    text-transform: uppercase;
 }
 
 
@@ -1093,15 +1143,26 @@ QLineEdit:disabled {
     color: rgba(172, 171, 170, 0.35);
 }
 
-/* QComboBox */
+/* ── QComboBox ───────────────────────────────────────────────────────────────
+   Fusion draws its own arrow only while the sub-control is unstyled; once the
+   drop-down is styled the arrow disappears unless an explicit `image` is
+   given. Both were previously styled without an image, so combo boxes and
+   spin boxes shipped with no visible affordance at all. */
+
 QComboBox {
     background-color: #262626;
     color: #e7e5e4;
     border: none;
     border-bottom: 2px solid rgba(113, 215, 205, 0);
     border-radius: 5px;
-    padding: 5px 8px;
+    /* right padding clears the drop-down strip so text never slides under it */
+    padding: 5px 30px 5px 10px;
     font-size: 11px;
+    min-height: 18px;
+}
+
+QComboBox:hover {
+    background-color: #2c2c2c;
 }
 
 QComboBox:focus {
@@ -1109,10 +1170,31 @@ QComboBox:focus {
 }
 
 QComboBox::drop-down {
-    background-color: #262626;
+    background-color: transparent;
     border: none;
-    width: 18px;
-    subcontrol-position: right center;
+    border-left: 1px solid rgba(72, 72, 72, 0.30);
+    width: 24px;
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+}
+
+QComboBox::down-arrow {
+    image: url(:/icons/chevron_down.svg);
+    width: 11px;
+    height: 11px;
+}
+
+/* Popup open, or pointer over the control: flip/tint the chevron. */
+QComboBox::down-arrow:on {
+    image: url(:/icons/chevron_up_accent.svg);
+}
+
+QComboBox::down-arrow:hover {
+    image: url(:/icons/chevron_down_accent.svg);
+}
+
+QComboBox::down-arrow:disabled {
+    image: url(:/icons/chevron_down.svg);
 }
 
 QComboBox QAbstractItemView {
@@ -1126,32 +1208,128 @@ QComboBox QAbstractItemView {
     padding: 4px;
 }
 
-/* QSpinBox */
+QComboBox QAbstractItemView::item {
+    min-height: 22px;
+    padding: 3px 8px;
+    border: none;
+}
+
+/* ── QSpinBox / QDoubleSpinBox ───────────────────────────────────────────── */
+
 QSpinBox, QDoubleSpinBox {
     background-color: #262626;
     color: #e7e5e4;
     border: none;
     border-bottom: 2px solid rgba(113, 215, 205, 0);
     border-radius: 5px;
-    padding: 5px 8px;
+    /* right padding clears the stacked stepper buttons */
+    padding: 5px 26px 5px 10px;
     font-size: 11px;
+    min-height: 18px;
+}
+
+QSpinBox:hover, QDoubleSpinBox:hover {
+    background-color: #2c2c2c;
 }
 
 QSpinBox:focus, QDoubleSpinBox:focus {
     border-bottom: 2px solid #71d7cd;
 }
 
-QSpinBox::up-button, QSpinBox::down-button,
-QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
+QSpinBox::up-button, QDoubleSpinBox::up-button {
     background-color: #2c2c2c;
     border: none;
-    width: 16px;
-    border-radius: 2px;
+    border-top-right-radius: 5px;
+    width: 20px;
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+}
+
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    background-color: #2c2c2c;
+    border: none;
+    border-bottom-right-radius: 5px;
+    width: 20px;
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
 }
 
 QSpinBox::up-button:hover, QSpinBox::down-button:hover,
 QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {
     background-color: #484848;
+}
+
+QSpinBox::up-button:pressed, QSpinBox::down-button:pressed,
+QDoubleSpinBox::up-button:pressed, QDoubleSpinBox::down-button:pressed {
+    background-color: #1f2020;
+}
+
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+    image: url(:/icons/chevron_up.svg);
+    width: 10px;
+    height: 10px;
+}
+
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+    image: url(:/icons/chevron_down.svg);
+    width: 10px;
+    height: 10px;
+}
+
+QSpinBox::up-arrow:hover, QDoubleSpinBox::up-arrow:hover {
+    image: url(:/icons/chevron_up_accent.svg);
+}
+
+QSpinBox::down-arrow:hover, QDoubleSpinBox::down-arrow:hover {
+    image: url(:/icons/chevron_down_accent.svg);
+}
+
+/* `:off` = the step is unavailable (value at min/max) — Qt's own idiom for
+   greying a stepper out. */
+QSpinBox::up-arrow:off, QSpinBox::down-arrow:off,
+QDoubleSpinBox::up-arrow:off, QDoubleSpinBox::down-arrow:off {
+    width: 10px;
+    height: 10px;
+}
+
+/* ── QDateTimeEdit / QTimeEdit share QAbstractSpinBox's sub-controls ─────── */
+QDateTimeEdit, QTimeEdit, QDateEdit {
+    background-color: #262626;
+    color: #e7e5e4;
+    border: none;
+    border-bottom: 2px solid rgba(113, 215, 205, 0);
+    border-radius: 5px;
+    padding: 5px 26px 5px 10px;
+    font-size: 11px;
+    min-height: 18px;
+}
+
+QDateTimeEdit::up-button, QTimeEdit::up-button, QDateEdit::up-button {
+    background-color: #2c2c2c;
+    border: none;
+    width: 20px;
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+}
+
+QDateTimeEdit::down-button, QTimeEdit::down-button, QDateEdit::down-button {
+    background-color: #2c2c2c;
+    border: none;
+    width: 20px;
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+}
+
+QDateTimeEdit::up-arrow, QTimeEdit::up-arrow, QDateEdit::up-arrow {
+    image: url(:/icons/chevron_up.svg);
+    width: 10px;
+    height: 10px;
+}
+
+QDateTimeEdit::down-arrow, QTimeEdit::down-arrow, QDateEdit::down-arrow {
+    image: url(:/icons/chevron_down.svg);
+    width: 10px;
+    height: 10px;
 }
 
 /* QCheckBox */
@@ -1200,7 +1378,6 @@ QGroupBox {
     font-weight: 700;
     letter-spacing: 0.08em;
     color: #acabaa;
-    text-transform: uppercase;
 }
 
 QGroupBox::title {
@@ -1212,7 +1389,17 @@ QGroupBox::title {
     color: #acabaa;
 }
 
-/* QTabWidget / QTabBar */
+/* ── QTabWidget / QTabBar ────────────────────────────────────────────────────
+   Tab labels were cramped: the tab metrics were computed from a 10px font set
+   only on the ::tab subcontrol while the bar itself still used the app font,
+   and the padding left no room for the label's descenders/side bearings. The
+   panels that hurt most carry many tabs (SettingsPanel has 15 inside a dock).
+
+   Sizing here is deliberately generous; the matching Qt-side properties that
+   QSS cannot express (elideMode = ElideNone, usesScrollButtons, expanding =
+   False) are set app-wide by src/ui/widget_polish.py, so overflow scrolls
+   with the arrow buttons styled below instead of truncating the text. */
+
 QTabWidget {
     background-color: #191a1a;
 }
@@ -1221,27 +1408,39 @@ QTabWidget::pane {
     background-color: #191a1a;
     border: none;
     border-top: 1px solid rgba(72, 72, 72, 0.15);
+    top: -1px;
+}
+
+QTabWidget::tab-bar {
+    alignment: left;
+    left: 4px;
 }
 
 QTabWidget > QWidget {
     background-color: #191a1a;
 }
 
+/* The font must be on QTabBar (not just ::tab) — Qt sizes each tab with the
+   BAR's font metrics, so a font declared only on ::tab yields tabs measured
+   for one size and painted at another. */
 QTabBar {
     background-color: #131313;
+    font-size: 11px;
+    font-weight: 600;
+    qproperty-drawBase: 0;
 }
 
 QTabBar::tab {
     background-color: #131313;
     color: #acabaa;
-    padding: 7px 16px;
-    font-size: 10px;
+    padding: 8px 18px;
+    min-width: 64px;
+    min-height: 18px;
+    font-size: 11px;
     font-weight: 600;
-    letter-spacing: 0.07em;
-    text-transform: uppercase;
     border: none;
     border-bottom: 2px solid rgba(113, 215, 205, 0);
-    margin-right: 2px;
+    margin-right: 3px;
 }
 
 QTabBar::tab:selected {
@@ -1253,6 +1452,74 @@ QTabBar::tab:selected {
 QTabBar::tab:hover {
     background-color: #191a1a;
     color: #e7e5e4;
+}
+
+QTabBar::tab:disabled {
+    color: rgba(172, 171, 170, 0.35);
+}
+
+/* Overflow scrollers: reachable, styled, and using the shared chevron set. */
+QTabBar::scroller {
+    width: 44px;
+}
+
+QTabBar QToolButton {
+    background-color: #1f2020;
+    border: 1px solid rgba(72, 72, 72, 0.35);
+    border-radius: 3px;
+    margin: 3px 1px;
+    width: 18px;
+}
+
+QTabBar QToolButton:hover {
+    background-color: #262626;
+    border-color: #71d7cd;
+}
+
+QTabBar QToolButton:disabled {
+    background-color: #131313;
+    border-color: rgba(72, 72, 72, 0.18);
+}
+
+QTabBar QToolButton::left-arrow {
+    image: url(:/icons/chevron_left.svg);
+    width: 11px;
+    height: 11px;
+}
+
+QTabBar QToolButton::right-arrow {
+    image: url(:/icons/chevron_right.svg);
+    width: 11px;
+    height: 11px;
+}
+
+/* Vertical tab bars (West/East) need the padding transposed. */
+QTabBar::tab:left,
+QTabBar::tab:right {
+    padding: 14px 8px;
+    min-width: 18px;
+    min-height: 64px;
+}
+
+/* ── QTreeView branch indicators ─────────────────────────────────────────────
+   Any ::branch rule anywhere in the sheet makes QStyleSheetStyle take over
+   PE_IndicatorBranch, and it paints nothing without an explicit `image`.
+   These four state combinations are the full set Qt uses for an expandable
+   node (with/without following siblings, open/closed); leaves are left
+   imageless on purpose. */
+
+QTreeView::branch:has-children:!has-siblings:closed,
+QTreeView::branch:closed:has-children:has-siblings {
+    image: url(:/icons/chevron_right.svg);
+}
+
+QTreeView::branch:open:has-children:!has-siblings,
+QTreeView::branch:open:has-children:has-siblings {
+    image: url(:/icons/chevron_down.svg);
+}
+
+QTreeView::branch:hover {
+    background-color: #1f2020;
 }
 
 /* QHeaderView */
@@ -1270,7 +1537,6 @@ QHeaderView::section {
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.07em;
-    text-transform: uppercase;
 }
 
 QHeaderView::section:hover {
@@ -1512,8 +1778,10 @@ QHeaderView::section {
     border-bottom: 1px solid #3c3c3c;
 }
 
+/* QToolButton is deliberately absent: the main toolbar is a strip of icon
+   actions, and a 1px box around each one turned it into a row of buttons
+   floating in boxes. Section 3 owns QToolButton chrome (flat, hover fill). */
 QPushButton,
-QToolButton,
 QLineEdit,
 QComboBox,
 QSpinBox,
@@ -1523,16 +1791,48 @@ QProgressBar {
     border: 1px solid #3c3c3c;
 }
 
-QPushButton:hover,
-QToolButton:hover {
+QPushButton:hover {
     border-color: #5a5a5a;
 }
 
 QPushButton:pressed,
-QPushButton:checked,
-QToolButton:pressed,
-QToolButton:checked {
+QPushButton:checked {
     border-color: #71d7cd;
+}
+
+/* Borderless icon-only controls (search row, "+" in the nav headers).
+   Declared after the generic border rule above so it wins without needing a
+   more specific selector. See MediaDisplayWidget._as_tool_button. */
+QPushButton[class="toolicon"],
+QPushButton#toolicon {
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    padding: 0px;
+}
+
+QPushButton[class="toolicon"]:hover,
+QPushButton#toolicon:hover {
+    background-color: #1f2020;
+    border-color: rgba(72, 72, 72, 0.35);
+}
+
+QPushButton[class="toolicon"]:pressed,
+QPushButton#toolicon:pressed {
+    background-color: #262626;
+    border-color: #71d7cd;
+}
+
+QPushButton[class="toolicon"]:checked,
+QPushButton#toolicon:checked {
+    background-color: rgba(113, 215, 205, 0.12);
+    border-color: rgba(113, 215, 205, 0.45);
+}
+
+QPushButton[class="toolicon"]:disabled,
+QPushButton#toolicon:disabled {
+    background-color: transparent;
+    border-color: transparent;
 }
 
 QMenu,
@@ -1546,13 +1846,16 @@ MediaInfoPopup {
     border: 1px solid #3c3c3c;
 }
 
+/* Tabs use the underline (not a box) as their edge definition: a full 1px
+   border here would re-introduce the boxed look AND eat 2px of the label's
+   horizontal room on every tab. */
 QTabBar::tab {
-    border: 1px solid #2b2b2b;
+    border: none;
     border-bottom: 2px solid transparent;
 }
 
 QTabBar::tab:selected {
-    border-color: #3c3c3c;
+    border: none;
     border-bottom: 2px solid #71d7cd;
 }
 

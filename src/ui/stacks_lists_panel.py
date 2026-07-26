@@ -95,23 +95,37 @@ class StacksListsPanel(QtWidgets.QWidget):
         playlists_layout.setSpacing(6)
         
         playlists_header = QtWidgets.QHBoxLayout()
+        playlists_header.setContentsMargins(6, 0, 6, 0)
+        playlists_header.setSpacing(6)
         playlists_label = QtWidgets.QLabel("Playlists")
         playlists_label.setObjectName("section_header")
         playlists_label.setStyleSheet("font-weight: bold; padding: 5px;")
         playlists_header.addWidget(playlists_label)
         
-        self.add_playlist_btn = QtWidgets.QPushButton("New")
-        self.add_playlist_btn.setIcon(get_icon('playlist', size=16))
-        self.add_playlist_btn.setMaximumWidth(80)
-        self.add_playlist_btn.setObjectName('small')
-        self.add_playlist_btn.setProperty('class', 'small')
+        # Icon-only "+": the section header already says "Playlists", so the
+        # word "New" was redundant label weight in a 260px-wide column.
+        # Tooltip + accessible name carry the meaning for screen readers.
+        self.add_playlist_btn = QtWidgets.QPushButton()
+        self.add_playlist_btn.setIcon(get_icon('add', size=16))
+        self.add_playlist_btn.setIconSize(QtCore.QSize(16, 16))
+        self.add_playlist_btn.setToolTip("New playlist")
+        self.add_playlist_btn.setAccessibleName("New playlist")
+        self.add_playlist_btn.setObjectName('toolicon')
+        self.add_playlist_btn.setProperty('class', 'toolicon')
+        self.add_playlist_btn.setFixedSize(24, 24)
+        self.add_playlist_btn.setCursor(QtCore.Qt.PointingHandCursor)
         self.add_playlist_btn.clicked.connect(self.add_playlist)
         playlists_header.addWidget(self.add_playlist_btn)
         playlists_layout.addLayout(playlists_header)
         
         self.playlists_list = QtWidgets.QListWidget()
         self.playlists_list.setObjectName("playlists_list")
-        self.playlists_list.setMaximumHeight(200)
+        # A hard 200px ceiling made the splitter handle above the Stacks tree
+        # dead past that point: dragging it down left an unfillable gap instead
+        # of showing more playlists. The splitter's stretch factors (set below)
+        # already keep the resize slack on the tree, so a floor is all this
+        # section needs.
+        self.playlists_list.setMinimumHeight(84)
         self.playlists_list.itemClicked.connect(self.on_playlist_clicked)
         playlists_layout.addWidget(self.playlists_list)
         
@@ -144,24 +158,33 @@ class StacksListsPanel(QtWidgets.QWidget):
         self.tree.customContextMenuRequested.connect(self.show_tree_context_menu)
         stacks_layout.addWidget(self.tree, 1)
         
+        # The two add-buttons used to run edge-to-edge with no gutter and no
+        # gap between them, so they read as one split control. Inset them from
+        # the panel edge, space them apart, and give them a consistent height.
         button_layout = QtWidgets.QHBoxLayout()
-        
+        button_layout.setContentsMargins(6, 2, 6, 6)
+        button_layout.setSpacing(8)
+
         self.add_stack_btn = QtWidgets.QPushButton("Stack")
-        self.add_stack_btn.setIcon(get_icon('stack', size=20))
+        self.add_stack_btn.setIcon(get_icon('stack', size=16))
+        self.add_stack_btn.setIconSize(QtCore.QSize(16, 16))
         self.add_stack_btn.setToolTip("Add new Stack")
         self.add_stack_btn.setObjectName('small')
         self.add_stack_btn.setProperty('class', 'small')
+        self.add_stack_btn.setMinimumHeight(26)
         self.add_stack_btn.clicked.connect(self.add_stack)
         button_layout.addWidget(self.add_stack_btn)
-        
+
         self.add_list_btn = QtWidgets.QPushButton("List")
-        self.add_list_btn.setIcon(get_icon('list', size=20))
+        self.add_list_btn.setIcon(get_icon('list', size=16))
+        self.add_list_btn.setIconSize(QtCore.QSize(16, 16))
         self.add_list_btn.setToolTip("Add new List")
         self.add_list_btn.setObjectName('small')
         self.add_list_btn.setProperty('class', 'small')
+        self.add_list_btn.setMinimumHeight(26)
         self.add_list_btn.clicked.connect(self.add_list)
         button_layout.addWidget(self.add_list_btn)
-        
+
         stacks_layout.addLayout(button_layout)
         
         self.nav_splitter.addWidget(stacks_container)
@@ -291,8 +314,11 @@ class StacksListsPanel(QtWidgets.QWidget):
         self.tags_list.blockSignals(True)
         self.tags_list.clear()
         tags = self.db.get_all_tags()
+        tag_icon = get_icon('tag', size=14)
         for tag in tags:
             item = QtWidgets.QListWidgetItem(tag)
+            if not tag_icon.isNull():
+                item.setIcon(tag_icon)
             self.tags_list.addItem(item)
             if tag in selected:
                 item.setSelected(True)

@@ -340,8 +340,18 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         self.video_widget = FFpyVideoWidget()
         
         self.setup_ui()
-        self.setMinimumWidth(400)
-        self.setMaximumWidth(600)
+        # Width bounds interact directly with main_splitter's 3rd column:
+        #  * the old 400px minimum was ABOVE the width main.py assigns that
+        #    column (360, and 240 while collapsed), so showing the preview
+        #    forced the column wider than requested and stole it from the
+        #    media grid on every single-element selection;
+        #  * the old 600px maximum silently capped user drags and made the
+        #    "Review" layout preset's 860px preview column unreachable.
+        # Keep a floor that still fits the transport controls, and no ceiling.
+        self.setMinimumWidth(300)
+        self.setSizePolicy(
+            QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding
+        )
     
     def setup_ui(self):
         """Setup the UI components."""
@@ -385,9 +395,17 @@ class VideoPlayerWidget(QtWidgets.QWidget):
         # Preview area (video or geometry)
         self.preview_stack = QtWidgets.QStackedWidget()
         self.preview_stack.setContentsMargins(0, 0, 0, 0)
-        self.preview_stack.setMinimumHeight(300)
+        # 300 + 300 (the video widget below) + header + transport + metadata
+        # summed into a right-column minimum tall enough to push the whole
+        # window taller the moment the preview was shown. One 180px floor on
+        # the stack is enough to keep the video legible; the stack expands
+        # into whatever height the right splitter actually has.
+        self.preview_stack.setMinimumHeight(180)
+        self.preview_stack.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding
+        )
 
-        self.video_widget.setMinimumHeight(300)
+        self.video_widget.setMinimumHeight(140)
         self.preview_stack.addWidget(self.video_widget)
 
         self.geometry_container = QtWidgets.QWidget()

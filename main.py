@@ -47,7 +47,9 @@ from src.extensibility_hooks import ProcessorManager
 from src.icon_loader import get_icon
 from src.font_manager import apply_ui_font
 from src.dark_palette import apply_dark_palette
+from src.qss_loader import read_stylesheet
 from src.ui.accessibility import apply_accessibility
+from src.ui.widget_polish import install_widget_polish, polish_existing
 from src.window_chrome import set_windows_title_bar_color
 from src.video_player_widget import VideoPlayerWidget
 from src.ui.inspector_panel import InspectorPanel
@@ -145,7 +147,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._title_bar_color_applied = False
 
         self.setWindowTitle("Stax")
-        self.resize(1400, 800)
+        self._resize_to_default(1400, 800)
 
         icon_path = os.path.join(os.path.dirname(__file__), "resources", "logo.png")
         if os.path.exists(icon_path):
@@ -164,6 +166,33 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._watch_scanner = None
         self._start_watch_scanner()
+
+    # -------------------------------------------------------------------------
+    # Window sizing
+    # -------------------------------------------------------------------------
+
+    def _resize_to_default(self, width, height):
+        """Open at *width* x *height*, clipped to the screen actually in use.
+
+        A bare ``resize(1400, 800)`` is larger than the work area of a 1366x768
+        laptop or a 1080p screen at 150% Windows scaling: the window opened
+        with its bottom edge (status bar, pagination, focus button) under the
+        taskbar or off-screen, and no amount of splitter tuning inside can
+        recover space the window doesn't have. Clamp to the available
+        geometry, leaving a margin for the frame/taskbar.
+        """
+        try:
+            screen = QtGui.QGuiApplication.primaryScreen()
+            avail = screen.availableGeometry() if screen is not None else None
+        except Exception:
+            avail = None
+        if avail is not None and avail.width() > 0 and avail.height() > 0:
+            # No lower floor here: Qt already refuses to go below the window's
+            # own minimumSizeHint, and a hard floor would re-introduce the
+            # off-screen window on genuinely small displays.
+            width = min(width, avail.width() - 80)
+            height = min(height, avail.height() - 80)
+        self.resize(width, height)
 
     # -------------------------------------------------------------------------
     # Background services
@@ -357,6 +386,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.right_splitter.addWidget(self.video_player_pane)
         self.right_splitter.addWidget(self.inspector)
         self.right_splitter.setSizes([500, 260])
+        # Vertical slack in the right column goes to the preview (index 0);
+        # the inspector below it is a form and gains nothing from extra height
+        # -- without explicit factors both grew equally and the preview's
+        # aspect-fit image shrank on every window resize.
+        self.right_splitter.setStretchFactor(0, 1)
+        self.right_splitter.setStretchFactor(1, 0)
         self.main_splitter.addWidget(self.right_splitter)
         self.preview_pane_expanded_width = 360
 
@@ -425,6 +460,12 @@ class MainWindow(QtWidgets.QMainWindow):
             self.analytics_panel = None
 
         self.create_menus()
+
+        # Tab bars built above (settings/analytics) were polished by Qt before
+        # the app-wide filter could see them in some entry points (tests,
+        # embedded Nuke panel); fix them up explicitly. Idempotent.
+        polish_existing(self)
+
         self.statusBar().showMessage("Ready")
 
     def setup_toolbar(self):
@@ -1436,15 +1477,14 @@ class MainWindow(QtWidgets.QMainWindow):
 # =============================================================================
 
 def _read_stylesheet(path):
-    """Read a QSS file as UTF-8.
+    """Read style.qss as UTF-8 with its ``url(:/icons/...)`` refs resolved.
 
-    resources/style.qss contains UTF-8 box-drawing characters in its section
-    comments; the platform-default codec (cp1252 on Windows) can't decode them
-    ('charmap' codec can't decode byte 0x90), which silently drops the whole
-    stylesheet and leaves the app unstyled. Always decode as UTF-8.
+    Thin wrapper kept for callers/tests that already import this name; the
+    implementation lives in src/qss_loader.py and is shared with
+    nuke_launcher.py so both entry points resolve every icon URL, not just the
+    two checkbox icons each used to hard-code.
     """
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
+    return read_stylesheet(path)
 
 
 def _hard_exit(code):
@@ -1509,15 +1549,17 @@ def main():
     stylesheet_path = os.path.join(os.path.dirname(__file__), "resources", "style.qss")
     if os.path.exists(stylesheet_path):
         try:
-            stylesheet = _read_stylesheet(stylesheet_path)
-            resources_dir = os.path.join(os.path.dirname(__file__), "resources", "icons")
-            unchecked_path = os.path.join(resources_dir, "unchecked.svg").replace("\\", "/")
-            checked_path   = os.path.join(resources_dir, "checked.svg").replace("\\", "/")
-            stylesheet = stylesheet.replace("url(:/icons/unchecked.svg)", "url({})".format(unchecked_path))
-            stylesheet = stylesheet.replace("url(:/icons/checked.svg)",   "url({})".format(checked_path))
-            app.setStyleSheet(stylesheet)
-        except Exception as e:
-            print("Failed to load stylesheet: {}".format(e))
+            app.setStyleSheet(_read_stylesheet(stylesheet_path))
+        except Exception:
+            logging.getLogger(__name__).exception("Failed to load stylesheet")
+
+    # STEP 3.4 — app-wide widget behaviour polish (tab bars show their full
+    # label and scroll instead of eliding). Must be installed before any
+    # widget is built so Qt's polish pass hits the filter.
+    try:
+        install_widget_polish(app)
+    except Exception:
+        logging.getLogger(__name__).exception("Failed to install widget polish")
 
     # STEP 3.5 — Accessibility overlay (high contrast / text scale / focus
     # assist). MUST come after STEP 3's app.setStyleSheet(stylesheet): that
